@@ -1,7 +1,7 @@
 # CoCo: Combined Deduction and Abduction Reasoner
 
-![Build Status](https://github.com/ratioSolver/COCO/actions/workflows/cmake.yml/badge.svg)
-[![codecov](https://codecov.io/gh/ratioSolver/COCO/branch/master/graph/badge.svg)](https://codecov.io/gh/ratioSolver/COCO)
+![Build Status](https://github.com/pstlab/CoCo/actions/workflows/cmake.yml/badge.svg)
+[![codecov](https://codecov.io/gh/pstlab/CoCo/branch/master/graph/badge.svg)](https://codecov.io/gh/pstlab/CoCo)
 
 **CoCo** (Combined deduCtiOn and abduCtiOn) is a dual-process cognitive architecture written in Rust. It combines a CLIPS-based rule engine with timeline planning to support both deduction and abduction in dynamic environments.
 
