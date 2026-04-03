@@ -1,0 +1,5 @@
+[env]
+CLIPS_SOURCE_DIR = { value = "clips_source", relative = true }
+
+[alias]
+full = "build --features mongodb,clips,ollama,server,fcm,mqtt,chronoxide"
