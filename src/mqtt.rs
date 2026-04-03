@@ -1,5 +1,3 @@
-use std::{collections::HashMap, time::Duration};
-
 use crate::{
     CoCo,
     model::{CoCoError, CoCoEvent, Value},
@@ -12,6 +10,7 @@ use rumqttc::v5::{
         v5::{Filter, Packet},
     },
 };
+use std::{collections::HashMap, time::Duration};
 use tracing::{info, trace};
 
 pub async fn setup_mqtt(coco: CoCo) -> Result<(), CoCoError> {
