@@ -27,7 +27,7 @@ pub async fn add_fcm(db: MongoDB, kb: &CLIPSKnowledgeBase, project_id: String) -
     let client = Client::new();
     let db_for_udf = db.clone();
 
-    kb.add_udf_async(
+    kb.add_udf(
         "send-message",
         None,
         3,
