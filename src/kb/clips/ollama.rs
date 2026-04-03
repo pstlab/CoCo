@@ -8,14 +8,14 @@ use std::collections::HashMap;
 use tokio::sync::mpsc;
 use tracing::error;
 
-pub fn setup_ollama(kb: &CLIPSKnowledgeBase) -> Result<(), KnowledgeBaseError> {
+pub async fn setup_ollama(kb: &CLIPSKnowledgeBase) -> Result<(), KnowledgeBaseError> {
     let host = std::env::var("OLLAMA_HOST").unwrap_or_else(|_| "localhost".to_string());
     let port = std::env::var("OLLAMA_PORT").unwrap_or_else(|_| "11434".to_string()).parse::<u16>().unwrap_or(11434);
     let model = std::env::var("OLLAMA_MODEL").unwrap_or_else(|_| "llama3".to_string());
-    add_ollama(kb, host, port, model)
+    add_ollama(kb, host, port, model).await
 }
 
-pub fn add_ollama(kb: &CLIPSKnowledgeBase, host: String, port: u16, model: String) -> Result<(), KnowledgeBaseError> {
+pub async fn add_ollama(kb: &CLIPSKnowledgeBase, host: String, port: u16, model: String) -> Result<(), KnowledgeBaseError> {
     let url = format!("http://{}:{}/api/chat", host, port);
     let client = Client::new();
 
@@ -90,4 +90,24 @@ pub fn add_ollama(kb: &CLIPSKnowledgeBase, host: String, port: u16, model: Strin
     )?;
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::kb::setup_clips;
+
+    use super::*;
+
+    #[tokio::test]
+    async fn test_add_ollama() {
+        let kb = setup_clips().unwrap_or_else(|e| {
+            error!("Failed to set up knowledge base: {}", e);
+            std::process::exit(1);
+        });
+
+        setup_ollama(&kb).await.unwrap_or_else(|e| {
+            error!("Failed to set up Ollama integration: {}", e);
+            std::process::exit(1);
+        });
+    }
 }

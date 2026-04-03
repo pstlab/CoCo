@@ -23,7 +23,7 @@ async fn main() {
     });
 
     #[cfg(feature = "ollama")]
-    setup_ollama(&kb).unwrap_or_else(|e| {
+    setup_ollama(&kb).await.unwrap_or_else(|e| {
         error!("Failed to set up Ollama integration: {}", e);
         std::process::exit(1);
     });
