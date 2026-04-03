@@ -214,3 +214,153 @@ impl Database for MongoDB {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::db::Database;
+    use std::collections::HashSet;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn mongo_uri_from_env() -> String {
+        let host = std::env::var("DB_HOST").unwrap_or_else(|_| "localhost".to_owned());
+        let port = std::env::var("DB_PORT").unwrap_or_else(|_| "27017".to_owned());
+        format!("mongodb://{}:{}", host, port)
+    }
+
+    fn unique_db_name(prefix: &str) -> String {
+        let unique_suffix = SystemTime::now().duration_since(UNIX_EPOCH).expect("system time should be after UNIX_EPOCH").as_nanos();
+        format!("{}_{}", prefix, unique_suffix)
+    }
+
+    #[tokio::test]
+    async fn connect_and_drop_database() {
+        let connection_string = mongo_uri_from_env();
+        let db_name = unique_db_name("coco_test_connect");
+
+        let db = MongoDB::new(db_name, connection_string).await.expect("MongoDB connection should succeed");
+
+        Database::drop_database(&db).await.expect("drop_database should succeed");
+    }
+
+    #[tokio::test]
+    async fn create_class_persists_class() {
+        let db = MongoDB::new(unique_db_name("coco_test_class"), mongo_uri_from_env()).await.expect("MongoDB connection should succeed");
+
+        let class = Class {
+            name: "sensor".to_owned(),
+            parents: None,
+            static_properties: None,
+            dynamic_properties: None,
+        };
+
+        Database::create_class(&db, class).await.expect("class creation should succeed");
+
+        let stored = Database::get_class(&db, "sensor").await.expect("class retrieval should succeed");
+        assert!(stored.is_some(), "created class should be found in database");
+
+        Database::drop_database(&db).await.expect("drop_database should succeed");
+    }
+
+    #[tokio::test]
+    async fn create_rule_persists_rule() {
+        let db = MongoDB::new(unique_db_name("coco_test_rule"), mongo_uri_from_env()).await.expect("MongoDB connection should succeed");
+
+        let rule = Rule {
+            name: "temperature_alert".to_owned(),
+            content: "(defrule temperature_alert => (assert (alert)))".to_owned(),
+        };
+
+        Database::create_rule(&db, rule).await.expect("rule creation should succeed");
+
+        let stored = Database::get_rule(&db, "temperature_alert").await.expect("rule retrieval should succeed");
+        assert!(stored.is_some(), "created rule should be found in database");
+
+        Database::drop_database(&db).await.expect("drop_database should succeed");
+    }
+
+    #[tokio::test]
+    async fn create_object_persists_object() {
+        let db = MongoDB::new(unique_db_name("coco_test_object"), mongo_uri_from_env()).await.expect("MongoDB connection should succeed");
+
+        let object = Object { id: None, classes: HashSet::from(["sensor".to_owned()]), properties: None, values: None };
+
+        let object_id = Database::create_object(&db, object).await.expect("object creation should succeed");
+
+        let stored = Database::get_object(&db, object_id).await.expect("object retrieval should succeed");
+        assert!(stored.is_some(), "created object should be found in database");
+
+        Database::drop_database(&db).await.expect("drop_database should succeed");
+    }
+
+    #[tokio::test]
+    async fn get_classes_returns_created_classes() {
+        let db = MongoDB::new(unique_db_name("coco_test_get_classes"), mongo_uri_from_env()).await.expect("MongoDB connection should succeed");
+
+        Database::create_class(
+            &db,
+            Class {
+                name: "sensor".to_owned(),
+                parents: None,
+                static_properties: None,
+                dynamic_properties: None,
+            },
+        )
+        .await
+        .expect("first class creation should succeed");
+
+        Database::create_class(
+            &db,
+            Class {
+                name: "actuator".to_owned(),
+                parents: None,
+                static_properties: None,
+                dynamic_properties: None,
+            },
+        )
+        .await
+        .expect("second class creation should succeed");
+
+        let classes = Database::get_classes(&db).await.expect("classes retrieval should succeed");
+        let names: HashSet<String> = classes.into_iter().map(|c| c.name).collect();
+
+        assert!(names.contains("sensor"), "retrieved classes should contain sensor");
+        assert!(names.contains("actuator"), "retrieved classes should contain actuator");
+
+        Database::drop_database(&db).await.expect("drop_database should succeed");
+    }
+
+    #[tokio::test]
+    async fn get_rules_returns_created_rules() {
+        let db = MongoDB::new(unique_db_name("coco_test_get_rules"), mongo_uri_from_env()).await.expect("MongoDB connection should succeed");
+
+        Database::create_rule(&db, Rule { name: "r1".to_owned(), content: "(defrule r1 => (assert (ok-1)))".to_owned() }).await.expect("first rule creation should succeed");
+
+        Database::create_rule(&db, Rule { name: "r2".to_owned(), content: "(defrule r2 => (assert (ok-2)))".to_owned() }).await.expect("second rule creation should succeed");
+
+        let rules = Database::get_rules(&db).await.expect("rules retrieval should succeed");
+        let names: HashSet<String> = rules.into_iter().map(|r| r.name).collect();
+
+        assert!(names.contains("r1"), "retrieved rules should contain r1");
+        assert!(names.contains("r2"), "retrieved rules should contain r2");
+
+        Database::drop_database(&db).await.expect("drop_database should succeed");
+    }
+
+    #[tokio::test]
+    async fn get_objects_returns_created_objects() {
+        let db = MongoDB::new(unique_db_name("coco_test_get_objects"), mongo_uri_from_env()).await.expect("MongoDB connection should succeed");
+
+        Database::create_object(&db, Object { id: None, classes: HashSet::from(["sensor".to_owned()]), properties: None, values: None }).await.expect("first object creation should succeed");
+
+        Database::create_object(&db, Object { id: None, classes: HashSet::from(["actuator".to_owned()]), properties: None, values: None }).await.expect("second object creation should succeed");
+
+        let objects = Database::get_objects(&db).await.expect("objects retrieval should succeed");
+
+        assert!(objects.len() >= 2, "retrieved objects should include the two created objects");
+        assert!(objects.iter().any(|o| o.classes.contains("sensor")), "one retrieved object should contain class sensor");
+        assert!(objects.iter().any(|o| o.classes.contains("actuator")), "one retrieved object should contain class actuator");
+
+        Database::drop_database(&db).await.expect("drop_database should succeed");
+    }
+}
