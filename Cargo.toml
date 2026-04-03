@@ -29,7 +29,7 @@ chronoxide = ["dep:chronoxide"]
 [dependencies]
 axum = { version = "0.8.8", features = ["ws"], optional = true }
 tower-http = { version = "0.6.8", features = ["fs"], optional = true }
-tokio = { version = "1.50.0", features = ["full"] }
+tokio = { version = "1.51.0", features = ["full"] }
 jsonwebtoken = { version = "10.3.0", optional = true, features = [
     "rust_crypto",
 ] }
