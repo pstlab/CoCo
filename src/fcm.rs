@@ -19,15 +19,15 @@ use yup_oauth2::{ServiceAccountAuthenticator, read_service_account_key};
 pub async fn setup_fcm(db: MongoDB, kb: &CLIPSKnowledgeBase) -> Result<(), CoCoError> {
     let project_id = std::env::var("FCM_PROJECT_ID").map_err(|_| CoCoError::ConfigurationError("Missing FCM_PROJECT_ID environment variable".to_string()))?;
 
-    add_fcm(db, kb, project_id)
+    add_fcm(db, kb, project_id).await
 }
 
-pub fn add_fcm(db: MongoDB, kb: &CLIPSKnowledgeBase, project_id: String) -> Result<(), CoCoError> {
+pub async fn add_fcm(db: MongoDB, kb: &CLIPSKnowledgeBase, project_id: String) -> Result<(), CoCoError> {
     let url = format!("https://fcm.googleapis.com/v1/projects/{}/messages:send", project_id);
     let client = Client::new();
     let db_for_udf = db.clone();
 
-    kb.add_udf(
+    kb.add_udf_async(
         "send-message",
         None,
         3,
@@ -79,6 +79,7 @@ pub fn add_fcm(db: MongoDB, kb: &CLIPSKnowledgeBase, project_id: String) -> Resu
             ClipsValue::Void()
         }),
     )
+    .await
     .map_err(|e| CoCoError::ConfigurationError(format!("Failed to add send-message UDF to knowledge base: {}", e)))?;
 
     Ok(())

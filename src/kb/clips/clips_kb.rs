@@ -377,28 +377,28 @@ impl CLIPSKnowledgeBase {
         Self { tx, event_rx: Arc::new(Mutex::new(Some(event_rx))) }
     }
 
-    pub fn build(&self, construct: &str) -> Result<(), KnowledgeBaseError> {
+    pub async fn build(&self, construct: &str) -> Result<(), KnowledgeBaseError> {
         let (reply_tx, reply_rx) = oneshot::channel();
-        self.tx.blocking_send(KBCommand::Build(construct.to_owned(), reply_tx)).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to send Build command: {}", e)))?;
-        reply_rx.blocking_recv().map_err(|e| KnowledgeBaseError::KBError(format!("Failed to receive response for Build command: {}", e)))?
+        self.tx.send(KBCommand::Build(construct.to_owned(), reply_tx)).await.map_err(|e| KnowledgeBaseError::KBError(format!("Failed to send Build command: {}", e)))?;
+        reply_rx.await.map_err(|e| KnowledgeBaseError::KBError(format!("Failed to receive response for Build command: {}", e)))?
     }
 
-    pub fn add_udf(&self, name: &str, return_type: Option<Type>, min_args: u16, max_args: u16, arg_types: Vec<Type>, func: Udf) -> Result<(), KnowledgeBaseError> {
+    pub async fn add_udf(&self, name: &str, return_type: Option<Type>, min_args: u16, max_args: u16, arg_types: Vec<Type>, func: Udf) -> Result<(), KnowledgeBaseError> {
         let (reply_tx, reply_rx) = oneshot::channel();
-        self.tx.blocking_send(KBCommand::AddUDF(name.to_owned(), return_type, min_args, max_args, arg_types, func, reply_tx)).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to send AddUDF command: {}", e)))?;
-        reply_rx.blocking_recv().map_err(|e| KnowledgeBaseError::KBError(format!("Failed to receive response for AddUDF command: {}", e)))?
+        self.tx.send(KBCommand::AddUDF(name.to_owned(), return_type, min_args, max_args, arg_types, func, reply_tx)).await.map_err(|e| KnowledgeBaseError::KBError(format!("Failed to send AddUDF command: {}", e)))?;
+        reply_rx.await.map_err(|e| KnowledgeBaseError::KBError(format!("Failed to receive response for AddUDF command: {}", e)))?
     }
 
-    pub fn assert_fact(&self, template: &str, fields: HashMap<String, Value>) -> Result<u64, KnowledgeBaseError> {
+    pub async fn assert_fact(&self, template: &str, fields: HashMap<String, Value>) -> Result<u64, KnowledgeBaseError> {
         let (reply_tx, reply_rx) = oneshot::channel();
-        self.tx.blocking_send(KBCommand::AssertFact(template.to_owned(), fields, reply_tx)).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to send AssertFact command: {}", e)))?;
-        reply_rx.blocking_recv().map_err(|e| KnowledgeBaseError::KBError(format!("Failed to receive response for AssertFact command: {}", e)))?
+        self.tx.send(KBCommand::AssertFact(template.to_owned(), fields, reply_tx)).await.map_err(|e| KnowledgeBaseError::KBError(format!("Failed to send AssertFact command: {}", e)))?;
+        reply_rx.await.map_err(|e| KnowledgeBaseError::KBError(format!("Failed to receive response for AssertFact command: {}", e)))?
     }
 
-    pub fn modify_fact(&self, fact_id: u64, fields: HashMap<String, Value>) -> Result<(), KnowledgeBaseError> {
+    pub async fn modify_fact(&self, fact_id: u64, fields: HashMap<String, Value>) -> Result<(), KnowledgeBaseError> {
         let (reply_tx, reply_rx) = oneshot::channel();
-        self.tx.blocking_send(KBCommand::ModifyFact(fact_id, fields, reply_tx)).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to send ModifyFact command: {}", e)))?;
-        reply_rx.blocking_recv().map_err(|e| KnowledgeBaseError::KBError(format!("Failed to receive response for ModifyFact command: {}", e)))?
+        self.tx.send(KBCommand::ModifyFact(fact_id, fields, reply_tx)).await.map_err(|e| KnowledgeBaseError::KBError(format!("Failed to send ModifyFact command: {}", e)))?;
+        reply_rx.await.map_err(|e| KnowledgeBaseError::KBError(format!("Failed to receive response for ModifyFact command: {}", e)))?
     }
 }
 

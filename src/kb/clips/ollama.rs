@@ -19,7 +19,7 @@ pub async fn add_ollama(kb: &CLIPSKnowledgeBase, host: String, port: u16, model:
     let url = format!("http://{}:{}/api/chat", host, port);
     let client = Client::new();
 
-    kb.build("(deftemplate llm-result (slot item_id (type SYMBOL)) (slot result (type STRING)))")?;
+    kb.build("(deftemplate llm-result (slot item_id (type SYMBOL)) (slot result (type STRING)))").await?;
     let (tx, rx) = mpsc::channel::<(String, String)>(100);
 
     let kb_clone = kb.clone();
@@ -28,12 +28,12 @@ pub async fn add_ollama(kb: &CLIPSKnowledgeBase, host: String, port: u16, model:
         let mut llm_result = HashMap::new();
         while let Some((item_id, result)) = rx.recv().await {
             if let Some(fact) = llm_result.get(&item_id) {
-                match kb_clone.modify_fact(*fact, HashMap::from([("item_id".to_string(), Value::Symbol(item_id.clone())), ("result".to_string(), Value::String(result))])) {
+                match kb_clone.modify_fact(*fact, HashMap::from([("item_id".to_string(), Value::Symbol(item_id.clone())), ("result".to_string(), Value::String(result))])).await {
                     Ok(_) => (),
                     Err(e) => error!("Failed to modify fact for item_id {}: {}", item_id, e),
                 }
             } else {
-                match kb_clone.assert_fact("llm-result", HashMap::from([("item_id".to_string(), Value::Symbol(item_id.clone())), ("result".to_string(), Value::String(result))])) {
+                match kb_clone.assert_fact("llm-result", HashMap::from([("item_id".to_string(), Value::Symbol(item_id.clone())), ("result".to_string(), Value::String(result))])).await {
                     Ok(fact) => {
                         llm_result.insert(item_id, fact);
                     }
@@ -87,7 +87,8 @@ pub async fn add_ollama(kb: &CLIPSKnowledgeBase, host: String, port: u16, model:
 
             ClipsValue::Void()
         }),
-    )?;
+    )
+    .await?;
 
     Ok(())
 }
