@@ -38,11 +38,11 @@ struct ActorState {
     objects: HashMap<String, Object>,
     rules: HashMap<String, Rule>,
 
-    env: Environment,
     instances: HashMap<String, HashMap<String, Fact>>,               // class name -> object id -> fact
     values: HashMap<String, HashMap<String, HashMap<String, Fact>>>, // class name -> object id -> property name -> fact
     external_facts: HashMap<u64, Fact>,
     next_fact_id: u64,
+    env: Environment,
 }
 
 impl Default for CLIPSKnowledgeBase {
@@ -63,11 +63,11 @@ impl CLIPSKnowledgeBase {
                 classes: HashMap::new(),
                 objects: HashMap::new(),
                 rules: HashMap::new(),
-                env,
                 instances: HashMap::new(),
                 values: HashMap::new(),
                 external_facts: HashMap::new(),
                 next_fact_id: 0,
+                env,
             };
 
             let add_data_event_tx = event_tx.clone();
@@ -867,5 +867,299 @@ fn get_default(property: &Property) -> Value {
         Property::StringArray { default } => default.clone().map(Value::StringArray).unwrap_or(Value::Null),
         Property::SymbolArray { default, .. } => default.clone().map(Value::StringArray).unwrap_or(Value::Null),
         Property::ObjectArray { default, .. } => default.clone().map(Value::StringArray).unwrap_or(Value::Null),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::kb::KnowledgeBase;
+    use chrono::Utc;
+    use std::collections::{HashMap, HashSet};
+
+    fn mk_class(name: &str) -> Class {
+        Class { name: name.to_owned(), parents: None, static_properties: None, dynamic_properties: None }
+    }
+
+    #[tokio::test]
+    async fn create_class_succeeds_and_duplicate_fails() {
+        let kb = CLIPSKnowledgeBase::new();
+        let class = mk_class("sensor");
+
+        kb.create_class(class.clone()).await.expect("class creation should succeed");
+
+        let err = kb.create_class(class).await.expect_err("duplicate class creation should fail");
+
+        assert!(matches!(err, KnowledgeBaseError::ClassAlreadyExists(name) if name == "sensor"));
+    }
+
+    #[tokio::test]
+    async fn create_rule_succeeds_and_duplicate_fails() {
+        let kb = CLIPSKnowledgeBase::new();
+        let rule = Rule {
+            name: "always-true".to_owned(),
+            content: "(defrule always-true => (assert (rule-fired always-true)))".to_owned(),
+        };
+
+        kb.create_rule(rule.clone()).await.expect("rule creation should succeed");
+
+        let err = kb.create_rule(rule).await.expect_err("duplicate rule creation should fail");
+
+        assert!(matches!(err, KnowledgeBaseError::RuleAlreadyExists(name) if name == "always-true"));
+    }
+
+    #[tokio::test]
+    async fn create_object_without_id_fails() {
+        let kb = CLIPSKnowledgeBase::new();
+
+        let err = kb.create_object(Object { id: None, classes: HashSet::from(["sensor".to_owned()]), properties: None, values: None }).await.expect_err("object without id should fail");
+
+        assert!(matches!(err, KnowledgeBaseError::CreationError(_)));
+    }
+
+    #[tokio::test]
+    async fn create_object_with_nonexistent_class_fails() {
+        let kb = CLIPSKnowledgeBase::new();
+
+        let err = kb
+            .create_object(Object {
+                id: Some("obj1".to_owned()),
+                classes: HashSet::from(["missing".to_owned()]),
+                properties: None,
+                values: None,
+            })
+            .await
+            .expect_err("object with nonexistent class should fail");
+
+        assert!(matches!(err, KnowledgeBaseError::ClassNotFound(_)));
+    }
+
+    #[tokio::test]
+    async fn create_object_succeeds_and_duplicate_fails() {
+        let kb = CLIPSKnowledgeBase::new();
+
+        kb.create_class(mk_class("sensor")).await.expect("class creation should succeed");
+
+        let object = Object {
+            id: Some("sensor1".to_owned()),
+            classes: HashSet::from(["sensor".to_owned()]),
+            properties: None,
+            values: None,
+        };
+
+        kb.create_object(object.clone()).await.expect("object creation should succeed");
+
+        let err = kb.create_object(object).await.expect_err("duplicate object creation should fail");
+
+        assert!(matches!(err, KnowledgeBaseError::ObjectAlreadyExists(id) if id == "sensor1"));
+    }
+
+    #[tokio::test]
+    async fn add_class_to_nonexistent_object_fails() {
+        let kb = CLIPSKnowledgeBase::new();
+        kb.create_class(mk_class("class1")).await.expect("class creation should succeed");
+
+        let err = kb.add_class("missing-object".to_owned(), "class1".to_owned()).await.expect_err("add_class should fail for missing object");
+
+        assert!(matches!(err, KnowledgeBaseError::ObjectNotFound(_)));
+    }
+
+    #[tokio::test]
+    async fn add_nonexistent_class_to_object_fails() {
+        let kb = CLIPSKnowledgeBase::new();
+        kb.create_class(mk_class("class1")).await.expect("class creation should succeed");
+        kb.create_object(Object {
+            id: Some("obj1".to_owned()),
+            classes: HashSet::from(["class1".to_owned()]),
+            properties: None,
+            values: None,
+        })
+        .await
+        .expect("object creation should succeed");
+
+        let err = kb.add_class("obj1".to_owned(), "missing-class".to_owned()).await.expect_err("add_class should fail for missing class");
+
+        assert!(matches!(err, KnowledgeBaseError::ClassNotFound(_)));
+    }
+
+    #[tokio::test]
+    async fn set_properties_on_nonexistent_object_fails() {
+        let kb = CLIPSKnowledgeBase::new();
+        let err = kb.set_properties("missing-object".to_owned(), HashMap::from([("value".to_owned(), Value::Int(42))])).await.expect_err("set_properties should fail for missing object");
+
+        assert!(matches!(err, KnowledgeBaseError::ObjectNotFound(_)));
+    }
+
+    #[tokio::test]
+    async fn set_properties_on_object_succeeds() {
+        let kb = CLIPSKnowledgeBase::new();
+        kb.create_class(Class {
+            name: "Configurable".to_owned(),
+            parents: None,
+            static_properties: Some(HashMap::from([("value".to_owned(), Property::Int { default: Some(0), min: None, max: None })])),
+            dynamic_properties: None,
+        })
+        .await
+        .expect("class creation should succeed");
+
+        kb.create_object(Object {
+            id: Some("config1".to_owned()),
+            classes: HashSet::from(["Configurable".to_owned()]),
+            properties: None,
+            values: None,
+        })
+        .await
+        .expect("object creation should succeed");
+
+        kb.set_properties("config1".to_owned(), HashMap::from([("value".to_owned(), Value::Int(100))])).await.expect("set_properties should succeed");
+    }
+
+    #[tokio::test]
+    async fn add_values_on_nonexistent_object_fails() {
+        let kb = CLIPSKnowledgeBase::new();
+        let err = kb.add_values("missing-object".to_owned(), HashMap::from([("measurement".to_owned(), Value::Float(1.0))]), Utc::now()).await.expect_err("add_values should fail for missing object");
+
+        assert!(matches!(err, KnowledgeBaseError::ObjectNotFound(_)));
+    }
+
+    #[tokio::test]
+    async fn add_values_to_object_succeeds() {
+        let kb = CLIPSKnowledgeBase::new();
+        kb.create_class(Class {
+            name: "TimeSeries".to_owned(),
+            parents: None,
+            static_properties: None,
+            dynamic_properties: Some(HashMap::from([("measurement".to_owned(), Property::Float { default: Some(0.0), min: None, max: None })])),
+        })
+        .await
+        .expect("class creation should succeed");
+
+        kb.create_object(Object {
+            id: Some("ts1".to_owned()),
+            classes: HashSet::from(["TimeSeries".to_owned()]),
+            properties: None,
+            values: None,
+        })
+        .await
+        .expect("object creation should succeed");
+
+        kb.add_values("ts1".to_owned(), HashMap::from([("measurement".to_owned(), Value::Float(42.5))]), Utc::now()).await.expect("add_values should succeed");
+    }
+
+    #[test]
+    fn get_default_bool_with_and_without_default() {
+        assert_eq!(get_default(&Property::Bool { default: Some(true) }), Value::Bool(true));
+        assert_eq!(get_default(&Property::Bool { default: None }), Value::Null);
+    }
+
+    #[test]
+    fn prop_deftemplate_checks() {
+        let class = mk_class("TestClass");
+
+        let t1 = prop_deftemplate(&class, "active", &Property::Bool { default: Some(false) }, true);
+        assert!(t1.contains("TestClass_active"));
+        assert!(t1.contains("allowed-symbols TRUE FALSE nil"));
+
+        let t2 = prop_deftemplate(&class, "percentage", &Property::Int { default: Some(50), min: Some(0), max: Some(100) }, true);
+        assert!(t2.contains("range 0 100"));
+
+        let t3 = prop_deftemplate(&class, "metric", &Property::Float { default: Some(1.5), min: None, max: None }, false);
+        assert!(t3.contains("slot time"));
+    }
+
+    #[tokio::test]
+    async fn complex_workflow_threshold_rule_setup_and_updates() {
+        let kb = CLIPSKnowledgeBase::new();
+
+        kb.create_class(Class {
+            name: "ThermometerMonitor".to_owned(),
+            parents: None,
+            static_properties: None,
+            dynamic_properties: Some(HashMap::from([("temperature".to_owned(), Property::Float { default: Some(20.0), min: None, max: None })])),
+        })
+        .await
+        .expect("class creation should succeed");
+
+        kb.create_object(Object {
+            id: Some("thermo1".to_owned()),
+            classes: HashSet::from(["ThermometerMonitor".to_owned()]),
+            properties: None,
+            values: None,
+        })
+        .await
+        .expect("object creation should succeed");
+
+        kb.create_rule(Rule {
+            name: "temperature_alert_rule".to_owned(),
+            content: "(defrule temperature_alert_rule\n                (ThermometerMonitor_temperature (id ?id) (value ?temp&:(> ?temp 35)))\n                =>\n                (add-data ?id (create$ temperature) (create$ 99.9))\n            )".to_owned(),
+        })
+        .await
+        .expect("rule creation should succeed");
+
+        kb.add_values("thermo1".to_owned(), HashMap::from([("temperature".to_owned(), Value::Float(36.0))]), Utc::now()).await.expect("add_values should succeed");
+
+        kb.add_values("thermo1".to_owned(), HashMap::from([("temperature".to_owned(), Value::Float(25.0))]), Utc::now()).await.expect("second add_values should succeed");
+    }
+
+    #[tokio::test]
+    async fn complex_workflow_multiple_classes_and_objects() {
+        let kb = CLIPSKnowledgeBase::new();
+
+        for i in 0..5 {
+            kb.create_class(Class {
+                name: format!("Class{}", i),
+                parents: None,
+                static_properties: None,
+                dynamic_properties: Some(HashMap::from([("measurement".to_owned(), Property::Float { default: Some(0.0), min: None, max: None })])),
+            })
+            .await
+            .expect("class creation should succeed");
+        }
+
+        for i in 0..5 {
+            let id = format!("obj{}", i);
+            let class_name = format!("Class{}", i);
+            kb.create_object(Object { id: Some(id.clone()), classes: HashSet::from([class_name]), properties: None, values: None }).await.expect("object creation should succeed");
+
+            kb.add_values(id, HashMap::from([("measurement".to_owned(), Value::Float(i as f64))]), Utc::now()).await.expect("add_values should succeed");
+        }
+    }
+
+    #[tokio::test]
+    async fn complex_workflow_object_with_multiple_classes_and_updates() {
+        let kb = CLIPSKnowledgeBase::new();
+
+        kb.create_class(Class {
+            name: "Configurable".to_owned(),
+            parents: None,
+            static_properties: Some(HashMap::from([("name".to_owned(), Property::String { default: Some("Unknown".to_owned()) })])),
+            dynamic_properties: None,
+        })
+        .await
+        .expect("class creation should succeed");
+
+        kb.create_class(Class {
+            name: "TimeSeries".to_owned(),
+            parents: None,
+            static_properties: None,
+            dynamic_properties: Some(HashMap::from([("reading".to_owned(), Property::Float { default: Some(0.0), min: None, max: None })])),
+        })
+        .await
+        .expect("class creation should succeed");
+
+        kb.create_object(Object {
+            id: Some("multi_obj".to_owned()),
+            classes: HashSet::from(["Configurable".to_owned()]),
+            properties: None,
+            values: None,
+        })
+        .await
+        .expect("object creation should succeed");
+
+        kb.add_class("multi_obj".to_owned(), "TimeSeries".to_owned()).await.expect("add_class should succeed");
+
+        kb.set_properties("multi_obj".to_owned(), HashMap::from([("name".to_owned(), Value::String("Temperature Sensor".to_owned()))])).await.expect("set_properties should succeed");
+
+        kb.add_values("multi_obj".to_owned(), HashMap::from([("reading".to_owned(), Value::Float(23.5))]), Utc::now()).await.expect("add_values should succeed");
     }
 }
