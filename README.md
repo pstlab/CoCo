@@ -16,7 +16,7 @@ Highlights
 Run the server locally:
 
 ```bash
-cargo run
+cargo run --features="server"
 ```
 
 By default the server listens on `http://0.0.0.0:3000` and serves the web UI.

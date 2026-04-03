@@ -8,6 +8,7 @@ on:
 
 env:
   CARGO_TERM_COLOR: always
+  OLLAMA_MODEL: tinyllama
 
 jobs:
   build:
@@ -18,6 +19,10 @@ jobs:
         image: mongo
         ports:
           - 27017:27017
+      ollama-service:
+        image: ollama/ollama:latest
+        ports:
+          - 11434:11434
 
     steps:
       - uses: actions/checkout@v4
@@ -30,6 +35,9 @@ jobs:
           rm -rf clips_temp clips_642.zip
           rustup component add llvm-tools-preview
           cargo install cargo-llvm-cov --locked
+      - name: Download Ollama model
+        run: |
+          docker exec ${{ job.services.ollama-service.id }} ollama pull ${{ env.OLLAMA_MODEL }}
       - name: Build
         run: cargo build --verbose
       - name: Run tests with coverage
