@@ -28,7 +28,14 @@ jobs:
           mkdir clips_source
           mv clips_temp/clips_core_source_642/core/* clips_source/
           rm -rf clips_temp clips_642.zip
+          rustup component add llvm-tools-preview
+          cargo install cargo-llvm-cov --locked
       - name: Build
         run: cargo build --verbose
-      - name: Run tests
-        run: cargo test --verbose
+      - name: Run tests with coverage
+        run: cargo llvm-cov --workspace --all-features --lcov --output-path lcov.info
+      - name: Upload coverage reports to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          token: ${{ secrets.CODECOV_TOKEN }}
+          files: lcov.info
