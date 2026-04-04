@@ -66,6 +66,31 @@
               <li class="list-group-item"><strong>Web Interface</strong>: Includes a web server (Axum) and visualization
                 tools.</li>
             </ul>
+
+            <hr class="my-4">
+
+            <p>
+              The knowledge base is organized around <strong>classes</strong> and <strong>objects</strong>.
+              Classes define the structure of things the reasoner knows about — they carry static properties
+              (fixed at creation time) and dynamic properties (updated as the environment evolves), and can
+              inherit from other classes to form a hierarchy.
+              Objects are instances of one or more classes; their properties can be updated at any time,
+              and a full history of their values is recorded as time-series data that can be queried over any
+              time range.
+            </p>
+            <p>
+              Reasoning is driven by <strong>rules</strong>. Each rule encodes a piece of domain knowledge:
+              given certain conditions on the current state of objects and their data, the reasoner fires the
+              appropriate conclusions — either deducing new facts or hypothesising explanations for observed
+              evidence. Rules can be added dynamically, allowing the knowledge base to grow and adapt without
+              restarting the system.
+            </p>
+            <p>
+              Clients can interact with CoCo either through its REST API or by opening a
+              <strong>WebSocket connection</strong> to receive real-time notifications whenever the reasoner
+              produces new inferences. The full API reference is available in the
+              <a href="javascript:void(0);" onclick="document.getElementById('pills-api-tab').click()">API tab</a>.
+            </p>
           </div>
         </div>
       </div>
