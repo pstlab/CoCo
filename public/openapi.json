@@ -1,0 +1,1070 @@
+{
+    "openapi": "3.1.0",
+    "info": {
+        "title": "coco-reasoner",
+        "description": "Combined deduCtiOn and abduCtiOn (CoCo) reasoner is a dual-process inspired cognitive architecture built in Rust",
+        "contact": {
+            "name": "Riccardo De Benedictis"
+        },
+        "license": {
+            "name": ""
+        },
+        "version": "0.1.0"
+    },
+    "servers": [
+        {
+            "url": "/",
+            "description": "Base URL for CoCo API"
+        }
+    ],
+    "paths": {
+        "/classes": {
+            "get": {
+                "tags": [
+                    "Classes"
+                ],
+                "summary": "List all classes",
+                "description": "Retrieve a list of all available classes in the knowledge base.",
+                "operationId": "get_classes",
+                "responses": {
+                    "200": {
+                        "description": "List of classes",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "array",
+                                    "items": {
+                                        "$ref": "#/components/schemas/Class"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "tags": [
+                    "Classes"
+                ],
+                "summary": "Create a class",
+                "description": "Create a new class in the knowledge base.",
+                "operationId": "create_class",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/Class"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "201": {
+                        "description": "Class created successfully"
+                    },
+                    "409": {
+                        "description": "Class already exists"
+                    },
+                    "500": {
+                        "description": "Failed to create class"
+                    }
+                }
+            }
+        },
+        "/classes/{name}": {
+            "get": {
+                "tags": [
+                    "Classes"
+                ],
+                "summary": "Get a class",
+                "description": "Retrieve details for a specific class by its name.",
+                "operationId": "get_class",
+                "parameters": [
+                    {
+                        "name": "name",
+                        "in": "path",
+                        "description": "Name of the class to retrieve",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "The requested class",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Class"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Class not found"
+                    }
+                }
+            }
+        },
+        "/objects": {
+            "get": {
+                "tags": [
+                    "Objects"
+                ],
+                "summary": "List all objects",
+                "description": "Retrieve a list of all available objects in the knowledge base.",
+                "operationId": "get_objects",
+                "parameters": [
+                    {
+                        "name": "class",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "extra",
+                        "in": "query",
+                        "required": false,
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            },
+                            "propertyNames": {
+                                "type": "string"
+                            }
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "List of objects",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "array",
+                                    "items": {
+                                        "$ref": "#/components/schemas/Object"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "tags": [
+                    "Objects"
+                ],
+                "summary": "Create an object",
+                "description": "Create a new object in the knowledge base.",
+                "operationId": "create_object",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/Object"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "201": {
+                        "description": "Object created successfully",
+                        "content": {
+                            "text/plain": {
+                                "schema": {
+                                    "type": "string"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Class not found for object"
+                    },
+                    "409": {
+                        "description": "Object already exists"
+                    },
+                    "500": {
+                        "description": "Failed to create object"
+                    }
+                }
+            }
+        },
+        "/objects/{id}": {
+            "get": {
+                "tags": [
+                    "Objects"
+                ],
+                "summary": "Get an object",
+                "description": "Retrieve details for a specific object by its ID.",
+                "operationId": "get_object",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "description": "ID of the object to retrieve",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "The requested object",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/Object"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Object not found"
+                    }
+                }
+            },
+            "patch": {
+                "tags": [
+                    "Objects"
+                ],
+                "summary": "Set object properties",
+                "description": "Update the properties of an existing object.",
+                "operationId": "set_properties",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "description": "ID of the object to update",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "additionalProperties": {},
+                                "propertyNames": {
+                                    "type": "string"
+                                }
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "Object properties updated successfully"
+                    },
+                    "404": {
+                        "description": "Object not found"
+                    },
+                    "500": {
+                        "description": "Failed to update object properties"
+                    }
+                }
+            }
+        },
+        "/objects/{id}/data": {
+            "get": {
+                "tags": [
+                    "Objects"
+                ],
+                "summary": "Get object data",
+                "description": "Retrieve data values for a specific object, optionally filtered by a time range.",
+                "operationId": "get_data",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "description": "ID of the object to retrieve data for",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "start",
+                        "in": "query",
+                        "description": "Start of the time range filter (optional)",
+                        "required": false,
+                        "schema": {
+                            "type": "string",
+                            "format": "date-time"
+                        }
+                    },
+                    {
+                        "name": "end",
+                        "in": "query",
+                        "description": "End of the time range filter (optional)",
+                        "required": false,
+                        "schema": {
+                            "type": "string",
+                            "format": "date-time"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "List of data values for the object",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "array",
+                                    "items": {
+                                        "type": "object",
+                                        "additionalProperties": {},
+                                        "propertyNames": {
+                                            "type": "string"
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Object not found"
+                    },
+                    "500": {
+                        "description": "Failed to retrieve object data"
+                    }
+                }
+            },
+            "post": {
+                "tags": [
+                    "Objects"
+                ],
+                "summary": "Add data to an object",
+                "description": "Add new data values to an existing object.",
+                "operationId": "add_data",
+                "parameters": [
+                    {
+                        "name": "id",
+                        "in": "path",
+                        "description": "ID of the object to update",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "name": "time",
+                        "in": "query",
+                        "description": "Timestamp for the data being added (optional, defaults to current time)",
+                        "required": false,
+                        "schema": {
+                            "type": "string",
+                            "format": "date-time"
+                        }
+                    }
+                ],
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "type": "object",
+                                "additionalProperties": {},
+                                "propertyNames": {
+                                    "type": "string"
+                                }
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "Data added to object successfully"
+                    },
+                    "404": {
+                        "description": "Object not found"
+                    },
+                    "500": {
+                        "description": "Failed to add data to object"
+                    }
+                }
+            }
+        },
+        "/openapi": {
+            "get": {
+                "tags": [
+                    "System"
+                ],
+                "summary": "Get OpenAPI spec",
+                "description": "Retrieve the OpenAPI specification for this API.",
+                "operationId": "openapi",
+                "responses": {
+                    "200": {
+                        "description": "OpenAPI specification in JSON format",
+                        "content": {
+                            "text/plain": {
+                                "schema": {
+                                    "type": "string"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/rules": {
+            "get": {
+                "tags": [
+                    "Rules"
+                ],
+                "summary": "List all rules",
+                "description": "Retrieve a list of all available rules in the knowledge base.",
+                "operationId": "get_rules",
+                "responses": {
+                    "200": {
+                        "description": "List of rules",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "array",
+                                    "items": {
+                                        "type": "string"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "post": {
+                "tags": [
+                    "Rules"
+                ],
+                "summary": "Create a rule",
+                "description": "Create a new rule in the knowledge base.",
+                "operationId": "create_rule",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/Rule"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "201": {
+                        "description": "Rule created successfully"
+                    },
+                    "409": {
+                        "description": "Rule already exists"
+                    },
+                    "500": {
+                        "description": "Failed to create rule"
+                    }
+                }
+            }
+        },
+        "/rules/{name}": {
+            "get": {
+                "tags": [
+                    "Rules"
+                ],
+                "summary": "Get a rule",
+                "description": "Retrieve details for a specific rule by its name.",
+                "operationId": "get_rule",
+                "parameters": [
+                    {
+                        "name": "name",
+                        "in": "path",
+                        "description": "Name of the rule to retrieve",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "The requested rule",
+                        "content": {
+                            "text/plain": {
+                                "schema": {
+                                    "type": "string"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Rule not found"
+                    }
+                }
+            }
+        },
+        "/ws": {
+            "get": {
+                "tags": [
+                    "System"
+                ],
+                "summary": "WebSocket connection",
+                "description": "Establish a WebSocket connection for real-time updates.",
+                "operationId": "ws_handler",
+                "responses": {
+                    "101": {
+                        "description": "WebSocket connection established"
+                    }
+                }
+            }
+        }
+    },
+    "components": {
+        "schemas": {
+            "Class": {
+                "type": "object",
+                "required": [
+                    "name"
+                ],
+                "properties": {
+                    "dynamic_properties": {
+                        "type": [
+                            "object",
+                            "null"
+                        ],
+                        "additionalProperties": {
+                            "$ref": "#/components/schemas/Property"
+                        },
+                        "propertyNames": {
+                            "type": "string"
+                        }
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "parents": {
+                        "type": [
+                            "array",
+                            "null"
+                        ],
+                        "items": {
+                            "type": "string"
+                        },
+                        "uniqueItems": true
+                    },
+                    "static_properties": {
+                        "type": [
+                            "object",
+                            "null"
+                        ],
+                        "additionalProperties": {
+                            "$ref": "#/components/schemas/Property"
+                        },
+                        "propertyNames": {
+                            "type": "string"
+                        }
+                    }
+                }
+            },
+            "Object": {
+                "type": "object",
+                "required": [
+                    "classes"
+                ],
+                "properties": {
+                    "classes": {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        },
+                        "uniqueItems": true
+                    },
+                    "id": {
+                        "type": [
+                            "string",
+                            "null"
+                        ]
+                    },
+                    "properties": {
+                        "type": [
+                            "object",
+                            "null"
+                        ],
+                        "additionalProperties": {},
+                        "propertyNames": {
+                            "type": "string"
+                        }
+                    },
+                    "values": {
+                        "type": [
+                            "object",
+                            "null"
+                        ],
+                        "additionalProperties": {
+                            "$ref": "#/components/schemas/TimedValue"
+                        },
+                        "propertyNames": {
+                            "type": "string"
+                        }
+                    }
+                }
+            },
+            "Property": {
+                "oneOf": [
+                    {
+                        "type": "object",
+                        "required": [
+                            "type"
+                        ],
+                        "properties": {
+                            "default": {
+                                "type": [
+                                    "boolean",
+                                    "null"
+                                ]
+                            },
+                            "type": {
+                                "type": "string",
+                                "enum": [
+                                    "bool"
+                                ]
+                            }
+                        }
+                    },
+                    {
+                        "type": "object",
+                        "required": [
+                            "type"
+                        ],
+                        "properties": {
+                            "default": {
+                                "type": [
+                                    "integer",
+                                    "null"
+                                ],
+                                "format": "int64"
+                            },
+                            "max": {
+                                "type": [
+                                    "integer",
+                                    "null"
+                                ],
+                                "format": "int64"
+                            },
+                            "min": {
+                                "type": [
+                                    "integer",
+                                    "null"
+                                ],
+                                "format": "int64"
+                            },
+                            "type": {
+                                "type": "string",
+                                "enum": [
+                                    "int"
+                                ]
+                            }
+                        }
+                    },
+                    {
+                        "type": "object",
+                        "required": [
+                            "type"
+                        ],
+                        "properties": {
+                            "default": {
+                                "type": [
+                                    "number",
+                                    "null"
+                                ],
+                                "format": "double"
+                            },
+                            "max": {
+                                "type": [
+                                    "number",
+                                    "null"
+                                ],
+                                "format": "double"
+                            },
+                            "min": {
+                                "type": [
+                                    "number",
+                                    "null"
+                                ],
+                                "format": "double"
+                            },
+                            "type": {
+                                "type": "string",
+                                "enum": [
+                                    "float"
+                                ]
+                            }
+                        }
+                    },
+                    {
+                        "type": "object",
+                        "required": [
+                            "type"
+                        ],
+                        "properties": {
+                            "default": {
+                                "type": [
+                                    "string",
+                                    "null"
+                                ]
+                            },
+                            "type": {
+                                "type": "string",
+                                "enum": [
+                                    "string"
+                                ]
+                            }
+                        }
+                    },
+                    {
+                        "type": "object",
+                        "required": [
+                            "type"
+                        ],
+                        "properties": {
+                            "allowed_values": {
+                                "type": [
+                                    "array",
+                                    "null"
+                                ],
+                                "items": {
+                                    "type": "string"
+                                },
+                                "uniqueItems": true
+                            },
+                            "default": {
+                                "type": [
+                                    "string",
+                                    "null"
+                                ]
+                            },
+                            "type": {
+                                "type": "string",
+                                "enum": [
+                                    "symbol"
+                                ]
+                            }
+                        }
+                    },
+                    {
+                        "type": "object",
+                        "required": [
+                            "class",
+                            "type"
+                        ],
+                        "properties": {
+                            "class": {
+                                "type": "string"
+                            },
+                            "default": {
+                                "type": [
+                                    "string",
+                                    "null"
+                                ]
+                            },
+                            "type": {
+                                "type": "string",
+                                "enum": [
+                                    "object"
+                                ]
+                            }
+                        }
+                    },
+                    {
+                        "type": "object",
+                        "required": [
+                            "type"
+                        ],
+                        "properties": {
+                            "default": {
+                                "type": [
+                                    "array",
+                                    "null"
+                                ],
+                                "items": {
+                                    "type": "boolean"
+                                }
+                            },
+                            "type": {
+                                "type": "string",
+                                "enum": [
+                                    "bool-array"
+                                ]
+                            }
+                        }
+                    },
+                    {
+                        "type": "object",
+                        "required": [
+                            "type"
+                        ],
+                        "properties": {
+                            "default": {
+                                "type": [
+                                    "array",
+                                    "null"
+                                ],
+                                "items": {
+                                    "type": "integer",
+                                    "format": "int64"
+                                }
+                            },
+                            "max": {
+                                "type": [
+                                    "integer",
+                                    "null"
+                                ],
+                                "format": "int64"
+                            },
+                            "min": {
+                                "type": [
+                                    "integer",
+                                    "null"
+                                ],
+                                "format": "int64"
+                            },
+                            "type": {
+                                "type": "string",
+                                "enum": [
+                                    "int-array"
+                                ]
+                            }
+                        }
+                    },
+                    {
+                        "type": "object",
+                        "required": [
+                            "type"
+                        ],
+                        "properties": {
+                            "default": {
+                                "type": [
+                                    "array",
+                                    "null"
+                                ],
+                                "items": {
+                                    "type": "number",
+                                    "format": "double"
+                                }
+                            },
+                            "max": {
+                                "type": [
+                                    "number",
+                                    "null"
+                                ],
+                                "format": "double"
+                            },
+                            "min": {
+                                "type": [
+                                    "number",
+                                    "null"
+                                ],
+                                "format": "double"
+                            },
+                            "type": {
+                                "type": "string",
+                                "enum": [
+                                    "float-array"
+                                ]
+                            }
+                        }
+                    },
+                    {
+                        "type": "object",
+                        "required": [
+                            "type"
+                        ],
+                        "properties": {
+                            "default": {
+                                "type": [
+                                    "array",
+                                    "null"
+                                ],
+                                "items": {
+                                    "type": "string"
+                                }
+                            },
+                            "type": {
+                                "type": "string",
+                                "enum": [
+                                    "string-array"
+                                ]
+                            }
+                        }
+                    },
+                    {
+                        "type": "object",
+                        "required": [
+                            "type"
+                        ],
+                        "properties": {
+                            "allowed_values": {
+                                "type": [
+                                    "array",
+                                    "null"
+                                ],
+                                "items": {
+                                    "type": "string"
+                                },
+                                "uniqueItems": true
+                            },
+                            "default": {
+                                "type": [
+                                    "array",
+                                    "null"
+                                ],
+                                "items": {
+                                    "type": "string"
+                                }
+                            },
+                            "type": {
+                                "type": "string",
+                                "enum": [
+                                    "symbol-array"
+                                ]
+                            }
+                        }
+                    },
+                    {
+                        "type": "object",
+                        "required": [
+                            "class",
+                            "type"
+                        ],
+                        "properties": {
+                            "class": {
+                                "type": "string"
+                            },
+                            "default": {
+                                "type": [
+                                    "array",
+                                    "null"
+                                ],
+                                "items": {
+                                    "type": "string"
+                                }
+                            },
+                            "type": {
+                                "type": "string",
+                                "enum": [
+                                    "object-array"
+                                ]
+                            }
+                        }
+                    }
+                ]
+            },
+            "Rule": {
+                "type": "object",
+                "required": [
+                    "name",
+                    "content"
+                ],
+                "properties": {
+                    "content": {
+                        "type": "string"
+                    },
+                    "name": {
+                        "type": "string"
+                    }
+                }
+            },
+            "TimedValue": {
+                "type": "object",
+                "required": [
+                    "value",
+                    "timestamp"
+                ],
+                "properties": {
+                    "timestamp": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "value": {}
+                }
+            },
+            "Value": {
+                "oneOf": [
+                    {
+                        "type": "null",
+                        "default": null
+                    },
+                    {
+                        "type": "boolean"
+                    },
+                    {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    {
+                        "type": "number",
+                        "format": "double"
+                    },
+                    {
+                        "type": "string"
+                    },
+                    {
+                        "type": "string"
+                    },
+                    {
+                        "type": "string"
+                    },
+                    {
+                        "type": "array",
+                        "items": {
+                            "type": "boolean"
+                        }
+                    },
+                    {
+                        "type": "array",
+                        "items": {
+                            "type": "integer",
+                            "format": "int64"
+                        }
+                    },
+                    {
+                        "type": "array",
+                        "items": {
+                            "type": "number",
+                            "format": "double"
+                        }
+                    },
+                    {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    }
+                ]
+            }
+        }
+    },
+    "tags": [
+        {
+            "name": "Classes",
+            "description": "Operations related to knowledge base classes"
+        },
+        {
+            "name": "Objects",
+            "description": "Operations related to knowledge base objects"
+        },
+        {
+            "name": "Rules",
+            "description": "Operations related to knowledge base rules"
+        },
+        {
+            "name": "System",
+            "description": "System and utility endpoints"
+        }
+    ]
+}

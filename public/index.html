@@ -8,6 +8,7 @@
   <title>CoCo</title>
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css" rel="stylesheet"
     integrity="sha384-sRIl4kxILFvY47J16cr9ZwB07vP4J8+LH7qKQnuqkuIAvNWLzeN8tE5YBujZqJLB" crossorigin="anonymous">
+  <link rel="stylesheet" href="https://unpkg.com/swagger-ui-dist@5.32.0/swagger-ui.css" />
 </head>
 
 <body>
@@ -41,7 +42,7 @@
         tabindex="0">
         <header class="text-center mb-5">
           <h1 class="display-4">CoCo</h1>
-          <p class="lead text-body-secondary">Combined Deduction and Abduction Reasoner</p>
+          <p class="lead text-body-secondary">Combined deduCtiOn and abduCtiOn Reasoner</p>
         </header>
 
         <div class="row justify-content-center">
@@ -68,7 +69,8 @@
           </div>
         </div>
       </div>
-      <div class="tab-pane fade" id="pills-api" role="tabpanel" aria-labelledby="pills-api-tab" tabindex="0">B
+      <div class="tab-pane fade" id="pills-api" role="tabpanel" aria-labelledby="pills-api-tab" tabindex="0">
+        <div id="swagger-ui"></div>
       </div>
       <div class="tab-pane fade" id="pills-rules" role="tabpanel" aria-labelledby="pills-rules-tab" tabindex="0">C
       </div>
@@ -78,6 +80,32 @@
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/js/bootstrap.bundle.min.js"
     integrity="sha384-FKyoEForCGlyvwx9Hj09JcYn3nv7wiPVlz7YYwJrWVcXK/BmnVDxM+D2scQbITxI"
     crossorigin="anonymous"></script>
+  <script src="https://unpkg.com/swagger-ui-dist@5.32.0/swagger-ui-bundle.js" crossorigin></script>
+  <script>
+    let swaggerInitialized = false;
+
+    function initSwaggerUi() {
+      if (swaggerInitialized || typeof SwaggerUIBundle === 'undefined') {
+        return;
+      }
+
+      SwaggerUIBundle({
+        url: './openapi.json',
+        dom_id: '#swagger-ui'
+      });
+
+      swaggerInitialized = true;
+    }
+
+    const apiTabTrigger = document.getElementById('pills-api-tab');
+    if (apiTabTrigger) {
+      apiTabTrigger.addEventListener('shown.bs.tab', initSwaggerUi);
+    }
+
+    if (document.getElementById('pills-api')?.classList.contains('show')) {
+      initSwaggerUi();
+    }
+  </script>
 </body>
 
 </html>
