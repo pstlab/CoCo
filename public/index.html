@@ -13,17 +13,16 @@
 <body>
   <main>
     <nav class="navbar navbar-expand-lg bg-body-tertiary">
-      <div class="container-fluid">
+      <div class="container-fluid" role="tablist" aria-label="CoCo navigation tabs">
+        <button class="navbar-brand bg-transparent border-0 active" id="pills-home-tab" data-bs-toggle="pill"
+          data-bs-target="#pills-home" type="button" role="tab" aria-controls="pills-home"
+          aria-selected="true">CoCo</button>
         <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav"
           aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
           <span class="navbar-toggler-icon"></span>
         </button>
         <div class="collapse navbar-collapse" id="navbarNav">
-          <ul class="nav-pills navbar-nav" role="tablist">
-            <li class="nav-item" role="presentation">
-              <button class="nav-link active" id="pills-home-tab" data-bs-toggle="pill" data-bs-target="#pills-home"
-                type="button" role="tab" aria-controls="pills-home" aria-selected="true">CoCo</button>
-            </li>
+          <ul class="navbar-nav me-auto mb-2 mb-lg-0">
             <li class="nav-item" role="presentation">
               <button class="nav-link" id="pills-api-tab" data-bs-toggle="pill" data-bs-target="#pills-api"
                 type="button" role="tab" aria-controls="pills-api" aria-selected="false">API</button>
@@ -73,8 +72,6 @@
       </div>
       <div class="tab-pane fade" id="pills-rules" role="tabpanel" aria-labelledby="pills-rules-tab" tabindex="0">C
       </div>
-      <div class="tab-pane fade" id="pills-disabled" role="tabpanel" aria-labelledby="pills-disabled-tab" tabindex="0">
-        D</div>
     </div>
   </main>
 
