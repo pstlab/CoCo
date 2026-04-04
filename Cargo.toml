@@ -5,8 +5,8 @@ authors = ["Riccardo De Benedictis"]
 edition = "2024"
 description = "Combined deduction and abduCtion (CoCo) reasoner is a dual-process inspired cognitive architecture built in Rust"
 readme = "README.md"
-repository = "https://github.com/ratioSolver/COCO"
-license-file = "LICENSE.txt"
+repository = "https://github.com/pstlab/CoCo"
+license-file = "LICENSE"
 
 [lib]
 name = "coco"
