@@ -11,33 +11,70 @@
 </head>
 
 <body>
-  <main class="container mt-5">
-    <header class="text-center mb-5">
-      <h1 class="display-4">CoCo</h1>
-      <p class="lead text-body-secondary">Combined Deduction and Abduction Reasoner</p>
-    </header>
-
-    <div class="row justify-content-center">
-      <div class="col-lg-8">
-        <p>
-          CoCo is a dual-process inspired cognitive architecture built in Rust.
-          It integrates a rule-based expert system and a timeline-based planner
-          to invoke deductive and abductive reasoning in dynamic environments.
-        </p>
-        <hr class="my-4">
-
-        <h4>Features</h4>
-        <ul class="list-group list-group-flush">
-          <li class="list-group-item"><strong>Hybrid Reasoning</strong>: Unites deductive logic with abductive
-            inference.</li>
-          <li class="list-group-item"><strong>Rust Core</strong>: Designed for performance, memory safety, and
-            concurrency.</li>
-          <li class="list-group-item"><strong>CLIPS Integration</strong>: Seamless binding with the C-based CLIPS expert
-            system.</li>
-          <li class="list-group-item"><strong>Web Interface</strong>: Includes a web server (Axum) and visualization
-            tools.</li>
-        </ul>
+  <main>
+    <nav class="navbar navbar-expand-lg bg-body-tertiary">
+      <div class="container-fluid">
+        <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav"
+          aria-controls="navbarNav" aria-expanded="false" aria-label="Toggle navigation">
+          <span class="navbar-toggler-icon"></span>
+        </button>
+        <div class="collapse navbar-collapse" id="navbarNav">
+          <ul class="nav-pills navbar-nav" role="tablist">
+            <li class="nav-item" role="presentation">
+              <button class="nav-link active" id="pills-home-tab" data-bs-toggle="pill" data-bs-target="#pills-home"
+                type="button" role="tab" aria-controls="pills-home" aria-selected="true">CoCo</button>
+            </li>
+            <li class="nav-item" role="presentation">
+              <button class="nav-link" id="pills-api-tab" data-bs-toggle="pill" data-bs-target="#pills-api"
+                type="button" role="tab" aria-controls="pills-api" aria-selected="false">API</button>
+            </li>
+            <li class="nav-item" role="presentation">
+              <button class="nav-link" id="pills-rules-tab" data-bs-toggle="pill" data-bs-target="#pills-rules"
+                type="button" role="tab" aria-controls="pills-rules" aria-selected="false">Rules</button>
+            </li>
+          </ul>
+        </div>
       </div>
+    </nav>
+
+    <div class="tab-content container mt-5">
+      <div class="tab-pane fade show active" id="pills-home" role="tabpanel" aria-labelledby="pills-home-tab"
+        tabindex="0">
+        <header class="text-center mb-5">
+          <h1 class="display-4">CoCo</h1>
+          <p class="lead text-body-secondary">Combined Deduction and Abduction Reasoner</p>
+        </header>
+
+        <div class="row justify-content-center">
+          <div class="col-lg-8">
+            <p>
+              CoCo is a dual-process inspired cognitive architecture built in Rust.
+              It integrates a rule-based expert system and a timeline-based planner
+              to invoke deductive and abductive reasoning in dynamic environments.
+            </p>
+            <hr class="my-4">
+
+            <h4>Features</h4>
+            <ul class="list-group list-group-flush">
+              <li class="list-group-item"><strong>Hybrid Reasoning</strong>: Unites deductive logic with abductive
+                inference.</li>
+              <li class="list-group-item"><strong>Rust Core</strong>: Designed for performance, memory safety, and
+                concurrency.</li>
+              <li class="list-group-item"><strong>CLIPS Integration</strong>: Seamless binding with the C-based CLIPS
+                expert
+                system.</li>
+              <li class="list-group-item"><strong>Web Interface</strong>: Includes a web server (Axum) and visualization
+                tools.</li>
+            </ul>
+          </div>
+        </div>
+      </div>
+      <div class="tab-pane fade" id="pills-api" role="tabpanel" aria-labelledby="pills-api-tab" tabindex="0">B
+      </div>
+      <div class="tab-pane fade" id="pills-rules" role="tabpanel" aria-labelledby="pills-rules-tab" tabindex="0">C
+      </div>
+      <div class="tab-pane fade" id="pills-disabled" role="tabpanel" aria-labelledby="pills-disabled-tab" tabindex="0">
+        D</div>
     </div>
   </main>
 
