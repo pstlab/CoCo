@@ -6,7 +6,7 @@ use clips::{ClipsValue, Type};
 use reqwest::Client;
 use std::collections::HashMap;
 use tokio::sync::mpsc;
-use tracing::error;
+use tracing::{error, info, trace};
 
 pub async fn setup_ollama(kb: &CLIPSKnowledgeBase) -> Result<(), KnowledgeBaseError> {
     let host = std::env::var("OLLAMA_HOST").unwrap_or_else(|_| "localhost".to_string());
@@ -16,6 +16,7 @@ pub async fn setup_ollama(kb: &CLIPSKnowledgeBase) -> Result<(), KnowledgeBaseEr
 }
 
 pub async fn add_ollama(kb: &CLIPSKnowledgeBase, host: String, port: u16, model: String) -> Result<(), KnowledgeBaseError> {
+    info!("Setting up Ollama integration with model '{}' at {}:{}", model, host, port);
     let url = format!("http://{}:{}/api/chat", host, port);
     let client = Client::new();
 
@@ -27,6 +28,7 @@ pub async fn add_ollama(kb: &CLIPSKnowledgeBase, host: String, port: u16, model:
         let mut rx = rx;
         let mut llm_result = HashMap::new();
         while let Some((item_id, result)) = rx.recv().await {
+            trace!("Received LLM result for item_id {}: {}", item_id, result);
             if let Some(fact) = llm_result.get(&item_id) {
                 match kb_clone.modify_fact(*fact, HashMap::from([("item_id".to_string(), Value::Symbol(item_id.clone())), ("result".to_string(), Value::String(result))])).await {
                     Ok(_) => (),
@@ -68,6 +70,7 @@ pub async fn add_ollama(kb: &CLIPSKnowledgeBase, host: String, port: u16, model:
             let tx = tx.clone();
 
             tokio::spawn(async move {
+                trace!("Sending prompt to Ollama for object_id {}: {}", object_id, prompt);
                 let body = serde_json::json!({
                     "model": model,
                     "messages": [{"role": "user", "content": prompt}],
