@@ -90,7 +90,8 @@ pub fn fcm_router(db: MongoDB) -> Router {
 }
 
 async fn get_token() -> Result<String, String> {
-    let key = read_service_account_key("service-account.json").await.map_err(|e| format!("Failed to read service account key: {}", e))?;
+    let key_path = std::env::var("SERVICE_ACCOUNT_FILE").unwrap_or_else(|_| "service-account.json".to_string());
+    let key = read_service_account_key(key_path).await.map_err(|e| format!("Failed to read service account key: {}", e))?;
     let auth = ServiceAccountAuthenticator::builder(key).build().await.map_err(|e| format!("Failed to create authenticator: {}", e))?;
     let scopes = &["https://www.googleapis.com/auth/firebase.messaging"];
     let token = auth.token(scopes).await.map_err(|e| format!("Failed to get token: {}", e))?;
