@@ -1,11 +1,11 @@
 use crate::{
     kb::{CLIPSKnowledgeBase, KnowledgeBase, KnowledgeBaseError},
-    model::Value,
+    model::{Property, Value, value_from_json},
 };
 use chrono::Utc;
 use clips::{ClipsValue, Type};
 use reqwest::Client;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use tokio::sync::mpsc;
 use tracing::{error, info, trace};
 
@@ -14,51 +14,92 @@ enum Tool {
     AddValues { object_id: String, values: HashMap<String, Value> },
 }
 
-fn json_to_model_value(value: &serde_json::Value) -> Option<Value> {
-    match value {
-        serde_json::Value::Null => Some(Value::Null),
-        serde_json::Value::Bool(b) => Some(Value::Bool(*b)),
-        serde_json::Value::Number(n) => {
-            if let Some(i) = n.as_i64() {
-                Some(Value::Int(i))
-            } else {
-                n.as_f64().map(Value::Float)
-            }
+fn props_to_params(root_name: &str, props: &HashMap<String, HashMap<String, Property>>) -> serde_json::Value {
+    let mut class_entries = serde_json::Map::new();
+
+    for (class_name, class_props) in props {
+        let mut prop_entries = serde_json::Map::new();
+        for (prop_name, _property) in class_props {
+            prop_entries.insert(
+                prop_name.clone(),
+                serde_json::json!({
+                    "anyOf": [
+                        { "type": "string" },
+                        { "type": "integer" },
+                        { "type": "number" },
+                        { "type": "boolean" },
+                        { "type": "array" },
+                        { "type": "null" }
+                    ]
+                }),
+            );
         }
-        serde_json::Value::String(s) => Some(Value::String(s.clone())),
-        serde_json::Value::Array(arr) => {
-            if arr.is_empty() {
-                return None;
-            }
 
-            let all_bool = arr.iter().all(serde_json::Value::is_boolean);
-            if all_bool {
-                let vals = arr.iter().filter_map(serde_json::Value::as_bool).collect::<Vec<_>>();
-                return Some(Value::BoolArray(vals));
-            }
-
-            let all_i64 = arr.iter().all(|v| v.as_i64().is_some());
-            if all_i64 {
-                let vals = arr.iter().filter_map(serde_json::Value::as_i64).collect::<Vec<_>>();
-                return Some(Value::IntArray(vals));
-            }
-
-            let all_number = arr.iter().all(serde_json::Value::is_number);
-            if all_number {
-                let vals = arr.iter().filter_map(serde_json::Value::as_f64).collect::<Vec<_>>();
-                return Some(Value::FloatArray(vals));
-            }
-
-            let all_string = arr.iter().all(serde_json::Value::is_string);
-            if all_string {
-                let vals = arr.iter().filter_map(serde_json::Value::as_str).map(ToOwned::to_owned).collect::<Vec<_>>();
-                return Some(Value::StringArray(vals));
-            }
-
-            None
-        }
-        serde_json::Value::Object(_) => None,
+        class_entries.insert(
+            class_name.clone(),
+            serde_json::json!({
+                "type": "object",
+                "properties": prop_entries,
+                "additionalProperties": false
+            }),
+        );
     }
+
+    let mut root_properties = serde_json::Map::new();
+    root_properties.insert(
+        root_name.to_string(),
+        serde_json::json!({
+            "type": "object",
+            "description": "Mappa classe -> mappa nome_proprieta -> valore",
+            "properties": class_entries,
+            "additionalProperties": false
+        }),
+    );
+
+    serde_json::json!({
+        "type": "object",
+        "properties": root_properties,
+        "required": [root_name],
+        "additionalProperties": false
+    })
+}
+
+fn collect_typed_values(schema: &HashMap<String, HashMap<String, Property>>, arguments: &serde_json::Value) -> HashMap<String, Value> {
+    let mut collected = HashMap::new();
+
+    let Some(class_entries) = arguments.as_object() else {
+        return collected;
+    };
+
+    for (class_name, raw_props) in class_entries {
+        let Some(class_schema) = schema.get(class_name) else {
+            error!("Unknown class '{}' in tool arguments", class_name);
+            continue;
+        };
+
+        let Some(raw_props) = raw_props.as_object() else {
+            error!("Expected object for class '{}', got {}", class_name, raw_props);
+            continue;
+        };
+
+        for (prop_name, raw_value) in raw_props {
+            let Some(property) = class_schema.get(prop_name) else {
+                error!("Unknown property '{}.{}' in tool arguments", class_name, prop_name);
+                continue;
+            };
+
+            match value_from_json(property, raw_value) {
+                Ok(value) => {
+                    collected.insert(prop_name.clone(), value);
+                }
+                Err(e) => {
+                    error!("Invalid value for '{}.{}': {} -- raw: {}", class_name, prop_name, e, raw_value);
+                }
+            }
+        }
+    }
+
+    collected
 }
 
 pub async fn setup_ollama(kb: &CLIPSKnowledgeBase) -> Result<(), KnowledgeBaseError> {
@@ -94,6 +135,7 @@ pub async fn add_ollama(kb: &CLIPSKnowledgeBase, host: String, port: u16, model:
         }
     });
 
+    let udf_kb_clone = kb.clone();
     kb.add_udf(
         "prompt",
         None,
@@ -124,7 +166,21 @@ pub async fn add_ollama(kb: &CLIPSKnowledgeBase, host: String, port: u16, model:
             let model = model.clone();
             let tx = tx.clone();
 
+            let async_kb_clone = udf_kb_clone.clone();
             tokio::spawn(async move {
+                let classes = async_kb_clone.get_object_classes(object_id.clone()).await.unwrap_or_else(|e| {
+                    error!("Failed to get classes for object_id {}: {}", object_id, e);
+                    HashSet::new()
+                });
+                let static_props = async_kb_clone.get_static_properties(classes.clone()).await.unwrap_or_else(|e| {
+                    error!("Failed to get static properties for object_id {}: {}", object_id, e);
+                    HashMap::new()
+                });
+                let dynamic_props = async_kb_clone.get_dynamic_properties(classes.clone()).await.unwrap_or_else(|e| {
+                    error!("Failed to get dynamic properties for object_id {}: {}", object_id, e);
+                    HashMap::new()
+                });
+
                 trace!("Sending prompt to Ollama for object_id {}: {}", object_id, prompt);
                 let body = serde_json::json!({
                     "model": model,
@@ -132,25 +188,19 @@ pub async fn add_ollama(kb: &CLIPSKnowledgeBase, host: String, port: u16, model:
                     "stream": false,
                     "tools": [
                         {
-                            "name": "set_properties",
-                            "description": "Set properties for an object in the knowledge base",
-                            "parameters": {
-                                "type": "object",
-                                "properties": {
-                                    "properties": {"type": "object", "description": "The properties to set for the object"}
-                                },
-                                "required": ["object_id", "properties"]
+                            "type": "function",
+                            "function": {
+                                "name": "set_properties",
+                                "description": "Set properties on an object in the knowledge base. The properties to set are provided in the 'properties' argument as a dictionary of property names to values.",
+                                "parameters": props_to_params("properties", &static_props)
                             }
                         },
                         {
-                            "name": "add_values",
-                            "description": "Add values for an object in the knowledge base",
-                            "parameters": {
-                                "type": "object",
-                                "properties": {
-                                    "values": {"type": "object", "description": "The values to add for the object"}
-                                },
-                                "required": ["object_id", "values"]
+                            "type": "function",
+                            "function": {
+                                "name": "add_values",
+                                "description": "Add values to properties on an object in the knowledge base. The values to add are provided in the 'values' argument as a dictionary of property names to values.",
+                                "parameters": props_to_params("values", &dynamic_props)
                             }
                         }
                     ]
@@ -160,40 +210,42 @@ pub async fn add_ollama(kb: &CLIPSKnowledgeBase, host: String, port: u16, model:
                     Ok(response) => match response.json::<serde_json::Value>().await {
                         Ok(json) => {
                             let mut vals = HashMap::new();
-                            if let Some(content) = json["message"]["content"].as_str()
+                            if let Some(content) = json["content"].as_str()
                                 && !content.is_empty()
                             {
                                 vals.insert(content_id, Value::String(content.to_string()));
                             }
-                            if let Some(tools) = json["message"]["tool_calls"].as_array() {
+                            if let Some(tools) = json["tool_calls"].as_array() {
                                 for tool in tools {
-                                    if let Some(tool_name) = tool["name"].as_str() {
-                                        match tool_name {
-                                            "set_properties" => {
-                                                if let Some(properties) = tool["arguments"].as_object() {
-                                                    let mut props = HashMap::new();
-                                                    for (key, value) in properties {
-                                                        if let Some(v) = json_to_model_value(value) {
-                                                            props.insert(key.clone(), v);
-                                                        }
-                                                    }
-                                                    let _ = tx.send(Tool::SetProperties { object_id: object_id.clone(), properties: props }).await;
-                                                }
+                                    let tool_name = tool["function"]["name"].as_str().unwrap_or_else(|| {
+                                        error!("Tool call without function name in Ollama response for object_id {}: {}", object_id, json);
+                                        "unknown_tool"
+                                    });
+
+                                    let arguments = if let Some(args) = tool["function"]["arguments"].as_object() {
+                                        serde_json::Value::Object(args.clone())
+                                    } else {
+                                        error!("Tool call without arguments object in Ollama response for object_id {}: {}", object_id, json);
+                                        serde_json::Value::Null
+                                    };
+
+                                    match tool_name {
+                                        "set_properties" => {
+                                            let nested = arguments.get("properties").unwrap_or(&arguments);
+                                            let props = collect_typed_values(&static_props, nested);
+                                            if !props.is_empty() {
+                                                let _ = tx.send(Tool::SetProperties { object_id: object_id.clone(), properties: props }).await;
                                             }
-                                            "add_values" => {
-                                                if let Some(values) = tool["arguments"].as_object() {
-                                                    let mut vals = HashMap::new();
-                                                    for (key, value) in values {
-                                                        if let Some(v) = json_to_model_value(value) {
-                                                            vals.insert(key.clone(), v);
-                                                        }
-                                                    }
-                                                    let _ = tx.send(Tool::AddValues { object_id: object_id.clone(), values: vals }).await;
-                                                }
+                                        }
+                                        "add_values" => {
+                                            let nested = arguments.get("values").unwrap_or(&arguments);
+                                            let vals = collect_typed_values(&dynamic_props, nested);
+                                            if !vals.is_empty() {
+                                                let _ = tx.send(Tool::AddValues { object_id: object_id.clone(), values: vals }).await;
                                             }
-                                            _ => {
-                                                error!("Unknown tool called by Ollama for object_id {}: {}", object_id, tool_name);
-                                            }
+                                        }
+                                        _ => {
+                                            error!("Unknown tool called by Ollama for object_id {}: {}", object_id, tool_name);
                                         }
                                     }
                                 }
