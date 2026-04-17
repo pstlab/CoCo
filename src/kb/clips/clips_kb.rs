@@ -52,7 +52,7 @@ impl ActorState {
     {
         let mut queue: VecDeque<String> = class_names.into_iter().cloned().collect();
         let mut visited: HashSet<String> = HashSet::new();
-        let mut ordered: Vec<String> = Vec::new();
+        let mut class_hierarchy: Vec<String> = Vec::new();
 
         while let Some(class_name) = queue.pop_front() {
             if !visited.insert(class_name.clone()) {
@@ -60,7 +60,7 @@ impl ActorState {
             }
 
             let class = self.classes.get(&class_name).ok_or_else(|| KnowledgeBaseError::ClassNotFound(format!("Class {} not found for object {}", class_name, object_id)))?;
-            ordered.push(class_name);
+            class_hierarchy.push(class_name);
 
             if let Some(parents) = &class.parents {
                 for parent in parents {
@@ -71,7 +71,7 @@ impl ActorState {
             }
         }
 
-        Ok(ordered)
+        Ok(class_hierarchy)
     }
 }
 
