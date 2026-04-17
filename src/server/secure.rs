@@ -1,9 +1,7 @@
-use std::collections::HashMap;
-
 use crate::{
     CoCo,
     db::DatabaseError,
-    model::{Class, CoCoError, CoCoEvent, Object, Property, Rule, TimedValue, Value, from_json},
+    model::{Class, CoCoError, CoCoEvent, Object, Property, Rule, TimedValue, Value, object_from_json, properties_from_json, values_from_json},
 };
 use argon2::{
     Argon2, PasswordHash, PasswordHasher, PasswordVerifier,
@@ -27,6 +25,7 @@ use mongodb::bson::doc;
 use mongodb::{Client, IndexModel, bson::Document, options::IndexOptions};
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
+use std::collections::HashMap;
 use tracing::{error, trace};
 use utoipa::{
     IntoParams, Modify, OpenApi, ToSchema,
@@ -90,7 +89,7 @@ impl UsersDB {
         let db = self.client.database(&self.name);
         let collection = db.collection::<User>("users");
         let new_user = User { username: username.to_owned(), password: hash_password(password), role: role.to_owned() };
-        collection.insert_one(new_user).await.map_err(|e| DatabaseError::ConnectionError(e.to_string()))?;
+        collection.insert_one(new_user).await.map_err(|e| if e.to_string().contains("duplicate key error") { DatabaseError::Exists(username.to_owned()) } else { DatabaseError::ConnectionError(e.to_string()) })?;
         Ok(())
     }
 }
@@ -281,7 +280,7 @@ async fn register(State(db): State<UsersDB>, Json(req): Json<Credentials>) -> im
 
 #[utoipa::path(
         post,
-        path = "/refresh",
+        path = "/refresh_token",
         tag = "Authentication",
         summary = "Refresh authentication tokens",
         description = "Exchange a valid refresh token for a new access and refresh JWT token pair.",
@@ -408,6 +407,7 @@ async fn create_class(State(coco): State<CoCo>, Json(class): Json<Class>) -> imp
     trace!("Handling request to create class with name: {}", class.name);
     match coco.create_class(class).await {
         Ok(_) => (StatusCode::CREATED, "Class created successfully".to_string()).into_response(),
+        Err(CoCoError::ClassAlreadyExists(_)) => (StatusCode::CONFLICT, "Class already exists".to_string()).into_response(),
         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to create class: {}", e)).into_response(),
     }
 }
@@ -465,6 +465,7 @@ async fn get_rule(State(coco): State<CoCo>, Path(name): Path<String>) -> impl In
             (status = 201, description = "Rule created successfully"),
             (status = 401, description = "Missing or invalid JWT token"),
             (status = 403, description = "Forbidden - only admin users can create rules"),
+            (status = 409, description = "Rule already exists"),
             (status = 500, description = "Failed to create rule")
         )
     )]
@@ -475,6 +476,7 @@ async fn create_rule(State(coco): State<CoCo>, Extension(user): Extension<Curren
     trace!("Handling request to create rule with name: {}", rule.name);
     match coco.create_rule(rule).await {
         Ok(_) => (StatusCode::CREATED, "Rule created successfully".to_string()).into_response(),
+        Err(CoCoError::RuleAlreadyExists(_)) => (StatusCode::CONFLICT, "Rule already exists".to_string()).into_response(),
         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to create rule: {}", e)).into_response(),
     }
 }
@@ -549,19 +551,27 @@ async fn get_object(State(coco): State<CoCo>, Path(id): Path<String>) -> impl In
         security(("bearerAuth" = [])),
         responses(
             (status = 201, description = "Object created successfully", body = String),
+            (status = 400, description = "Invalid object data in request body"),
             (status = 401, description = "Missing or invalid JWT token"),
             (status = 403, description = "Forbidden - only admin users can create objects"),
+            (status = 404, description = "Class not found for object"),
+            (status = 409, description = "Object already exists"),
             (status = 500, description = "Failed to create object")
         )
     )]
-async fn create_object(State(coco): State<CoCo>, Extension(user): Extension<CurrentUser>, Json(object): Json<OpenApiObject>) -> impl IntoResponse {
+async fn create_object(State(coco): State<CoCo>, Extension(user): Extension<CurrentUser>, Json(object): Json<JsonValue>) -> impl IntoResponse {
     if user.role != "admin" {
         return (StatusCode::FORBIDDEN, "Only admin users can create objects").into_response();
     }
-    trace!("Handling request to create object with properties: {:?}", object.properties);
-    match coco.create_object(object).await {
-        Ok(id) => (StatusCode::CREATED, id).into_response(),
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to create object: {}", e)).into_response(),
+    trace!("Handling request to create object: {:?}", object);
+    match object_from_json(coco.clone(), object).await {
+        Ok(new_object) => match coco.create_object(new_object).await {
+            Ok(object_id) => (StatusCode::CREATED, object_id).into_response(),
+            Err(CoCoError::ClassNotFound(e)) => (StatusCode::NOT_FOUND, format!("Class not found: {}", e)).into_response(),
+            Err(CoCoError::ObjectAlreadyExists(e)) => (StatusCode::CONFLICT, format!("Object already exists: {}", e)).into_response(),
+            Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to create object: {}", e)).into_response(),
+        },
+        Err(e) => (StatusCode::BAD_REQUEST, format!("Invalid object data in request body: {}", e)).into_response(),
     }
 }
 
@@ -578,42 +588,25 @@ async fn create_object(State(coco): State<CoCo>, Extension(user): Extension<Curr
         security(("bearerAuth" = [])),
         responses(
             (status = 200, description = "Object properties updated successfully"),
+            (status = 400, description = "Invalid property values in request body"),
             (status = 401, description = "Missing or invalid JWT token"),
             (status = 403, description = "Forbidden - only admin users can update object properties"),
             (status = 404, description = "Object not found"),
             (status = 500, description = "Failed to update object properties")
         )
     )]
-async fn set_properties(State(coco): State<CoCo>, Extension(user): Extension<CurrentUser>, Path(object_id): Path<String>, Json(properties): Json<HashMap<String, JsonValue>>) -> impl IntoResponse {
+async fn set_properties(State(coco): State<CoCo>, Extension(user): Extension<CurrentUser>, Path(object_id): Path<String>, Json(properties): Json<JsonValue>) -> impl IntoResponse {
     if user.role != "admin" {
         return (StatusCode::FORBIDDEN, "Only admin users can update object properties").into_response();
     }
     trace!("Handling request to set properties for object with ID: {}, properties: {:?}", object_id, properties);
-    match coco.get_object_classes(&object_id).await {
-        Ok(classes) => match coco.get_static_properties(classes).await {
-            Ok(static_props) => {
-                let mut props = HashMap::new();
-                for (_class_name, class_props) in static_props {
-                    for (prop_name, prop) in class_props {
-                        props.insert(
-                            prop_name.clone(),
-                            from_json(&prop, properties.get(&prop_name).unwrap_or(&JsonValue::Null)).unwrap_or_else(|e| {
-                                error!("Failed to parse property '{}' for object '{}': {}", prop_name, object_id, e);
-                                Value::String("".to_string())
-                            }),
-                        );
-                    }
-                }
-
-                return match coco.set_properties(&object_id, props).await {
-                    Ok(_) => (StatusCode::OK, "Object properties updated successfully".to_string()).into_response(),
-                    Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to update properties for object with ID '{}': {}", object_id, e)).into_response(),
-                };
-            }
-            Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to retrieve static properties for object with ID '{}': {}", object_id, e)).into_response(),
+    match properties_from_json(coco.clone(), properties).await {
+        Ok(properties) => match coco.set_properties(&object_id, properties).await {
+            Ok(_) => (StatusCode::OK, "Object properties updated successfully".to_string()).into_response(),
+            Err(CoCoError::ObjectNotFound(e)) => (StatusCode::NOT_FOUND, format!("Object not found: {}", e)).into_response(),
+            Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to update properties for object with ID '{}': {}", object_id, e)).into_response(),
         },
-        Err(CoCoError::ObjectNotFound(e)) => return (StatusCode::NOT_FOUND, format!("Object not found: {}", e)).into_response(),
-        Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to retrieve object classes for object with ID '{}': {}", object_id, e)).into_response(),
+        Err(e) => (StatusCode::BAD_REQUEST, format!("Invalid property values in request body: {}", e)).into_response(),
     }
 }
 
@@ -642,38 +635,19 @@ struct DateQuery {
             (status = 500, description = "Failed to add data to object")
         )
     )]
-async fn add_data(State(coco): State<CoCo>, Extension(user): Extension<CurrentUser>, Path(object_id): Path<String>, Query(date_query): Query<DateQuery>, Json(values): Json<HashMap<String, JsonValue>>) -> impl IntoResponse {
+async fn add_data(State(coco): State<CoCo>, Extension(user): Extension<CurrentUser>, Path(object_id): Path<String>, Query(date_query): Query<DateQuery>, Json(values): Json<JsonValue>) -> impl IntoResponse {
     if user.role != "admin" {
         return (StatusCode::FORBIDDEN, "Only admin users can add data to objects").into_response();
     }
+    trace!("Handling request to add data to object with ID: {}, values: {:?}, time: {:?}", object_id, values, date_query.time);
     let timestamp = date_query.time.unwrap_or_else(Utc::now);
-    match coco.get_object_classes(&object_id).await {
-        Ok(classes) => match coco.get_dynamic_properties(classes).await {
-            Ok(dynamic_props) => {
-                let mut props = HashMap::new();
-                for (_class_name, class_props) in dynamic_props {
-                    for (prop_name, prop) in class_props {
-                        if let Some(value) = values.get(&prop_name) {
-                            props.insert(
-                                prop_name.clone(),
-                                from_json(&prop, value).unwrap_or_else(|e| {
-                                    error!("Failed to parse property '{}' for object '{}': {}", prop_name, object_id, e);
-                                    Value::String("".to_string())
-                                }),
-                            );
-                        }
-                    }
-                }
-
-                return match coco.add_values(&object_id, props, timestamp).await {
-                    Ok(_) => (StatusCode::OK, "Data added to object successfully".to_string()).into_response(),
-                    Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to add data to object with ID '{}': {}", object_id, e)).into_response(),
-                };
-            }
-            Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to retrieve static properties for object with ID '{}': {}", object_id, e)).into_response(),
+    match values_from_json(coco.clone(), values).await {
+        Ok(values) => match coco.add_values(&object_id, values, timestamp).await {
+            Ok(_) => (StatusCode::OK, "Data added to object successfully".to_string()).into_response(),
+            Err(CoCoError::ObjectNotFound(e)) => (StatusCode::NOT_FOUND, format!("Object not found: {}", e)).into_response(),
+            Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to add data to object with ID '{}': {}", object_id, e)).into_response(),
         },
-        Err(CoCoError::ObjectNotFound(e)) => return (StatusCode::NOT_FOUND, format!("Object not found: {}", e)).into_response(),
-        Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to retrieve object classes for object with ID '{}': {}", object_id, e)).into_response(),
+        Err(e) => (StatusCode::BAD_REQUEST, format!("Invalid data values in request body: {}", e)).into_response(),
     }
 }
 
@@ -712,6 +686,7 @@ async fn get_data(State(coco): State<CoCo>, Path(id): Path<String>, Query(filter
             }
             Json(result).into_response()
         }
+        Err(CoCoError::ObjectNotFound(e)) => (StatusCode::NOT_FOUND, format!("Object not found: {}", e)).into_response(),
         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to get data for object with ID '{}': {}", id, e)).into_response(),
     }
 }

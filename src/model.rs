@@ -1,3 +1,4 @@
+use crate::CoCo;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
@@ -97,7 +98,7 @@ pub enum Property {
     },
 }
 
-pub fn from_json(property: &Property, raw: &JsonValue) -> Result<Value, CoCoError> {
+pub fn value_from_json(property: &Property, raw: &JsonValue) -> Result<Value, CoCoError> {
     match property {
         Property::Bool { .. } => raw.as_bool().map(Value::Bool).ok_or_else(|| CoCoError::JsonParseError(format!("Expected bool, got: {}", raw))),
         Property::Int { .. } => raw.as_i64().map(Value::Int).ok_or_else(|| CoCoError::JsonParseError(format!("Expected int, got: {}", raw))),
@@ -108,61 +109,61 @@ pub fn from_json(property: &Property, raw: &JsonValue) -> Result<Value, CoCoErro
         Property::BoolArray { .. } => raw
             .as_array()
             .and_then(|arr| {
-                if !arr.iter().all(serde_json::Value::is_boolean) {
+                if !arr.iter().all(JsonValue::is_boolean) {
                     error!("Expected bool array, but found non-boolean value in array: {}", raw);
                     return None;
                 }
-                Some(Value::BoolArray(arr.iter().filter_map(serde_json::Value::as_bool).collect()))
+                Some(Value::BoolArray(arr.iter().filter_map(JsonValue::as_bool).collect()))
             })
             .ok_or_else(|| CoCoError::JsonParseError(format!("Expected bool array, got: {}", raw))),
         Property::IntArray { .. } => raw
             .as_array()
             .and_then(|arr| {
-                if !arr.iter().all(serde_json::Value::is_i64) {
+                if !arr.iter().all(JsonValue::is_i64) {
                     error!("Expected int array, but found non-integer value in array: {}", raw);
                     return None;
                 }
-                Some(Value::IntArray(arr.iter().filter_map(serde_json::Value::as_i64).collect()))
+                Some(Value::IntArray(arr.iter().filter_map(JsonValue::as_i64).collect()))
             })
             .ok_or_else(|| CoCoError::JsonParseError(format!("Expected int array, got: {}", raw))),
         Property::FloatArray { .. } => raw
             .as_array()
             .and_then(|arr| {
-                if !arr.iter().all(serde_json::Value::is_f64) {
+                if !arr.iter().all(JsonValue::is_f64) {
                     error!("Expected float array, but found non-float value in array: {}", raw);
                     return None;
                 }
-                Some(Value::FloatArray(arr.iter().filter_map(serde_json::Value::as_f64).collect()))
+                Some(Value::FloatArray(arr.iter().filter_map(JsonValue::as_f64).collect()))
             })
             .ok_or_else(|| CoCoError::JsonParseError(format!("Expected float array, got: {}", raw))),
         Property::StringArray { .. } => raw
             .as_array()
             .and_then(|arr| {
-                if !arr.iter().all(serde_json::Value::is_string) {
+                if !arr.iter().all(JsonValue::is_string) {
                     error!("Expected string array, but found non-string value in array: {}", raw);
                     return None;
                 }
-                Some(Value::StringArray(arr.iter().filter_map(serde_json::Value::as_str).map(ToOwned::to_owned).collect()))
+                Some(Value::StringArray(arr.iter().filter_map(JsonValue::as_str).map(ToOwned::to_owned).collect()))
             })
             .ok_or_else(|| CoCoError::JsonParseError(format!("Expected string array, got: {}", raw))),
         Property::SymbolArray { .. } => raw
             .as_array()
             .and_then(|arr| {
-                if !arr.iter().all(serde_json::Value::is_string) {
+                if !arr.iter().all(JsonValue::is_string) {
                     error!("Expected symbol array, but found non-string value in array: {}", raw);
                     return None;
                 }
-                Some(Value::SymbolArray(arr.iter().filter_map(serde_json::Value::as_str).map(ToOwned::to_owned).collect()))
+                Some(Value::SymbolArray(arr.iter().filter_map(JsonValue::as_str).map(ToOwned::to_owned).collect()))
             })
             .ok_or_else(|| CoCoError::JsonParseError(format!("Expected symbol array, got: {}", raw))),
         Property::ObjectArray { .. } => raw
             .as_array()
             .and_then(|arr| {
-                if !arr.iter().all(serde_json::Value::is_string) {
+                if !arr.iter().all(JsonValue::is_string) {
                     error!("Expected object array, but found non-string value in array: {}", raw);
                     return None;
                 }
-                Some(Value::ObjectArray(arr.iter().filter_map(serde_json::Value::as_str).map(ToOwned::to_owned).collect()))
+                Some(Value::ObjectArray(arr.iter().filter_map(JsonValue::as_str).map(ToOwned::to_owned).collect()))
             })
             .ok_or_else(|| CoCoError::JsonParseError(format!("Expected object array, got: {}", raw))),
     }
@@ -321,6 +322,86 @@ pub struct Object {
     pub properties: Option<HashMap<String, Value>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub values: Option<HashMap<String, TimedValue>>,
+}
+
+pub async fn object_from_json(coco: CoCo, mut obj: JsonValue) -> Result<Object, CoCoError> {
+    let class_names = obj.get("classes").and_then(|v| v.as_array()).ok_or_else(|| CoCoError::JsonParseError("Missing or invalid 'classes' field".to_string()))?.iter().filter_map(JsonValue::as_str).map(ToOwned::to_owned).collect::<HashSet<String>>();
+    let obj_map = obj.as_object_mut().ok_or_else(|| CoCoError::JsonParseError("Object payload must be a JSON object".to_string()))?;
+
+    let properties = match obj_map.remove("properties") {
+        Some(raw) => Some(properties_from_json(coco.clone(), raw).await?),
+        None => None,
+    };
+
+    let values = match obj_map.remove("values") {
+        Some(raw) => Some(timed_values_from_json(coco.clone(), raw).await?),
+        None => None,
+    };
+
+    Ok(Object {
+        id: obj.get("id").and_then(JsonValue::as_str).map(ToOwned::to_owned),
+        classes: class_names,
+        properties,
+        values,
+    })
+}
+
+pub async fn properties_from_json(coco: CoCo, obj: JsonValue) -> Result<HashMap<String, Value>, CoCoError> {
+    let class_names = obj.get("classes").and_then(|v| v.as_array()).ok_or_else(|| CoCoError::JsonParseError("Missing or invalid 'classes' field".to_string()))?.iter().filter_map(JsonValue::as_str).map(ToOwned::to_owned).collect::<HashSet<String>>();
+
+    match coco.get_static_properties(class_names.clone()).await {
+        Ok(static_props) => {
+            let mut properties = HashMap::new();
+            for (_class_name, class_props) in static_props {
+                for (prop_name, prop) in class_props {
+                    if let Some(value) = obj.get(&prop_name) {
+                        properties.insert(prop_name.clone(), value_from_json(&prop, value)?);
+                    }
+                }
+            }
+            Ok(properties)
+        }
+        Err(e) => Err(CoCoError::JsonParseError(format!("Failed to retrieve static properties for object: {}", e))),
+    }
+}
+
+pub async fn values_from_json(coco: CoCo, obj: JsonValue) -> Result<HashMap<String, Value>, CoCoError> {
+    let class_names = obj.get("classes").and_then(|v| v.as_array()).ok_or_else(|| CoCoError::JsonParseError("Missing or invalid 'classes' field".to_string()))?.iter().filter_map(JsonValue::as_str).map(ToOwned::to_owned).collect::<HashSet<String>>();
+
+    match coco.get_dynamic_properties(class_names.clone()).await {
+        Ok(dynamic_props) => {
+            let mut properties = HashMap::new();
+            for (_class_name, class_props) in dynamic_props {
+                for (prop_name, prop) in class_props {
+                    if let Some(value) = obj.get(&prop_name) {
+                        properties.insert(prop_name.clone(), value_from_json(&prop, value)?);
+                    }
+                }
+            }
+            Ok(properties)
+        }
+        Err(e) => Err(CoCoError::JsonParseError(format!("Failed to retrieve dynamic properties for object: {}", e))),
+    }
+}
+
+pub async fn timed_values_from_json(coco: CoCo, obj: JsonValue) -> Result<HashMap<String, TimedValue>, CoCoError> {
+    let class_names = obj.get("classes").and_then(|v| v.as_array()).ok_or_else(|| CoCoError::JsonParseError("Missing or invalid 'classes' field".to_string()))?.iter().filter_map(JsonValue::as_str).map(ToOwned::to_owned).collect::<HashSet<String>>();
+
+    match coco.get_dynamic_properties(class_names.clone()).await {
+        Ok(dynamic_props) => {
+            let mut properties = HashMap::new();
+            let timestamp = Utc::now();
+            for (_class_name, class_props) in dynamic_props {
+                for (prop_name, prop) in class_props {
+                    if let Some(value) = obj.get(&prop_name) {
+                        properties.insert(prop_name.clone(), TimedValue { value: value_from_json(&prop, value)?, timestamp });
+                    }
+                }
+            }
+            Ok(properties)
+        }
+        Err(e) => Err(CoCoError::JsonParseError(format!("Failed to retrieve dynamic properties for object: {}", e))),
+    }
 }
 
 impl fmt::Display for Object {

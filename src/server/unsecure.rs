@@ -1,6 +1,6 @@
 use crate::{
     CoCo,
-    model::{Class, CoCoError, CoCoEvent, Object, Property, Rule, TimedValue, Value, from_json},
+    model::{Class, CoCoError, CoCoEvent, Object, Property, Rule, TimedValue, Value, object_from_json, properties_from_json, values_from_json},
 };
 use axum::{
     Json, Router,
@@ -94,6 +94,7 @@ async fn create_class(State(coco): State<CoCo>, Json(class): Json<Class>) -> imp
     trace!("Handling request to create class with name: {}", class.name);
     match coco.create_class(class).await {
         Ok(_) => (StatusCode::CREATED, "Class created successfully".to_string()).into_response(),
+        Err(CoCoError::ClassAlreadyExists(_)) => (StatusCode::CONFLICT, "Class already exists".to_string()).into_response(),
         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to create class: {}", e)).into_response(),
     }
 }
@@ -156,6 +157,7 @@ async fn create_rule(State(coco): State<CoCo>, Json(rule): Json<Rule>) -> impl I
     trace!("Handling request to create rule with name: {}", rule.name);
     match coco.create_rule(rule).await {
         Ok(_) => (StatusCode::CREATED, "Rule created successfully".to_string()).into_response(),
+        Err(CoCoError::RuleAlreadyExists(_)) => (StatusCode::CONFLICT, "Rule already exists".to_string()).into_response(),
         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to create rule: {}", e)).into_response(),
     }
 }
@@ -229,16 +231,22 @@ async fn get_object(State(coco): State<CoCo>, Path(id): Path<String>) -> impl In
         request_body = OpenApiObject,
         responses(
             (status = 201, description = "Object created successfully", body = String),
+            (status = 400, description = "Invalid object data in request body"),
             (status = 404, description = "Class not found for object"),
             (status = 409, description = "Object already exists"),
             (status = 500, description = "Failed to create object")
         )
     )]
-async fn create_object(State(coco): State<CoCo>, Json(object): Json<Object>) -> impl IntoResponse {
-    trace!("Handling request to create object with properties: {:?}", object.properties);
-    match coco.create_object(object).await {
-        Ok(object_id) => (StatusCode::CREATED, object_id).into_response(),
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to create object: {}", e)).into_response(),
+async fn create_object(State(coco): State<CoCo>, Json(object): Json<JsonValue>) -> impl IntoResponse {
+    trace!("Handling request to create object: {:?}", object);
+    match object_from_json(coco.clone(), object).await {
+        Ok(new_object) => match coco.create_object(new_object).await {
+            Ok(object_id) => (StatusCode::CREATED, object_id).into_response(),
+            Err(CoCoError::ClassNotFound(e)) => (StatusCode::NOT_FOUND, format!("Class not found: {}", e)).into_response(),
+            Err(CoCoError::ObjectAlreadyExists(e)) => (StatusCode::CONFLICT, format!("Object already exists: {}", e)).into_response(),
+            Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to create object: {}", e)).into_response(),
+        },
+        Err(e) => (StatusCode::BAD_REQUEST, format!("Invalid object data in request body: {}", e)).into_response(),
     }
 }
 
@@ -254,38 +262,20 @@ async fn create_object(State(coco): State<CoCo>, Json(object): Json<Object>) -> 
         request_body = inline(HashMap<String, OpenApiValue>),
         responses(
             (status = 200, description = "Object properties updated successfully"),
+            (status = 400, description = "Invalid property values in request body"),
             (status = 404, description = "Object not found"),
             (status = 500, description = "Failed to update object properties")
         )
     )]
-async fn set_properties(State(coco): State<CoCo>, Path(object_id): Path<String>, Json(properties): Json<HashMap<String, JsonValue>>) -> impl IntoResponse {
+async fn set_properties(State(coco): State<CoCo>, Path(object_id): Path<String>, Json(properties): Json<JsonValue>) -> impl IntoResponse {
     trace!("Handling request to set properties for object with ID: {}. New properties: {:?}", object_id, properties);
-
-    match coco.get_object_classes(&object_id).await {
-        Ok(classes) => match coco.get_static_properties(classes).await {
-            Ok(static_props) => {
-                let mut props = HashMap::new();
-                for (_class_name, class_props) in static_props {
-                    for (prop_name, prop) in class_props {
-                        props.insert(
-                            prop_name.clone(),
-                            from_json(&prop, properties.get(&prop_name).unwrap_or(&JsonValue::Null)).unwrap_or_else(|e| {
-                                error!("Failed to parse property '{}' for object '{}': {}", prop_name, object_id, e);
-                                Value::String("".to_string())
-                            }),
-                        );
-                    }
-                }
-
-                return match coco.set_properties(&object_id, props).await {
-                    Ok(_) => (StatusCode::OK, "Object properties updated successfully".to_string()).into_response(),
-                    Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to update properties for object with ID '{}': {}", object_id, e)).into_response(),
-                };
-            }
-            Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to retrieve static properties for object with ID '{}': {}", object_id, e)).into_response(),
+    match properties_from_json(coco.clone(), properties).await {
+        Ok(properties) => match coco.set_properties(&object_id, properties).await {
+            Ok(_) => (StatusCode::OK, "Object properties updated successfully".to_string()).into_response(),
+            Err(CoCoError::ObjectNotFound(e)) => (StatusCode::NOT_FOUND, format!("Object not found: {}", e)).into_response(),
+            Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to update properties for object with ID '{}': {}", object_id, e)).into_response(),
         },
-        Err(CoCoError::ObjectNotFound(e)) => return (StatusCode::NOT_FOUND, format!("Object not found: {}", e)).into_response(),
-        Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to retrieve object classes for object with ID '{}': {}", object_id, e)).into_response(),
+        Err(e) => (StatusCode::BAD_REQUEST, format!("Invalid property values in request body: {}", e)).into_response(),
     }
 }
 
@@ -311,37 +301,16 @@ struct DateQuery {
             (status = 500, description = "Failed to add data to object")
         )
     )]
-async fn add_data(State(coco): State<CoCo>, Path(object_id): Path<String>, Query(date_time): Query<DateQuery>, Json(values): Json<HashMap<String, JsonValue>>) -> impl IntoResponse {
+async fn add_data(State(coco): State<CoCo>, Path(object_id): Path<String>, Query(date_time): Query<DateQuery>, Json(values): Json<JsonValue>) -> impl IntoResponse {
     trace!("Handling request to add data to object with ID: {}. Values: {:?}, Timestamp: {:?}", object_id, values, date_time);
     let timestamp = date_time.time.unwrap_or_else(Utc::now);
-
-    match coco.get_object_classes(&object_id).await {
-        Ok(classes) => match coco.get_dynamic_properties(classes).await {
-            Ok(dynamic_props) => {
-                let mut props = HashMap::new();
-                for (_class_name, class_props) in dynamic_props {
-                    for (prop_name, prop) in class_props {
-                        if let Some(value) = values.get(&prop_name) {
-                            props.insert(
-                                prop_name.clone(),
-                                from_json(&prop, value).unwrap_or_else(|e| {
-                                    error!("Failed to parse property '{}' for object '{}': {}", prop_name, object_id, e);
-                                    Value::String("".to_string())
-                                }),
-                            );
-                        }
-                    }
-                }
-
-                return match coco.add_values(&object_id, props, timestamp).await {
-                    Ok(_) => (StatusCode::OK, "Data added to object successfully".to_string()).into_response(),
-                    Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to add data to object with ID '{}': {}", object_id, e)).into_response(),
-                };
-            }
-            Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to retrieve static properties for object with ID '{}': {}", object_id, e)).into_response(),
+    match values_from_json(coco.clone(), values).await {
+        Ok(values) => match coco.add_values(&object_id, values, timestamp).await {
+            Ok(_) => (StatusCode::OK, "Data added to object successfully".to_string()).into_response(),
+            Err(CoCoError::ObjectNotFound(e)) => (StatusCode::NOT_FOUND, format!("Object not found: {}", e)).into_response(),
+            Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to add data to object with ID '{}': {}", object_id, e)).into_response(),
         },
-        Err(CoCoError::ObjectNotFound(e)) => return (StatusCode::NOT_FOUND, format!("Object not found: {}", e)).into_response(),
-        Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to retrieve object classes for object with ID '{}': {}", object_id, e)).into_response(),
+        Err(e) => (StatusCode::BAD_REQUEST, format!("Invalid data values in request body: {}", e)).into_response(),
     }
 }
 
@@ -380,6 +349,7 @@ async fn get_data(State(coco): State<CoCo>, Path(object_id): Path<String>, Query
             }
             Json(result).into_response()
         }
+        Err(CoCoError::ObjectNotFound(e)) => (StatusCode::NOT_FOUND, format!("Object not found: {}", e)).into_response(),
         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to get data for object with ID '{}': {}", object_id, e)).into_response(),
     }
 }
