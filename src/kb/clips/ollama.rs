@@ -14,6 +14,53 @@ enum Tool {
     AddValues { object_id: String, values: HashMap<String, Value> },
 }
 
+fn json_to_model_value(value: &serde_json::Value) -> Option<Value> {
+    match value {
+        serde_json::Value::Null => Some(Value::Null),
+        serde_json::Value::Bool(b) => Some(Value::Bool(*b)),
+        serde_json::Value::Number(n) => {
+            if let Some(i) = n.as_i64() {
+                Some(Value::Int(i))
+            } else {
+                n.as_f64().map(Value::Float)
+            }
+        }
+        serde_json::Value::String(s) => Some(Value::String(s.clone())),
+        serde_json::Value::Array(arr) => {
+            if arr.is_empty() {
+                return None;
+            }
+
+            let all_bool = arr.iter().all(serde_json::Value::is_boolean);
+            if all_bool {
+                let vals = arr.iter().filter_map(serde_json::Value::as_bool).collect::<Vec<_>>();
+                return Some(Value::BoolArray(vals));
+            }
+
+            let all_i64 = arr.iter().all(|v| v.as_i64().is_some());
+            if all_i64 {
+                let vals = arr.iter().filter_map(serde_json::Value::as_i64).collect::<Vec<_>>();
+                return Some(Value::IntArray(vals));
+            }
+
+            let all_number = arr.iter().all(serde_json::Value::is_number);
+            if all_number {
+                let vals = arr.iter().filter_map(serde_json::Value::as_f64).collect::<Vec<_>>();
+                return Some(Value::FloatArray(vals));
+            }
+
+            let all_string = arr.iter().all(serde_json::Value::is_string);
+            if all_string {
+                let vals = arr.iter().filter_map(serde_json::Value::as_str).map(ToOwned::to_owned).collect::<Vec<_>>();
+                return Some(Value::StringArray(vals));
+            }
+
+            None
+        }
+        serde_json::Value::Object(_) => None,
+    }
+}
+
 pub async fn setup_ollama(kb: &CLIPSKnowledgeBase) -> Result<(), KnowledgeBaseError> {
     let host = std::env::var("OLLAMA_HOST").unwrap_or_else(|_| "localhost".to_string());
     let port = std::env::var("OLLAMA_PORT").unwrap_or_else(|_| "11434".to_string()).parse::<u16>().unwrap_or(11434);
@@ -113,32 +160,32 @@ pub async fn add_ollama(kb: &CLIPSKnowledgeBase, host: String, port: u16, model:
                     Ok(response) => match response.json::<serde_json::Value>().await {
                         Ok(json) => {
                             let mut vals = HashMap::new();
-                            if let Some(content) = json["message"]["content"].as_str() {
-                                if !content.is_empty() {
-                                    vals.insert(content_id, Value::String(content.to_string()));
-                                }
+                            if let Some(content) = json["message"]["content"].as_str()
+                                && !content.is_empty()
+                            {
+                                vals.insert(content_id, Value::String(content.to_string()));
                             }
                             if let Some(tools) = json["message"]["tool_calls"].as_array() {
                                 for tool in tools {
                                     if let Some(tool_name) = tool["name"].as_str() {
                                         match tool_name {
                                             "set_properties" => {
-                                                if let Some(properties) = tool["arguments"]["properties"].as_object() {
+                                                if let Some(properties) = tool["arguments"].as_object() {
                                                     let mut props = HashMap::new();
                                                     for (key, value) in properties {
-                                                        if let Some(val_str) = value.as_str() {
-                                                            props.insert(key.clone(), Value::String(val_str.to_string()));
+                                                        if let Some(v) = json_to_model_value(value) {
+                                                            props.insert(key.clone(), v);
                                                         }
                                                     }
                                                     let _ = tx.send(Tool::SetProperties { object_id: object_id.clone(), properties: props }).await;
                                                 }
                                             }
                                             "add_values" => {
-                                                if let Some(values) = tool["arguments"]["values"].as_object() {
+                                                if let Some(values) = tool["arguments"].as_object() {
                                                     let mut vals = HashMap::new();
                                                     for (key, value) in values {
-                                                        if let Some(val_str) = value.as_str() {
-                                                            vals.insert(key.clone(), Value::String(val_str.to_string()));
+                                                        if let Some(v) = json_to_model_value(value) {
+                                                            vals.insert(key.clone(), v);
                                                         }
                                                     }
                                                     let _ = tx.send(Tool::AddValues { object_id: object_id.clone(), values: vals }).await;

@@ -1,11 +1,15 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use serde_json::Value as JsonValue;
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{HashMap, HashSet, VecDeque},
     fmt,
 };
+use tracing::error;
 #[cfg(feature = "server")]
 use utoipa::ToSchema;
+
+use crate::CoCo;
 
 #[derive(Clone, Serialize, Deserialize, Debug, PartialEq)]
 #[cfg_attr(feature = "server", derive(ToSchema))]
@@ -95,6 +99,77 @@ pub enum Property {
     },
 }
 
+pub fn from_json(property: &Property, raw: &JsonValue) -> Result<Value, CoCoError> {
+    match property {
+        Property::Bool { .. } => raw.as_bool().map(Value::Bool).ok_or_else(|| CoCoError::JsonParseError(format!("Expected bool, got: {}", raw))),
+        Property::Int { .. } => raw.as_i64().map(Value::Int).ok_or_else(|| CoCoError::JsonParseError(format!("Expected int, got: {}", raw))),
+        Property::Float { .. } => raw.as_f64().map(Value::Float).ok_or_else(|| CoCoError::JsonParseError(format!("Expected float, got: {}", raw))),
+        Property::String { .. } => raw.as_str().map(|s| Value::String(s.to_string())).ok_or_else(|| CoCoError::JsonParseError(format!("Expected string, got: {}", raw))),
+        Property::Symbol { .. } => raw.as_str().map(|s| Value::Symbol(s.to_string())).ok_or_else(|| CoCoError::JsonParseError(format!("Expected symbol, got: {}", raw))),
+        Property::Object { .. } => raw.as_str().map(|s| Value::Object(s.to_string())).ok_or_else(|| CoCoError::JsonParseError(format!("Expected object reference, got: {}", raw))),
+        Property::BoolArray { .. } => raw
+            .as_array()
+            .and_then(|arr| {
+                if !arr.iter().all(serde_json::Value::is_boolean) {
+                    error!("Expected bool array, but found non-boolean value in array: {}", raw);
+                    return None;
+                }
+                Some(Value::BoolArray(arr.iter().filter_map(serde_json::Value::as_bool).collect()))
+            })
+            .ok_or_else(|| CoCoError::JsonParseError(format!("Expected bool array, got: {}", raw))),
+        Property::IntArray { .. } => raw
+            .as_array()
+            .and_then(|arr| {
+                if !arr.iter().all(serde_json::Value::is_i64) {
+                    error!("Expected int array, but found non-integer value in array: {}", raw);
+                    return None;
+                }
+                Some(Value::IntArray(arr.iter().filter_map(serde_json::Value::as_i64).collect()))
+            })
+            .ok_or_else(|| CoCoError::JsonParseError(format!("Expected int array, got: {}", raw))),
+        Property::FloatArray { .. } => raw
+            .as_array()
+            .and_then(|arr| {
+                if !arr.iter().all(serde_json::Value::is_f64) {
+                    error!("Expected float array, but found non-float value in array: {}", raw);
+                    return None;
+                }
+                Some(Value::FloatArray(arr.iter().filter_map(serde_json::Value::as_f64).collect()))
+            })
+            .ok_or_else(|| CoCoError::JsonParseError(format!("Expected float array, got: {}", raw))),
+        Property::StringArray { .. } => raw
+            .as_array()
+            .and_then(|arr| {
+                if !arr.iter().all(serde_json::Value::is_string) {
+                    error!("Expected string array, but found non-string value in array: {}", raw);
+                    return None;
+                }
+                Some(Value::StringArray(arr.iter().filter_map(serde_json::Value::as_str).map(ToOwned::to_owned).collect()))
+            })
+            .ok_or_else(|| CoCoError::JsonParseError(format!("Expected string array, got: {}", raw))),
+        Property::SymbolArray { .. } => raw
+            .as_array()
+            .and_then(|arr| {
+                if !arr.iter().all(serde_json::Value::is_string) {
+                    error!("Expected symbol array, but found non-string value in array: {}", raw);
+                    return None;
+                }
+                Some(Value::SymbolArray(arr.iter().filter_map(serde_json::Value::as_str).map(ToOwned::to_owned).collect()))
+            })
+            .ok_or_else(|| CoCoError::JsonParseError(format!("Expected symbol array, got: {}", raw))),
+        Property::ObjectArray { .. } => raw
+            .as_array()
+            .and_then(|arr| {
+                if !arr.iter().all(serde_json::Value::is_string) {
+                    error!("Expected object array, but found non-string value in array: {}", raw);
+                    return None;
+                }
+                Some(Value::ObjectArray(arr.iter().filter_map(serde_json::Value::as_str).map(ToOwned::to_owned).collect()))
+            })
+            .ok_or_else(|| CoCoError::JsonParseError(format!("Expected object array, got: {}", raw))),
+    }
+}
+
 impl fmt::Display for Property {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -153,6 +228,8 @@ pub enum Value {
     IntArray(Vec<i64>),
     FloatArray(Vec<f64>),
     StringArray(Vec<String>),
+    SymbolArray(Vec<String>),
+    ObjectArray(Vec<String>),
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug, PartialEq)]
@@ -176,6 +253,8 @@ impl PartialEq<&str> for Value {
             Value::IntArray(arr) => other == &format!("{:?}", arr),
             Value::FloatArray(arr) => other == &format!("{:?}", arr),
             Value::StringArray(arr) => other == &format!("{:?}", arr),
+            Value::SymbolArray(arr) => other == &format!("{:?}", arr),
+            Value::ObjectArray(arr) => other == &format!("{:?}", arr),
         }
     }
 }
@@ -194,6 +273,8 @@ impl PartialEq<String> for Value {
             Value::IntArray(arr) => other == &format!("{:?}", arr),
             Value::FloatArray(arr) => other == &format!("{:?}", arr),
             Value::StringArray(arr) => other == &format!("{:?}", arr),
+            Value::SymbolArray(arr) => other == &format!("{:?}", arr),
+            Value::ObjectArray(arr) => other == &format!("{:?}", arr),
         }
     }
 }
@@ -212,6 +293,8 @@ impl fmt::Display for Value {
             Value::IntArray(arr) => write!(f, "int_array: {:?}", arr),
             Value::FloatArray(arr) => write!(f, "float_array: {:?}", arr),
             Value::StringArray(arr) => write!(f, "string_array: {:?}", arr),
+            Value::SymbolArray(arr) => write!(f, "symbol_array: {:?}", arr),
+            Value::ObjectArray(arr) => write!(f, "object_array: {:?}", arr),
         }
     }
 }
@@ -240,6 +323,36 @@ pub struct Object {
     pub properties: Option<HashMap<String, Value>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub values: Option<HashMap<String, TimedValue>>,
+}
+
+pub async fn get_static_properties(coco: &CoCo, object: &Object) -> Result<HashMap<String, Property>, CoCoError> {
+    let mut queue: VecDeque<String> = object.classes.iter().cloned().collect();
+    let mut visited: HashSet<String> = HashSet::new();
+    let mut properties: HashMap<String, Property> = HashMap::new();
+
+    while let Some(class_name) = queue.pop_front() {
+        if !visited.insert(class_name.clone()) {
+            continue;
+        }
+
+        let class = coco.get_class(&class_name).await?.ok_or_else(|| CoCoError::ClassNotFound(class_name.clone()))?;
+
+        if let Some(static_props) = class.static_properties {
+            for (name, property) in static_props {
+                properties.entry(name).or_insert(property);
+            }
+        }
+
+        if let Some(parents) = class.parents {
+            for parent in parents {
+                if !visited.contains(&parent) {
+                    queue.push_back(parent);
+                }
+            }
+        }
+    }
+
+    Ok(properties)
 }
 
 impl fmt::Display for Object {

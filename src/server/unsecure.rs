@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet, VecDeque};
 
 use crate::{
     CoCo,
@@ -16,11 +16,122 @@ use axum::{
 };
 use chrono::{DateTime, Utc};
 use serde::Deserialize;
+use serde_json::Value as JsonValue;
 use tracing::{error, trace};
 use utoipa::{IntoParams, OpenApi};
 
 type OpenApiValue = Value;
 type OpenApiObject = Object;
+
+fn coerce_json_value(raw: &JsonValue, property: Option<&Property>) -> Result<Value, CoCoError> {
+    match raw {
+        JsonValue::Null => Ok(Value::Null),
+        JsonValue::Bool(b) => Ok(Value::Bool(*b)),
+        JsonValue::Number(n) => {
+            if let Some(i) = n.as_i64() {
+                Ok(Value::Int(i))
+            } else if let Some(f) = n.as_f64() {
+                Ok(Value::Float(f))
+            } else {
+                Err(CoCoError::JsonParseError(format!("Unsupported numeric value: {}", n)))
+            }
+        }
+        JsonValue::String(s) => match property {
+            Some(Property::Symbol { .. }) => Ok(Value::Symbol(s.clone())),
+            Some(Property::Object { .. }) => Ok(Value::Object(s.clone())),
+            _ => Ok(Value::String(s.clone())),
+        },
+        JsonValue::Array(items) => {
+            if let Some(prop) = property {
+                match prop {
+                    Property::BoolArray { .. } => {
+                        let values = items.iter().map(|v| v.as_bool().ok_or_else(|| CoCoError::JsonParseError("Expected bool-array".to_owned()))).collect::<Result<Vec<_>, _>>()?;
+                        return Ok(Value::BoolArray(values));
+                    }
+                    Property::IntArray { .. } => {
+                        let values = items.iter().map(|v| v.as_i64().ok_or_else(|| CoCoError::JsonParseError("Expected int-array".to_owned()))).collect::<Result<Vec<_>, _>>()?;
+                        return Ok(Value::IntArray(values));
+                    }
+                    Property::FloatArray { .. } => {
+                        let values = items.iter().map(|v| v.as_f64().ok_or_else(|| CoCoError::JsonParseError("Expected float-array".to_owned()))).collect::<Result<Vec<_>, _>>()?;
+                        return Ok(Value::FloatArray(values));
+                    }
+                    Property::StringArray { .. } | Property::SymbolArray { .. } | Property::ObjectArray { .. } => {
+                        let values = items.iter().map(|v| v.as_str().map(ToOwned::to_owned).ok_or_else(|| CoCoError::JsonParseError("Expected string-array".to_owned()))).collect::<Result<Vec<_>, _>>()?;
+                        return Ok(Value::StringArray(values));
+                    }
+                    _ => {}
+                }
+            }
+
+            if items.iter().all(JsonValue::is_boolean) {
+                let values = items.iter().filter_map(JsonValue::as_bool).collect::<Vec<_>>();
+                Ok(Value::BoolArray(values))
+            } else if items.iter().all(|v| v.as_i64().is_some()) {
+                let values = items.iter().filter_map(JsonValue::as_i64).collect::<Vec<_>>();
+                Ok(Value::IntArray(values))
+            } else if items.iter().all(JsonValue::is_number) {
+                let values = items.iter().filter_map(JsonValue::as_f64).collect::<Vec<_>>();
+                Ok(Value::FloatArray(values))
+            } else if items.iter().all(JsonValue::is_string) {
+                let values = items.iter().filter_map(JsonValue::as_str).map(ToOwned::to_owned).collect::<Vec<_>>();
+                Ok(Value::StringArray(values))
+            } else {
+                Err(CoCoError::JsonParseError("Unsupported mixed array type".to_owned()))
+            }
+        }
+        JsonValue::Object(_) => Err(CoCoError::JsonParseError("Nested objects are not supported for Value".to_owned())),
+    }
+}
+
+async fn build_property_index(coco: &CoCo, object: &Object) -> Result<HashMap<String, Property>, CoCoError> {
+    let mut queue: VecDeque<String> = object.classes.iter().cloned().collect();
+    let mut visited: HashSet<String> = HashSet::new();
+    let mut properties: HashMap<String, Property> = HashMap::new();
+
+    while let Some(class_name) = queue.pop_front() {
+        if !visited.insert(class_name.clone()) {
+            continue;
+        }
+
+        let class = coco.get_class(&class_name).await?.ok_or_else(|| CoCoError::ClassNotFound(class_name.clone()))?;
+
+        if let Some(static_props) = class.static_properties {
+            for (name, property) in static_props {
+                properties.entry(name).or_insert(property);
+            }
+        }
+
+        if let Some(dynamic_props) = class.dynamic_properties {
+            for (name, property) in dynamic_props {
+                properties.entry(name).or_insert(property);
+            }
+        }
+
+        if let Some(parents) = class.parents {
+            for parent in parents {
+                if !visited.contains(&parent) {
+                    queue.push_back(parent);
+                }
+            }
+        }
+    }
+
+    Ok(properties)
+}
+
+async fn coerce_values_for_object(coco: &CoCo, object_id: &str, raw_values: HashMap<String, JsonValue>) -> Result<HashMap<String, Value>, CoCoError> {
+    let object = coco.get_object(object_id).await?.ok_or_else(|| CoCoError::ObjectNotFound(object_id.to_owned()))?;
+    let properties = build_property_index(coco, &object).await?;
+
+    raw_values
+        .into_iter()
+        .map(|(name, raw)| {
+            let property = properties.get(&name);
+            coerce_json_value(&raw, property).map(|value| (name, value))
+        })
+        .collect()
+}
 
 pub async fn unsecure_coco_router(coco: CoCo) -> Router {
     Router::new()
@@ -258,8 +369,17 @@ async fn create_object(State(coco): State<CoCo>, Json(object): Json<OpenApiObjec
             (status = 500, description = "Failed to update object properties")
         )
     )]
-async fn set_properties(State(coco): State<CoCo>, Path(id): Path<String>, Json(properties): Json<HashMap<String, Value>>) -> impl IntoResponse {
+async fn set_properties(State(coco): State<CoCo>, Path(id): Path<String>, Json(properties): Json<HashMap<String, JsonValue>>) -> impl IntoResponse {
     trace!("Handling request to set properties for object with ID: {}. New properties: {:?}", id, properties);
+
+    let properties = match coerce_values_for_object(&coco, &id, properties).await {
+        Ok(values) => values,
+        Err(CoCoError::ObjectNotFound(e)) => return (StatusCode::NOT_FOUND, format!("Object not found: {}", e)).into_response(),
+        Err(CoCoError::ClassNotFound(e)) => return (StatusCode::BAD_REQUEST, format!("Class not found while coercing values: {}", e)).into_response(),
+        Err(CoCoError::JsonParseError(e)) => return (StatusCode::BAD_REQUEST, format!("Invalid value payload: {}", e)).into_response(),
+        Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to coerce values for object with ID '{}': {}", id, e)).into_response(),
+    };
+
     match coco.set_properties(&id, properties).await {
         Ok(_) => (StatusCode::OK, "Object properties updated successfully".to_string()).into_response(),
         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to update properties for object with ID '{}': {}", id, e)).into_response(),
@@ -288,9 +408,18 @@ struct DateQuery {
             (status = 500, description = "Failed to add data to object")
         )
     )]
-async fn add_data(State(coco): State<CoCo>, Path(object_id): Path<String>, Query(date_time): Query<DateQuery>, Json(values): Json<HashMap<String, Value>>) -> impl IntoResponse {
+async fn add_data(State(coco): State<CoCo>, Path(object_id): Path<String>, Query(date_time): Query<DateQuery>, Json(values): Json<HashMap<String, JsonValue>>) -> impl IntoResponse {
     trace!("Handling request to add data to object with ID: {}. Values: {:?}, Timestamp: {:?}", object_id, values, date_time);
     let timestamp = date_time.time.unwrap_or_else(Utc::now);
+
+    let values = match coerce_values_for_object(&coco, &object_id, values).await {
+        Ok(values) => values,
+        Err(CoCoError::ObjectNotFound(e)) => return (StatusCode::NOT_FOUND, format!("Object not found: {}", e)).into_response(),
+        Err(CoCoError::ClassNotFound(e)) => return (StatusCode::BAD_REQUEST, format!("Class not found while coercing values: {}", e)).into_response(),
+        Err(CoCoError::JsonParseError(e)) => return (StatusCode::BAD_REQUEST, format!("Invalid value payload: {}", e)).into_response(),
+        Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to coerce values for object with ID '{}': {}", object_id, e)).into_response(),
+    };
+
     match coco.add_values(&object_id, values, timestamp).await {
         Ok(_) => (StatusCode::OK, "Data added to object successfully".to_string()).into_response(),
         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to add data to object with ID '{}': {}", object_id, e)).into_response(),
