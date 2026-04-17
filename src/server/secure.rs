@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use crate::{
     CoCo,
     db::DatabaseError,
-    model::{Class, CoCoError, CoCoEvent, Object, Property, Rule, TimedValue, Value},
+    model::{Class, CoCoError, CoCoEvent, Object, Property, Rule, TimedValue, Value, from_json},
 };
 use argon2::{
     Argon2, PasswordHash, PasswordHasher, PasswordVerifier,
@@ -26,6 +26,7 @@ use jsonwebtoken::{DecodingKey, EncodingKey, Header, Validation, errors::Error};
 use mongodb::bson::doc;
 use mongodb::{Client, IndexModel, bson::Document, options::IndexOptions};
 use serde::{Deserialize, Serialize};
+use serde_json::Value as JsonValue;
 use tracing::{error, trace};
 use utoipa::{
     IntoParams, Modify, OpenApi, ToSchema,
@@ -573,7 +574,7 @@ async fn create_object(State(coco): State<CoCo>, Extension(user): Extension<Curr
         params(
             ("id" = String, Path, description = "ID of the object to update")
         ),
-        request_body = inline(HashMap<String, Value>),
+        request_body = inline(HashMap<String, OpenApiValue>),
         security(("bearerAuth" = [])),
         responses(
             (status = 200, description = "Object properties updated successfully"),
@@ -583,14 +584,36 @@ async fn create_object(State(coco): State<CoCo>, Extension(user): Extension<Curr
             (status = 500, description = "Failed to update object properties")
         )
     )]
-async fn set_properties(State(coco): State<CoCo>, Extension(user): Extension<CurrentUser>, Path(id): Path<String>, Json(properties): Json<HashMap<String, Value>>) -> impl IntoResponse {
+async fn set_properties(State(coco): State<CoCo>, Extension(user): Extension<CurrentUser>, Path(object_id): Path<String>, Json(properties): Json<HashMap<String, JsonValue>>) -> impl IntoResponse {
     if user.role != "admin" {
         return (StatusCode::FORBIDDEN, "Only admin users can update object properties").into_response();
     }
-    trace!("Handling request to set properties for object with ID: {}, properties: {:?}", id, properties);
-    match coco.set_properties(&id, properties).await {
-        Ok(_) => (StatusCode::OK, "Object properties updated successfully".to_string()).into_response(),
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to update properties for object with ID '{}': {}", id, e)).into_response(),
+    trace!("Handling request to set properties for object with ID: {}, properties: {:?}", object_id, properties);
+    match coco.get_object_classes(&object_id).await {
+        Ok(classes) => match coco.get_static_properties(classes).await {
+            Ok(static_props) => {
+                let mut props = HashMap::new();
+                for (_class_name, class_props) in static_props {
+                    for (prop_name, prop) in class_props {
+                        props.insert(
+                            prop_name.clone(),
+                            from_json(&prop, properties.get(&prop_name).unwrap_or(&JsonValue::Null)).unwrap_or_else(|e| {
+                                error!("Failed to parse property '{}' for object '{}': {}", prop_name, object_id, e);
+                                Value::String("".to_string())
+                            }),
+                        );
+                    }
+                }
+
+                return match coco.set_properties(&object_id, props).await {
+                    Ok(_) => (StatusCode::OK, "Object properties updated successfully".to_string()).into_response(),
+                    Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to update properties for object with ID '{}': {}", object_id, e)).into_response(),
+                };
+            }
+            Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to retrieve static properties for object with ID '{}': {}", object_id, e)).into_response(),
+        },
+        Err(CoCoError::ObjectNotFound(e)) => return (StatusCode::NOT_FOUND, format!("Object not found: {}", e)).into_response(),
+        Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to retrieve object classes for object with ID '{}': {}", object_id, e)).into_response(),
     }
 }
 
@@ -609,7 +632,7 @@ struct DateQuery {
             ("id" = String, Path, description = "ID of the object to update"),
             ("time" = Option<DateTime<Utc>>, Query, description = "Timestamp for the data being added (optional, defaults to current time)")
         ),
-        request_body = inline(HashMap<String, Value>),
+        request_body = inline(HashMap<String, OpenApiValue>),
         security(("bearerAuth" = [])),
         responses(
             (status = 200, description = "Data added to object successfully"),
@@ -619,14 +642,38 @@ struct DateQuery {
             (status = 500, description = "Failed to add data to object")
         )
     )]
-async fn add_data(State(coco): State<CoCo>, Extension(user): Extension<CurrentUser>, Path(id): Path<String>, Query(date_query): Query<DateQuery>, Json(data): Json<HashMap<String, Value>>) -> impl IntoResponse {
+async fn add_data(State(coco): State<CoCo>, Extension(user): Extension<CurrentUser>, Path(object_id): Path<String>, Query(date_query): Query<DateQuery>, Json(values): Json<HashMap<String, JsonValue>>) -> impl IntoResponse {
     if user.role != "admin" {
         return (StatusCode::FORBIDDEN, "Only admin users can add data to objects").into_response();
     }
     let timestamp = date_query.time.unwrap_or_else(Utc::now);
-    match coco.add_values(&id, data, timestamp).await {
-        Ok(_) => (StatusCode::OK, "Data added to object successfully".to_string()).into_response(),
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to add data to object with ID '{}': {}", id, e)).into_response(),
+    match coco.get_object_classes(&object_id).await {
+        Ok(classes) => match coco.get_dynamic_properties(classes).await {
+            Ok(dynamic_props) => {
+                let mut props = HashMap::new();
+                for (_class_name, class_props) in dynamic_props {
+                    for (prop_name, prop) in class_props {
+                        if let Some(value) = values.get(&prop_name) {
+                            props.insert(
+                                prop_name.clone(),
+                                from_json(&prop, value).unwrap_or_else(|e| {
+                                    error!("Failed to parse property '{}' for object '{}': {}", prop_name, object_id, e);
+                                    Value::String("".to_string())
+                                }),
+                            );
+                        }
+                    }
+                }
+
+                return match coco.add_values(&object_id, props, timestamp).await {
+                    Ok(_) => (StatusCode::OK, "Data added to object successfully".to_string()).into_response(),
+                    Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to add data to object with ID '{}': {}", object_id, e)).into_response(),
+                };
+            }
+            Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to retrieve static properties for object with ID '{}': {}", object_id, e)).into_response(),
+        },
+        Err(CoCoError::ObjectNotFound(e)) => return (StatusCode::NOT_FOUND, format!("Object not found: {}", e)).into_response(),
+        Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to retrieve object classes for object with ID '{}': {}", object_id, e)).into_response(),
     }
 }
 

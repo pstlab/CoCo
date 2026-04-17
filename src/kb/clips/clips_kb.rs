@@ -18,9 +18,10 @@ enum KBCommand {
     CreateClass(Class, oneshot::Sender<Result<(), KnowledgeBaseError>>),
     CreateRule(Rule, oneshot::Sender<Result<(), KnowledgeBaseError>>),
     CreateObject(Object, oneshot::Sender<Result<(), KnowledgeBaseError>>),
-    GetStaticProperties(String, oneshot::Sender<Result<HashMap<String, HashMap<String, Property>>, KnowledgeBaseError>>),
-    GetDynamicProperties(String, oneshot::Sender<Result<HashMap<String, HashMap<String, Property>>, KnowledgeBaseError>>),
+    GetStaticProperties(HashSet<String>, oneshot::Sender<Result<HashMap<String, HashMap<String, Property>>, KnowledgeBaseError>>),
+    GetDynamicProperties(HashSet<String>, oneshot::Sender<Result<HashMap<String, HashMap<String, Property>>, KnowledgeBaseError>>),
     AddClass(String, String, oneshot::Sender<Result<(), KnowledgeBaseError>>),
+    GetObjectClasses(String, oneshot::Sender<Result<HashSet<String>, KnowledgeBaseError>>),
     SetProperties(String, HashMap<String, Value>, oneshot::Sender<Result<(), KnowledgeBaseError>>),
     AddValues(String, HashMap<String, Value>, DateTime<Utc>, oneshot::Sender<Result<(), KnowledgeBaseError>>),
     Build(String, oneshot::Sender<Result<(), KnowledgeBaseError>>),
@@ -48,39 +49,16 @@ struct ActorState {
 }
 
 impl ActorState {
-    fn get_classes(&self, object: &Object) -> Result<HashSet<String>, KnowledgeBaseError> {
-        let mut queue: VecDeque<String> = object.classes.iter().cloned().collect();
-        let mut visited: HashSet<String> = HashSet::new();
-
-        while let Some(class_name) = queue.pop_front() {
-            if !visited.insert(class_name.clone()) {
-                continue;
-            }
-
-            let class = self.classes.get(&class_name).ok_or_else(|| KnowledgeBaseError::ClassNotFound(format!("Class {} not found for object {}", class_name, object.id.clone().unwrap_or_default())))?;
-            if let Some(parents) = &class.parents {
-                for parent in parents {
-                    if !visited.contains(parent) {
-                        queue.push_back(parent.clone());
-                    }
-                }
-            }
-        }
-
-        Ok(visited)
-    }
-
-    fn get_static_properties(&self, object: &Object) -> Result<HashMap<String, HashMap<String, Property>>, KnowledgeBaseError> {
-        let mut queue: VecDeque<String> = object.classes.iter().cloned().collect();
+    fn get_static_properties(&self, classes: HashSet<String>) -> Result<HashMap<String, HashMap<String, Property>>, KnowledgeBaseError> {
+        let mut queue: VecDeque<String> = classes.into_iter().collect();
         let mut visited: HashSet<String> = HashSet::new();
         let mut class_properties = HashMap::new();
-
         while let Some(class_name) = queue.pop_front() {
             if !visited.insert(class_name.clone()) {
                 continue;
             }
 
-            let class = self.classes.get(&class_name).ok_or_else(|| KnowledgeBaseError::ClassNotFound(format!("Class {} not found for object {}", class_name, object.id.clone().unwrap_or_default())))?;
+            let class = self.classes.get(&class_name).ok_or_else(|| KnowledgeBaseError::ClassNotFound(format!("Class {} not found", class_name)))?;
             let mut properties = HashMap::new();
             if let Some(static_props) = &class.static_properties {
                 for (name, property) in static_props {
@@ -104,17 +82,16 @@ impl ActorState {
         Ok(class_properties)
     }
 
-    fn get_dynamic_properties(&self, object: &Object) -> Result<HashMap<String, HashMap<String, Property>>, KnowledgeBaseError> {
-        let mut queue: VecDeque<String> = object.classes.iter().cloned().collect();
+    fn get_dynamic_properties(&self, classes: HashSet<String>) -> Result<HashMap<String, HashMap<String, Property>>, KnowledgeBaseError> {
+        let mut queue: VecDeque<String> = classes.into_iter().collect();
         let mut visited: HashSet<String> = HashSet::new();
         let mut class_properties = HashMap::new();
-
         while let Some(class_name) = queue.pop_front() {
             if !visited.insert(class_name.clone()) {
                 continue;
             }
 
-            let class = self.classes.get(&class_name).ok_or_else(|| KnowledgeBaseError::ClassNotFound(format!("Class {} not found for object {}", class_name, object.id.clone().unwrap_or_default())))?;
+            let class = self.classes.get(&class_name).ok_or_else(|| KnowledgeBaseError::ClassNotFound(format!("Class {} not found", class_name)))?;
             let mut properties = HashMap::new();
             if let Some(dynamic_props) = &class.dynamic_properties {
                 for (name, property) in dynamic_props {
@@ -136,6 +113,28 @@ impl ActorState {
         }
 
         Ok(class_properties)
+    }
+
+    fn get_object_classes(&self, object: &Object) -> Result<HashSet<String>, KnowledgeBaseError> {
+        let mut queue: VecDeque<String> = object.classes.iter().cloned().collect();
+        let mut visited: HashSet<String> = HashSet::new();
+
+        while let Some(class_name) = queue.pop_front() {
+            if !visited.insert(class_name.clone()) {
+                continue;
+            }
+
+            let class = self.classes.get(&class_name).ok_or_else(|| KnowledgeBaseError::ClassNotFound(format!("Class {} not found for object {}", class_name, object.id.clone().unwrap_or_default())))?;
+            if let Some(parents) = &class.parents {
+                for parent in parents {
+                    if !visited.contains(parent) {
+                        queue.push_back(parent.clone());
+                    }
+                }
+            }
+        }
+
+        Ok(visited)
     }
 }
 
@@ -268,7 +267,7 @@ impl CLIPSKnowledgeBase {
                         trace!("Creating object: {}", object_id);
 
                         let result = (|| -> Result<(), KnowledgeBaseError> {
-                            match kb.get_classes(&object) {
+                            match kb.get_object_classes(&object) {
                                 Ok(classes) => {
                                     if classes.is_empty() {
                                         return Err(KnowledgeBaseError::CreationError(format!("Object {} must belong to at least one class", object_id)));
@@ -289,7 +288,7 @@ impl CLIPSKnowledgeBase {
                                 }
                             }
 
-                            match kb.get_static_properties(&object) {
+                            match kb.get_static_properties(object.classes.iter().cloned().collect()) {
                                 Ok(class_props) => {
                                     for (class_name, props) in class_props {
                                         let class = kb.classes.get(&class_name).ok_or_else(|| KnowledgeBaseError::ClassNotFound(format!("Class {} not found for object {}", class_name, object_id)))?;
@@ -315,7 +314,7 @@ impl CLIPSKnowledgeBase {
                                 }
                             }
 
-                            match kb.get_dynamic_properties(&object) {
+                            match kb.get_dynamic_properties(object.classes.iter().cloned().collect()) {
                                 Ok(class_props) => {
                                     for (class_name, props) in class_props {
                                         let class = kb.classes.get(&class_name).ok_or_else(|| KnowledgeBaseError::ClassNotFound(format!("Class {} not found for object {}", class_name, object_id)))?;
@@ -348,21 +347,15 @@ impl CLIPSKnowledgeBase {
 
                         let _ = reply.send(result);
                     }
-                    KBCommand::GetStaticProperties(object_id, reply) => {
-                        trace!("Getting static properties for object '{}'", object_id);
-                        let result = (|| -> Result<HashMap<String, HashMap<String, Property>>, KnowledgeBaseError> {
-                            let object = kb.objects.get(&object_id).ok_or_else(|| KnowledgeBaseError::ObjectNotFound(object_id.to_owned()))?;
-                            kb.get_static_properties(object)
-                        })();
+                    KBCommand::GetStaticProperties(classes, reply) => {
+                        trace!("Getting static properties for classes: {:?}", classes);
+                        let result = (|| -> Result<HashMap<String, HashMap<String, Property>>, KnowledgeBaseError> { kb.get_static_properties(classes) })();
 
                         let _ = reply.send(result);
                     }
-                    KBCommand::GetDynamicProperties(object_id, reply) => {
-                        trace!("Getting dynamic properties for object '{}'", object_id);
-                        let result = (|| -> Result<HashMap<String, HashMap<String, Property>>, KnowledgeBaseError> {
-                            let object = kb.objects.get(&object_id).ok_or_else(|| KnowledgeBaseError::ObjectNotFound(object_id.to_owned()))?;
-                            kb.get_dynamic_properties(object)
-                        })();
+                    KBCommand::GetDynamicProperties(classes, reply) => {
+                        trace!("Getting dynamic properties for classes: {:?}", classes);
+                        let result = (|| -> Result<HashMap<String, HashMap<String, Property>>, KnowledgeBaseError> { kb.get_dynamic_properties(classes) })();
 
                         let _ = reply.send(result);
                     }
@@ -370,64 +363,44 @@ impl CLIPSKnowledgeBase {
                         trace!("Adding class '{}' to object '{}'", class_name, object_id);
 
                         let result = (|| -> Result<(), KnowledgeBaseError> {
+                            let static_props = kb.get_static_properties(HashSet::from([class_name.clone()]))?;
+                            let dynamic_props = kb.get_dynamic_properties(HashSet::from([class_name.clone()]))?;
+
                             let object = kb.objects.get_mut(&object_id).ok_or_else(|| KnowledgeBaseError::ObjectNotFound(object_id.to_owned()))?;
                             object.classes.insert(class_name.clone());
 
-                            let mut queue: VecDeque<String> = std::iter::once(class_name.clone()).collect();
-                            let mut visited: HashSet<String> = HashSet::new();
-
-                            while let Some(class_name) = queue.pop_front() {
-                                if !visited.insert(class_name.clone()) {
-                                    continue;
-                                }
-                                if !kb.classes.contains_key(&class_name) {
-                                    return Err(KnowledgeBaseError::ClassNotFound(format!("Class {} not found for object {}", class_name, object_id)));
-                                }
-
+                            for (class_name, props) in static_props {
                                 let class = kb.classes.get(&class_name).ok_or_else(|| KnowledgeBaseError::ClassNotFound(format!("Class {} not found for object {}", class_name, object_id)))?;
-
-                                let fb = kb.env.fact_builder(&class.name).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to create fact builder for class {}: {}", class.name, e)))?.put_symbol("id", &object_id).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set id slot for object {}: {}", object_id, e)))?;
-                                let fact = kb.env.assert_fact(fb).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to assert fact for object {}: {}", object_id, e)))?;
-                                kb.instances.entry(class.name.clone()).or_default().insert(object_id.to_owned(), fact);
-
-                                if let Some(static_props) = &class.static_properties {
-                                    for (name, prop) in static_props {
-                                        let fb = kb.env.fact_builder(&format!("{}_{}", class.name, name)).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to create fact builder for property {} of object {}: {}", name, object_id, e)))?;
-                                        if let Some(v) = object.properties.as_ref().and_then(|props| props.get(name)) {
-                                            let fb = set_prop(&kb.env, fb, prop, v.clone(), None)?;
-                                            let fact = kb.env.assert_fact(fb).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to assert fact for property {} of object {}: {}", name, object_id, e)))?;
-                                            kb.values.entry(class.name.clone()).or_default().entry(object_id.to_owned()).or_default().insert(name.clone(), fact);
-                                        } else {
-                                            let def = get_default(prop);
-                                            let fb = set_prop(&kb.env, fb, prop, def.clone(), None)?;
-                                            let fact = kb.env.assert_fact(fb).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to assert fact for default value of property {} of object {}: {}", name, object_id, e)))?;
-                                            kb.values.entry(class.name.clone()).or_default().entry(object_id.to_owned()).or_default().insert(name.clone(), fact);
-                                        }
+                                for (name, prop) in props {
+                                    let fb = kb.env.fact_builder(&format!("{}_{}", class.name, name)).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to create fact builder for property {} of object {}: {}", name, object_id, e)))?;
+                                    let fb = fb.put_symbol("id", object_id.as_str()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set id slot for property {} of object {}: {}", name, object_id, e)))?;
+                                    if let Some(v) = object.properties.as_ref().and_then(|props| props.get(&name)) {
+                                        let fb: FactBuilder = set_prop(&kb.env, fb, &prop, v.clone(), None).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set property {} for object {}: {:#?}", name, object_id, e)))?;
+                                        let fact = kb.env.assert_fact(fb).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to assert fact for property {} of object {}: {}", name, object_id, e)))?;
+                                        kb.values.entry(class.name.clone()).or_default().entry(object_id.clone()).or_default().insert(name.clone(), fact);
+                                    } else {
+                                        let def = get_default(&prop);
+                                        let fb = set_prop(&kb.env, fb, &prop, def.clone(), None).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set default value for property {} of object {}: {:#?}", name, object_id, e)))?;
+                                        let fact = kb.env.assert_fact(fb).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to assert fact for default value of property {} of object {}: {}", name, object_id, e)))?;
+                                        kb.values.entry(class.name.clone()).or_default().entry(object_id.clone()).or_default().insert(name.clone(), fact);
                                     }
                                 }
+                            }
 
-                                if let Some(dynamic_props) = &class.dynamic_properties {
-                                    for (name, prop) in dynamic_props {
-                                        if let Some(v) = object.values.as_ref().and_then(|vals| vals.get(name)) {
-                                            let fb = kb.env.fact_builder(&format!("{}_{}", class.name, name)).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to create fact builder for dynamic property {} of object {}: {}", name, object_id, e)))?;
-                                            let fb = set_prop(&kb.env, fb, prop, v.value.clone(), Some(v.timestamp)).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set dynamic property {} for object {}: {:#?}", name, object_id, e)))?;
-                                            let fact = kb.env.assert_fact(fb).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to assert fact for dynamic property {} of object {}: {}", name, object_id, e)))?;
-                                            kb.values.entry(class.name.clone()).or_default().entry(object_id.to_owned()).or_default().insert(name.clone(), fact);
-                                        } else {
-                                            let def = get_default(prop);
-                                            let fb = kb.env.fact_builder(&format!("{}_{}", class.name, name)).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to create fact builder for dynamic property {} of object {}: {}", name, object_id, e)))?;
-                                            let fb = set_prop(&kb.env, fb, prop, def.clone(), Some(Utc::now()))?;
-                                            let fact = kb.env.assert_fact(fb).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to assert fact for default value of dynamic property {} of object {}: {}", name, object_id, e)))?;
-                                            kb.values.entry(class.name.clone()).or_default().entry(object_id.to_owned()).or_default().insert(name.clone(), fact);
-                                        }
-                                    }
-                                }
-
-                                if let Some(parents) = &class.parents {
-                                    for parent in parents {
-                                        if !visited.contains(parent) {
-                                            queue.push_back(parent.clone());
-                                        }
+                            for (class_name, props) in dynamic_props {
+                                let class = kb.classes.get(&class_name).ok_or_else(|| KnowledgeBaseError::ClassNotFound(format!("Class {} not found for object {}", class_name, object_id)))?;
+                                for (name, prop) in props {
+                                    if let Some(v) = object.values.as_ref().and_then(|vals| vals.get(&name)) {
+                                        let fb = kb.env.fact_builder(&format!("{}_{}", class.name, name)).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to create fact builder for dynamic property {} of object {}: {}", name, object_id, e)))?;
+                                        let fb = set_prop(&kb.env, fb, &prop, v.value.clone(), Some(v.timestamp)).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set dynamic property {} for object {}: {:#?}", name, object_id, e)))?;
+                                        let fact = kb.env.assert_fact(fb).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to assert fact for dynamic property {} of object {}: {}", name, object_id, e)))?;
+                                        kb.values.entry(class.name.clone()).or_default().entry(object_id.to_owned()).or_default().insert(name.clone(), fact);
+                                    } else {
+                                        let def = get_default(&prop);
+                                        let fb = kb.env.fact_builder(&format!("{}_{}", class.name, name)).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to create fact builder for dynamic property {} of object {}: {}", name, object_id, e)))?;
+                                        let fb = set_prop(&kb.env, fb, &prop, def.clone(), Some(Utc::now()))?;
+                                        let fact = kb.env.assert_fact(fb).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to assert fact for default value of dynamic property {} of object {}: {}", name, object_id, e)))?;
+                                        kb.values.entry(class.name.clone()).or_default().entry(object_id.to_owned()).or_default().insert(name.clone(), fact);
                                     }
                                 }
                             }
@@ -438,10 +411,19 @@ impl CLIPSKnowledgeBase {
 
                         let _ = reply.send(result);
                     }
+                    KBCommand::GetObjectClasses(object_id, reply) => {
+                        trace!("Getting classes for object '{}'", object_id);
+                        let result = (|| -> Result<HashSet<String>, KnowledgeBaseError> {
+                            let object = kb.objects.get(&object_id).ok_or_else(|| KnowledgeBaseError::ObjectNotFound(object_id.to_owned()))?;
+                            kb.get_object_classes(object)
+                        })();
+
+                        let _ = reply.send(result);
+                    }
                     KBCommand::SetProperties(object_id, properties, reply) => {
                         trace!("Setting properties for object '{}': {:?}", object_id, properties);
                         let result = (|| -> Result<(), KnowledgeBaseError> {
-                            let static_props = kb.get_static_properties(kb.objects.get(&object_id).ok_or_else(|| KnowledgeBaseError::ObjectNotFound(object_id.to_owned()))?)?;
+                            let static_props = kb.get_static_properties(kb.objects.get(&object_id).ok_or_else(|| KnowledgeBaseError::ObjectNotFound(object_id.to_owned()))?.classes.iter().cloned().collect())?;
                             let object = kb.objects.get_mut(&object_id).ok_or_else(|| KnowledgeBaseError::ObjectNotFound(object_id.to_owned()))?;
                             for (class_name, props) in static_props {
                                 for (name, prop) in props {
@@ -464,7 +446,7 @@ impl CLIPSKnowledgeBase {
                     KBCommand::AddValues(object_id, values, timestamp, reply) => {
                         trace!("Adding values for object '{}': {:?} at {}", object_id, values, timestamp);
                         let result = (|| -> Result<(), KnowledgeBaseError> {
-                            let dynamic_props = kb.get_dynamic_properties(kb.objects.get(&object_id).ok_or_else(|| KnowledgeBaseError::ObjectNotFound(object_id.to_owned()))?)?;
+                            let dynamic_props = kb.get_dynamic_properties(kb.objects.get(&object_id).ok_or_else(|| KnowledgeBaseError::ObjectNotFound(object_id.to_owned()))?.classes.iter().cloned().collect())?;
                             let object = kb.objects.get_mut(&object_id).ok_or_else(|| KnowledgeBaseError::ObjectNotFound(object_id.to_owned()))?;
                             for (class_name, props) in dynamic_props {
                                 for (name, prop) in props {
@@ -565,6 +547,16 @@ impl KnowledgeBase for CLIPSKnowledgeBase {
         self.tx.send(KBCommand::CreateClass(class, reply_tx)).await.map_err(|e| KnowledgeBaseError::KBError(format!("Failed to send CreateClass command: {}", e)))?;
         reply_rx.await.map_err(|e| KnowledgeBaseError::KBError(format!("Failed to receive response for CreateClass command: {}", e)))?
     }
+    async fn get_static_properties(&self, classe_names: HashSet<String>) -> Result<HashMap<String, HashMap<String, Property>>, KnowledgeBaseError> {
+        let (reply_tx, reply_rx) = oneshot::channel();
+        self.tx.send(KBCommand::GetStaticProperties(classe_names, reply_tx)).await.map_err(|e| KnowledgeBaseError::KBError(format!("Failed to send GetStaticProperties command: {}", e)))?;
+        reply_rx.await.map_err(|e| KnowledgeBaseError::KBError(format!("Failed to receive response for GetStaticProperties command: {}", e)))?
+    }
+    async fn get_dynamic_properties(&self, classe_names: HashSet<String>) -> Result<HashMap<String, HashMap<String, Property>>, KnowledgeBaseError> {
+        let (reply_tx, reply_rx) = oneshot::channel();
+        self.tx.send(KBCommand::GetDynamicProperties(classe_names, reply_tx)).await.map_err(|e| KnowledgeBaseError::KBError(format!("Failed to send GetDynamicProperties command: {}", e)))?;
+        reply_rx.await.map_err(|e| KnowledgeBaseError::KBError(format!("Failed to receive response for GetDynamicProperties command: {}", e)))?
+    }
 
     async fn create_rule(&self, rule: Rule) -> Result<(), KnowledgeBaseError> {
         let (reply_tx, reply_rx) = oneshot::channel();
@@ -577,20 +569,15 @@ impl KnowledgeBase for CLIPSKnowledgeBase {
         self.tx.send(KBCommand::CreateObject(object, reply_tx)).await.map_err(|e| KnowledgeBaseError::KBError(format!("Failed to send CreateObject command: {}", e)))?;
         reply_rx.await.map_err(|e| KnowledgeBaseError::KBError(format!("Failed to receive response for CreateObject command: {}", e)))?
     }
-    async fn get_static_properties(&self, object_id: String) -> Result<HashMap<String, HashMap<String, Property>>, KnowledgeBaseError> {
-        let (reply_tx, reply_rx) = oneshot::channel();
-        self.tx.send(KBCommand::GetStaticProperties(object_id, reply_tx)).await.map_err(|e| KnowledgeBaseError::KBError(format!("Failed to send GetStaticProperties command: {}", e)))?;
-        reply_rx.await.map_err(|e| KnowledgeBaseError::KBError(format!("Failed to receive response for GetStaticProperties command: {}", e)))?
-    }
-    async fn get_dynamic_properties(&self, object_id: String) -> Result<HashMap<String, HashMap<String, Property>>, KnowledgeBaseError> {
-        let (reply_tx, reply_rx) = oneshot::channel();
-        self.tx.send(KBCommand::GetDynamicProperties(object_id, reply_tx)).await.map_err(|e| KnowledgeBaseError::KBError(format!("Failed to send GetDynamicProperties command: {}", e)))?;
-        reply_rx.await.map_err(|e| KnowledgeBaseError::KBError(format!("Failed to receive response for GetDynamicProperties command: {}", e)))?
-    }
     async fn add_class(&self, object_id: String, class_name: String) -> Result<(), KnowledgeBaseError> {
         let (reply_tx, reply_rx) = oneshot::channel();
         self.tx.send(KBCommand::AddClass(object_id, class_name, reply_tx)).await.map_err(|e| KnowledgeBaseError::KBError(format!("Failed to send AddClass command: {}", e)))?;
         reply_rx.await.map_err(|e| KnowledgeBaseError::KBError(format!("Failed to receive response for AddClass command: {}", e)))?
+    }
+    async fn get_object_classes(&self, object_id: String) -> Result<HashSet<String>, KnowledgeBaseError> {
+        let (reply_tx, reply_rx) = oneshot::channel();
+        self.tx.send(KBCommand::GetObjectClasses(object_id, reply_tx)).await.map_err(|e| KnowledgeBaseError::KBError(format!("Failed to send GetObjectClasses command: {}", e)))?;
+        reply_rx.await.map_err(|e| KnowledgeBaseError::KBError(format!("Failed to receive response for GetObjectClasses command: {}", e)))?
     }
     async fn set_properties(&self, object_id: String, properties: HashMap<String, Value>) -> Result<(), KnowledgeBaseError> {
         let (reply_tx, reply_rx) = oneshot::channel();

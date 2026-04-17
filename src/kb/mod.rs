@@ -3,7 +3,10 @@ use crate::kb::clips::CLIPSKnowledgeBase;
 use crate::model::{Class, Object, Property, Rule, Value};
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
-use std::{collections::HashMap, fmt};
+use std::{
+    collections::{HashMap, HashSet},
+    fmt,
+};
 use tokio::sync::mpsc;
 
 #[cfg(feature = "clips")]
@@ -56,13 +59,14 @@ impl fmt::Display for KnowledgeBaseEvent {
 #[async_trait]
 pub trait KnowledgeBase: Clone + Send + Sync + 'static {
     async fn create_class(&self, class: Class) -> Result<(), KnowledgeBaseError>;
+    async fn get_static_properties(&self, classe_names: HashSet<String>) -> Result<HashMap<String, HashMap<String, Property>>, KnowledgeBaseError>;
+    async fn get_dynamic_properties(&self, classe_names: HashSet<String>) -> Result<HashMap<String, HashMap<String, Property>>, KnowledgeBaseError>;
 
     async fn create_rule(&self, rule: Rule) -> Result<(), KnowledgeBaseError>;
 
     async fn create_object(&self, object: Object) -> Result<(), KnowledgeBaseError>;
-    async fn get_static_properties(&self, object_id: String) -> Result<HashMap<String, HashMap<String, Property>>, KnowledgeBaseError>;
-    async fn get_dynamic_properties(&self, object_id: String) -> Result<HashMap<String, HashMap<String, Property>>, KnowledgeBaseError>;
     async fn add_class(&self, object_id: String, class_name: String) -> Result<(), KnowledgeBaseError>;
+    async fn get_object_classes(&self, object_id: String) -> Result<HashSet<String>, KnowledgeBaseError>;
     async fn set_properties(&self, object_id: String, properties: HashMap<String, Value>) -> Result<(), KnowledgeBaseError>;
     async fn add_values(&self, object_id: String, values: HashMap<String, Value>, date_time: DateTime<Utc>) -> Result<(), KnowledgeBaseError>;
 
