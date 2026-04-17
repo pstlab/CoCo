@@ -1,6 +1,6 @@
 #[cfg(feature = "clips")]
 use crate::kb::clips::CLIPSKnowledgeBase;
-use crate::model::{Class, Object, Rule, Value};
+use crate::model::{Class, Object, Property, Rule, Value};
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use std::{collections::HashMap, fmt};
@@ -60,6 +60,8 @@ pub trait KnowledgeBase: Clone + Send + Sync + 'static {
     async fn create_rule(&self, rule: Rule) -> Result<(), KnowledgeBaseError>;
 
     async fn create_object(&self, object: Object) -> Result<(), KnowledgeBaseError>;
+    async fn get_static_properties(&self, object_id: String) -> Result<HashMap<String, HashMap<String, Property>>, KnowledgeBaseError>;
+    async fn get_dynamic_properties(&self, object_id: String) -> Result<HashMap<String, HashMap<String, Property>>, KnowledgeBaseError>;
     async fn add_class(&self, object_id: String, class_name: String) -> Result<(), KnowledgeBaseError>;
     async fn set_properties(&self, object_id: String, properties: HashMap<String, Value>) -> Result<(), KnowledgeBaseError>;
     async fn add_values(&self, object_id: String, values: HashMap<String, Value>, date_time: DateTime<Utc>) -> Result<(), KnowledgeBaseError>;

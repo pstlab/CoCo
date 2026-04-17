@@ -1,7 +1,7 @@
 use crate::{
     db::Database,
     kb::{KnowledgeBase, KnowledgeBaseEvent},
-    model::{Class, CoCoError, CoCoEvent, Object, Rule, Value},
+    model::{Class, CoCoError, CoCoEvent, Object, Property, Rule, Value},
 };
 use chrono::{DateTime, Utc};
 use std::collections::HashMap;
@@ -32,6 +32,8 @@ enum CoCoCommand {
     CreateRule(Rule, CommandResult<()>),
     GetObjects(CommandResult<Vec<Object>>),
     GetObject(String, CommandResult<Option<Object>>),
+    GetObjectStaticProperties(String, CommandResult<HashMap<String, HashMap<String, Property>>>),
+    GetObjectDynamicProperties(String, CommandResult<HashMap<String, HashMap<String, Property>>>),
     CreateObject(Object, CommandResult<String>),
     SetProperties(String, HashMap<String, Value>, CommandResult<()>),
     AddValues(String, HashMap<String, Value>, DateTime<Utc>, CommandResult<()>),
@@ -167,6 +169,14 @@ impl CoCo {
                         let object = command_db.get_object(object_id).await.map_err(|e| CoCoError::DatabaseError(e.to_string()));
                         let _ = response_tx.send(object);
                     }
+                    CoCoCommand::GetObjectStaticProperties(object_id, response_tx) => {
+                        let properties = kb.get_static_properties(object_id).await.map_err(|e| CoCoError::DatabaseError(e.to_string()));
+                        let _ = response_tx.send(properties);
+                    }
+                    CoCoCommand::GetObjectDynamicProperties(object_id, response_tx) => {
+                        let properties = kb.get_dynamic_properties(object_id).await.map_err(|e| CoCoError::DatabaseError(e.to_string()));
+                        let _ = response_tx.send(properties);
+                    }
                     CoCoCommand::CreateObject(object, response_tx) => {
                         let result = async {
                             let id = command_db.create_object(object.clone()).await.map_err(|e| CoCoError::DatabaseError(e.to_string()))?;
@@ -292,6 +302,18 @@ impl CoCo {
     pub async fn get_object(&self, object_id: &str) -> Result<Option<Object>, CoCoError> {
         let (response_tx, response_rx) = oneshot::channel();
         self.tx.send(CoCoCommand::GetObject(object_id.to_owned(), response_tx)).await.map_err(|e| CoCoError::KnowledgeBaseError(format!("Failed to send command to CoCo: {}", e)))?;
+        response_rx.await.map_err(|e| CoCoError::KnowledgeBaseError(format!("Failed to receive response from CoCo: {}", e)))?
+    }
+
+    pub async fn get_object_static_properties(&self, object_id: &str) -> Result<HashMap<String, HashMap<String, Property>>, CoCoError> {
+        let (response_tx, response_rx) = oneshot::channel();
+        self.tx.send(CoCoCommand::GetObjectStaticProperties(object_id.to_owned(), response_tx)).await.map_err(|e| CoCoError::KnowledgeBaseError(format!("Failed to send command to CoCo: {}", e)))?;
+        response_rx.await.map_err(|e| CoCoError::KnowledgeBaseError(format!("Failed to receive response from CoCo: {}", e)))?
+    }
+
+    pub async fn get_object_dynamic_properties(&self, object_id: &str) -> Result<HashMap<String, HashMap<String, Property>>, CoCoError> {
+        let (response_tx, response_rx) = oneshot::channel();
+        self.tx.send(CoCoCommand::GetObjectDynamicProperties(object_id.to_owned(), response_tx)).await.map_err(|e| CoCoError::KnowledgeBaseError(format!("Failed to send command to CoCo: {}", e)))?;
         response_rx.await.map_err(|e| CoCoError::KnowledgeBaseError(format!("Failed to receive response from CoCo: {}", e)))?
     }
 

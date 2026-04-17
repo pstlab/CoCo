@@ -18,6 +18,8 @@ enum KBCommand {
     CreateClass(Class, oneshot::Sender<Result<(), KnowledgeBaseError>>),
     CreateRule(Rule, oneshot::Sender<Result<(), KnowledgeBaseError>>),
     CreateObject(Object, oneshot::Sender<Result<(), KnowledgeBaseError>>),
+    GetStaticProperties(String, oneshot::Sender<Result<HashMap<String, HashMap<String, Property>>, KnowledgeBaseError>>),
+    GetDynamicProperties(String, oneshot::Sender<Result<HashMap<String, HashMap<String, Property>>, KnowledgeBaseError>>),
     AddClass(String, String, oneshot::Sender<Result<(), KnowledgeBaseError>>),
     SetProperties(String, HashMap<String, Value>, oneshot::Sender<Result<(), KnowledgeBaseError>>),
     AddValues(String, HashMap<String, Value>, DateTime<Utc>, oneshot::Sender<Result<(), KnowledgeBaseError>>),
@@ -346,6 +348,24 @@ impl CLIPSKnowledgeBase {
 
                         let _ = reply.send(result);
                     }
+                    KBCommand::GetStaticProperties(object_id, reply) => {
+                        trace!("Getting static properties for object '{}'", object_id);
+                        let result = (|| -> Result<HashMap<String, HashMap<String, Property>>, KnowledgeBaseError> {
+                            let object = kb.objects.get(&object_id).ok_or_else(|| KnowledgeBaseError::ObjectNotFound(object_id.to_owned()))?;
+                            kb.get_static_properties(object)
+                        })();
+
+                        let _ = reply.send(result);
+                    }
+                    KBCommand::GetDynamicProperties(object_id, reply) => {
+                        trace!("Getting dynamic properties for object '{}'", object_id);
+                        let result = (|| -> Result<HashMap<String, HashMap<String, Property>>, KnowledgeBaseError> {
+                            let object = kb.objects.get(&object_id).ok_or_else(|| KnowledgeBaseError::ObjectNotFound(object_id.to_owned()))?;
+                            kb.get_dynamic_properties(object)
+                        })();
+
+                        let _ = reply.send(result);
+                    }
                     KBCommand::AddClass(object_id, class_name, reply) => {
                         trace!("Adding class '{}' to object '{}'", class_name, object_id);
 
@@ -556,6 +576,16 @@ impl KnowledgeBase for CLIPSKnowledgeBase {
         let (reply_tx, reply_rx) = oneshot::channel();
         self.tx.send(KBCommand::CreateObject(object, reply_tx)).await.map_err(|e| KnowledgeBaseError::KBError(format!("Failed to send CreateObject command: {}", e)))?;
         reply_rx.await.map_err(|e| KnowledgeBaseError::KBError(format!("Failed to receive response for CreateObject command: {}", e)))?
+    }
+    async fn get_static_properties(&self, object_id: String) -> Result<HashMap<String, HashMap<String, Property>>, KnowledgeBaseError> {
+        let (reply_tx, reply_rx) = oneshot::channel();
+        self.tx.send(KBCommand::GetStaticProperties(object_id, reply_tx)).await.map_err(|e| KnowledgeBaseError::KBError(format!("Failed to send GetStaticProperties command: {}", e)))?;
+        reply_rx.await.map_err(|e| KnowledgeBaseError::KBError(format!("Failed to receive response for GetStaticProperties command: {}", e)))?
+    }
+    async fn get_dynamic_properties(&self, object_id: String) -> Result<HashMap<String, HashMap<String, Property>>, KnowledgeBaseError> {
+        let (reply_tx, reply_rx) = oneshot::channel();
+        self.tx.send(KBCommand::GetDynamicProperties(object_id, reply_tx)).await.map_err(|e| KnowledgeBaseError::KBError(format!("Failed to send GetDynamicProperties command: {}", e)))?;
+        reply_rx.await.map_err(|e| KnowledgeBaseError::KBError(format!("Failed to receive response for GetDynamicProperties command: {}", e)))?
     }
     async fn add_class(&self, object_id: String, class_name: String) -> Result<(), KnowledgeBaseError> {
         let (reply_tx, reply_rx) = oneshot::channel();

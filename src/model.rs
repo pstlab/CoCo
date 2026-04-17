@@ -2,14 +2,12 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 use std::{
-    collections::{HashMap, HashSet, VecDeque},
+    collections::{HashMap, HashSet},
     fmt,
 };
 use tracing::error;
 #[cfg(feature = "server")]
 use utoipa::ToSchema;
-
-use crate::CoCo;
 
 #[derive(Clone, Serialize, Deserialize, Debug, PartialEq)]
 #[cfg_attr(feature = "server", derive(ToSchema))]
@@ -323,36 +321,6 @@ pub struct Object {
     pub properties: Option<HashMap<String, Value>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub values: Option<HashMap<String, TimedValue>>,
-}
-
-pub async fn get_static_properties(coco: &CoCo, object: &Object) -> Result<HashMap<String, Property>, CoCoError> {
-    let mut queue: VecDeque<String> = object.classes.iter().cloned().collect();
-    let mut visited: HashSet<String> = HashSet::new();
-    let mut properties: HashMap<String, Property> = HashMap::new();
-
-    while let Some(class_name) = queue.pop_front() {
-        if !visited.insert(class_name.clone()) {
-            continue;
-        }
-
-        let class = coco.get_class(&class_name).await?.ok_or_else(|| CoCoError::ClassNotFound(class_name.clone()))?;
-
-        if let Some(static_props) = class.static_properties {
-            for (name, property) in static_props {
-                properties.entry(name).or_insert(property);
-            }
-        }
-
-        if let Some(parents) = class.parents {
-            for parent in parents {
-                if !visited.contains(&parent) {
-                    queue.push_back(parent);
-                }
-            }
-        }
-    }
-
-    Ok(properties)
 }
 
 impl fmt::Display for Object {
