@@ -1,5 +1,5 @@
 # --- Stage 1: The Builder ---
-FROM rust:1.94-slim-bookworm AS builder
+FROM rust:1.95-slim-bookworm AS builder
 
 RUN apt-get update && apt-get install -y build-essential libclang-dev git wget unzip && rm -rf /var/lib/apt/lists/*
 

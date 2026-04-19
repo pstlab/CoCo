@@ -64,30 +64,24 @@ impl CoCo {
             trace!("Starting task to listen for KnowledgeBase events");
             while let Some(event) = event_rx.recv().await {
                 match event {
-                    KnowledgeBaseEvent::AddedClass(object_id, class_name) => match event_db.add_class(object_id.clone(), class_name.clone()).await {
-                        Ok(_) => {
-                            let _ = event_tx_for_kb.send(CoCoEvent::AddedClass(object_id, class_name));
-                        }
-                        Err(e) => {
-                            error!("Failed to add class to database: {}", e);
-                        }
-                    },
-                    KnowledgeBaseEvent::UpdatedProperties(object_id, properties) => match event_db.set_properties(object_id.clone(), &properties).await {
-                        Ok(_) => {
-                            let _ = event_tx_for_kb.send(CoCoEvent::UpdatedProperties(object_id, properties));
-                        }
-                        Err(e) => {
-                            error!("Failed to update properties in database: {}", e);
-                        }
-                    },
-                    KnowledgeBaseEvent::AddedValues(object_id, values, date_time) => match event_db.add_values(object_id.clone(), values.clone(), date_time).await {
-                        Ok(_) => {
-                            let _ = event_tx_for_kb.send(CoCoEvent::AddedValues(object_id, values, date_time));
-                        }
-                        Err(e) => {
-                            error!("Failed to add values to database: {}", e);
-                        }
-                    },
+                    KnowledgeBaseEvent::AddedClass(object_id, class_name) if let Err(e) = event_db.add_class(object_id.clone(), class_name.clone()).await => {
+                        error!("Failed to add class to database: {}", e);
+                    }
+                    KnowledgeBaseEvent::AddedClass(object_id, class_name) => {
+                        let _ = event_tx_for_kb.send(CoCoEvent::AddedClass(object_id, class_name));
+                    }
+                    KnowledgeBaseEvent::UpdatedProperties(object_id, properties) if let Err(e) = event_db.set_properties(object_id.clone(), &properties).await => {
+                        error!("Failed to update properties in database: {}", e);
+                    }
+                    KnowledgeBaseEvent::UpdatedProperties(object_id, properties) => {
+                        let _ = event_tx_for_kb.send(CoCoEvent::UpdatedProperties(object_id, properties));
+                    }
+                    KnowledgeBaseEvent::AddedValues(object_id, values, date_time) if let Err(e) = event_db.add_values(object_id.clone(), values.clone(), date_time).await => {
+                        error!("Failed to add values to database: {}", e);
+                    }
+                    KnowledgeBaseEvent::AddedValues(object_id, values, date_time) => {
+                        let _ = event_tx_for_kb.send(CoCoEvent::AddedValues(object_id, values, date_time));
+                    }
                 }
             }
         });
