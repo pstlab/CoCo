@@ -1,7 +1,7 @@
 use crate::kb::{CLIPSKnowledgeBase, KnowledgeBaseError};
 use clips::{ClipsValue, Type};
 use futures_util::StreamExt;
-use reqwest::Client;
+use reqwest::{Client, Response};
 use serde::Deserialize;
 use tracing::{error, info, trace};
 
@@ -56,40 +56,7 @@ pub async fn add_ollama(kb: &CLIPSKnowledgeBase, host: String, port: u16, model:
 
                 match client.post(&url).json(&body).send().await {
                     Ok(response) => {
-                        let mut stream = response.bytes_stream();
-                        while let Some(chunk) = stream.next().await {
-                            let chunk = match chunk {
-                                Ok(c) => c,
-                                Err(e) => {
-                                    error!("Error reading stream from Ollama for object_id {}: {}", object_id, e);
-                                    break;
-                                }
-                            };
-                            let chunk_str = match std::str::from_utf8(&chunk) {
-                                Ok(s) => s,
-                                Err(e) => {
-                                    error!("Error decoding stream chunk from Ollama for object_id {}: {}", object_id, e);
-                                    continue;
-                                }
-                            };
-                            trace!("Received chunk from Ollama for object_id {}: {}", object_id, chunk_str);
-                            for line in chunk_str.lines() {
-                                if line.trim().is_empty() {
-                                    continue;
-                                }
-                                match serde_json::from_str::<OllamaResponse>(line) {
-                                    Ok(ollama_response) => {
-                                        trace!("Parsed Ollama response for object_id {}: {:?}", object_id, ollama_response);
-                                        // Here you would typically send the response back to the CLIPS environment
-                                        // associated with the object_id. This is a placeholder for that logic.
-                                        info!("Ollama response for object_id {}: {}", object_id, ollama_response.response);
-                                    }
-                                    Err(e) => {
-                                        error!("Error parsing Ollama response for object_id {}: {}. Line content: {}", object_id, e, line);
-                                    }
-                                }
-                            }
-                        }
+                        parse_response(response).await;
                     }
                     Err(_) => {
                         error!("Failed to send request to Ollama for object_id {}: {}", object_id, url);
@@ -105,8 +72,43 @@ pub async fn add_ollama(kb: &CLIPSKnowledgeBase, host: String, port: u16, model:
     Ok(())
 }
 
+async fn parse_response(response: Response) {
+    let mut stream = response.bytes_stream();
+    while let Some(chunk) = stream.next().await {
+        let chunk = match chunk {
+            Ok(c) => c,
+            Err(e) => {
+                error!("Error reading stream from Ollama: {}", e);
+                break;
+            }
+        };
+        let chunk_str = match std::str::from_utf8(&chunk) {
+            Ok(s) => s,
+            Err(e) => {
+                error!("Error converting chunk to string: {}", e);
+                continue;
+            }
+        };
+        for line in chunk_str.lines() {
+            if line.trim().is_empty() {
+                continue;
+            }
+            match serde_json::from_str::<OllamaResponse>(line) {
+                Ok(ollama_response) => {
+                    trace!("{}", ollama_response.response);
+                }
+                Err(e) => {
+                    error!("Error parsing Ollama response: {}", e);
+                }
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    use tracing::{Level, subscriber};
+
     use crate::kb::setup_clips;
 
     use super::*;
@@ -122,5 +124,30 @@ mod tests {
             error!("Failed to set up Ollama integration: {}", e);
             std::process::exit(1);
         });
+    }
+
+    #[tokio::test]
+    async fn test_parse_response() {
+        let subscriber = tracing_subscriber::fmt().with_max_level(Level::TRACE).finish();
+        subscriber::set_global_default(subscriber).expect("Failed to set global default subscriber");
+
+        let host = std::env::var("OLLAMA_HOST").unwrap_or_else(|_| "localhost".to_string());
+        let port = std::env::var("OLLAMA_PORT").unwrap_or_else(|_| "11434".to_string()).parse::<u16>().unwrap_or(11434);
+        let model = std::env::var("OLLAMA_MODEL").unwrap_or_else(|_| "llama3".to_string());
+        let url = format!("http://{}:{}/api/generate", host, port);
+        let client = Client::new();
+        let body = serde_json::json!({
+            "model": model,
+            "prompt": "Hello, Ollama!"
+        });
+
+        match client.post(&url).json(&body).send().await {
+            Ok(response) => {
+                parse_response(response).await;
+            }
+            Err(_) => {
+                error!("Failed to send request to Ollama for test: {}", url);
+            }
+        };
     }
 }
