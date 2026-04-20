@@ -16,7 +16,7 @@ name = "coco-reasoner"
 required-features = ["server"]
 
 [features]
-default = ["mongodb", "clips", "ollama", "secure", "fcm", "mqtt"]
+default = ["mongodb", "clips"]
 mongodb = ["dep:mongodb"]
 clips = ["dep:clips"]
 ollama = ["clips", "dep:reqwest", "dep:futures-util"]

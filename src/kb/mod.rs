@@ -1,5 +1,3 @@
-#[cfg(feature = "clips")]
-use crate::kb::clips::CLIPSKnowledgeBase;
 use crate::model::{Class, Object, Property, Rule, Value};
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
