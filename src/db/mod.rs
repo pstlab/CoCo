@@ -1,5 +1,3 @@
-#[cfg(feature = "mongodb")]
-use crate::db::mongodb::MongoDB;
 use crate::model::{Class, Object, Rule, Value};
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
@@ -47,21 +45,4 @@ pub trait Database: Clone + Send + Sync + 'static {
     async fn get_values(&self, object_id: String, start_time: Option<DateTime<Utc>>, end_time: Option<DateTime<Utc>>) -> Result<Vec<(HashMap<String, Value>, DateTime<Utc>)>, DatabaseError>;
 
     async fn drop_database(&self) -> Result<(), DatabaseError>;
-}
-
-pub async fn setup_db() -> Result<impl Database, DatabaseError> {
-    #[cfg(feature = "mongodb")]
-    return setup_mongodb().await;
-
-    #[cfg(not(feature = "mongodb"))]
-    panic!("No database backend configured");
-}
-
-#[cfg(feature = "mongodb")]
-pub async fn setup_mongodb() -> Result<MongoDB, DatabaseError> {
-    let name = std::env::var("DB_NAME").unwrap_or_else(|_| "coco_db".to_owned());
-    let host = std::env::var("DB_HOST").unwrap_or_else(|_| "localhost".to_owned());
-    let port = std::env::var("DB_PORT").ok().and_then(|p| p.parse().ok()).unwrap_or(27017);
-    let uri = format!("mongodb://{}:{}", host, port);
-    MongoDB::new(name, uri).await
 }

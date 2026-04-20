@@ -3,6 +3,7 @@ use crate::{
     kb::{KnowledgeBase, KnowledgeBaseEvent},
     model::{Class, CoCoError, CoCoEvent, Object, Property, Rule, Value},
 };
+use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use std::collections::{HashMap, HashSet};
 use tokio::sync::{broadcast, mpsc, oneshot};
@@ -21,8 +22,9 @@ pub mod server;
 type CommandResult<T> = oneshot::Sender<Result<T, CoCoError>>;
 type Pulse = (HashMap<String, Value>, DateTime<Utc>);
 
-pub trait CoCoModule {
-    fn init(&self, coco: &CoCo) -> Result<(), CoCoError>;
+#[async_trait]
+pub trait CoCoModule<DB: Database, KB: KnowledgeBase>: Send + Sync {
+    async fn init(&self, db: DB, kb: KB, coco: CoCo) -> Result<(), CoCoError>;
 }
 
 #[derive(Debug)]
@@ -53,7 +55,7 @@ pub struct CoCo {
 }
 
 impl CoCo {
-    pub async fn new<DB, KB>(db: DB, mut kb: KB) -> Self
+    pub async fn new<DB, KB>(db: DB, mut kb: KB, modules: Vec<Box<dyn CoCoModule<DB, KB>>>) -> Self
     where
         DB: Database,
         KB: KnowledgeBase,
@@ -94,25 +96,26 @@ impl CoCo {
         // Spawn a task to listen for commands from CoCo's command channel and forward them to the KnowledgeBase
         let event_tx_for_commands = event_tx.clone();
         let command_db = db.clone();
+        let command_kb = kb.clone();
         tokio::spawn(async move {
             trace!("Starting task to listen for CoCo commands");
             while let Some(command) = command_rx.recv().await {
                 match command {
                     CoCoCommand::Init(classes, rules, objects, response_tx) => {
                         for class in classes {
-                            if let Err(e) = kb.create_class(class.clone()).await {
+                            if let Err(e) = command_kb.create_class(class.clone()).await {
                                 let _ = response_tx.send(Err(CoCoError::KnowledgeBaseError(e.to_string())));
                                 return;
                             }
                         }
                         for rule in rules {
-                            if let Err(e) = kb.create_rule(rule.clone()).await {
+                            if let Err(e) = command_kb.create_rule(rule.clone()).await {
                                 let _ = response_tx.send(Err(CoCoError::KnowledgeBaseError(e.to_string())));
                                 return;
                             }
                         }
                         for object in objects {
-                            if let Err(e) = kb.create_object(object.clone()).await {
+                            if let Err(e) = command_kb.create_object(object.clone()).await {
                                 let _ = response_tx.send(Err(CoCoError::KnowledgeBaseError(e.to_string())));
                                 return;
                             }
@@ -128,17 +131,17 @@ impl CoCo {
                         let _ = response_tx.send(class);
                     }
                     CoCoCommand::GetStaticProperties(classe_names, response_tx) => {
-                        let properties = kb.get_static_properties(classe_names).await.map_err(|e| CoCoError::DatabaseError(e.to_string()));
+                        let properties = command_kb.get_static_properties(classe_names).await.map_err(|e| CoCoError::DatabaseError(e.to_string()));
                         let _ = response_tx.send(properties);
                     }
                     CoCoCommand::GetDynamicProperties(classe_names, response_tx) => {
-                        let properties = kb.get_dynamic_properties(classe_names).await.map_err(|e| CoCoError::DatabaseError(e.to_string()));
+                        let properties = command_kb.get_dynamic_properties(classe_names).await.map_err(|e| CoCoError::DatabaseError(e.to_string()));
                         let _ = response_tx.send(properties);
                     }
                     CoCoCommand::CreateClass(class, response_tx) => {
                         let class_name = class.name.clone();
                         let result = async {
-                            kb.create_class(class.clone()).await.map_err(|e| CoCoError::KnowledgeBaseError(e.to_string()))?;
+                            command_kb.create_class(class.clone()).await.map_err(|e| CoCoError::KnowledgeBaseError(e.to_string()))?;
                             command_db.create_class(class).await.map_err(|e| CoCoError::DatabaseError(e.to_string()))?;
                             Ok::<(), CoCoError>(())
                         }
@@ -160,7 +163,7 @@ impl CoCo {
                     CoCoCommand::CreateRule(rule, response_tx) => {
                         let rule_name = rule.name.clone();
                         let result = async {
-                            kb.create_rule(rule.clone()).await.map_err(|e| CoCoError::KnowledgeBaseError(e.to_string()))?;
+                            command_kb.create_rule(rule.clone()).await.map_err(|e| CoCoError::KnowledgeBaseError(e.to_string()))?;
                             command_db.create_rule(rule).await.map_err(|e| CoCoError::DatabaseError(e.to_string()))?;
                             Ok::<(), CoCoError>(())
                         }
@@ -179,14 +182,14 @@ impl CoCo {
                         let _ = response_tx.send(object);
                     }
                     CoCoCommand::GetObjectClasses(object_id, response_tx) => {
-                        let classes = kb.get_object_classes(object_id).await.map_err(|e| CoCoError::DatabaseError(e.to_string()));
+                        let classes = command_kb.get_object_classes(object_id).await.map_err(|e| CoCoError::DatabaseError(e.to_string()));
                         let _ = response_tx.send(classes);
                     }
                     CoCoCommand::CreateObject(object, response_tx) => {
                         let result = async {
                             let id = command_db.create_object(object.clone()).await.map_err(|e| CoCoError::DatabaseError(e.to_string()))?;
                             let object = Object { id: Some(id.clone()), ..object };
-                            kb.create_object(object).await.map_err(|e| CoCoError::KnowledgeBaseError(e.to_string()))?;
+                            command_kb.create_object(object).await.map_err(|e| CoCoError::KnowledgeBaseError(e.to_string()))?;
                             Ok::<String, CoCoError>(id)
                         }
                         .await;
@@ -197,7 +200,7 @@ impl CoCo {
                     }
                     CoCoCommand::AddClass(object_id, class_name, response_tx) => {
                         let result = async {
-                            kb.add_class(object_id.clone(), class_name.clone()).await.map_err(|e| CoCoError::KnowledgeBaseError(e.to_string()))?;
+                            command_kb.add_class(object_id.clone(), class_name.clone()).await.map_err(|e| CoCoError::KnowledgeBaseError(e.to_string()))?;
                             command_db.add_class(object_id.clone(), class_name.clone()).await.map_err(|e| CoCoError::DatabaseError(e.to_string()))?;
                             Ok::<(), CoCoError>(())
                         }
@@ -209,7 +212,7 @@ impl CoCo {
                     }
                     CoCoCommand::SetProperties(object_id, properties, response_tx) => {
                         let result = async {
-                            kb.set_properties(object_id.clone(), properties.clone()).await.map_err(|e| CoCoError::KnowledgeBaseError(e.to_string()))?;
+                            command_kb.set_properties(object_id.clone(), properties.clone()).await.map_err(|e| CoCoError::KnowledgeBaseError(e.to_string()))?;
                             command_db.set_properties(object_id.clone(), &properties).await.map_err(|e| CoCoError::DatabaseError(e.to_string()))?;
                             Ok::<(), CoCoError>(())
                         }
@@ -221,7 +224,7 @@ impl CoCo {
                     }
                     CoCoCommand::AddValues(object_id, values, date_time, response_tx) => {
                         let result = async {
-                            kb.add_values(object_id.clone(), values.clone(), date_time).await.map_err(|e| CoCoError::KnowledgeBaseError(e.to_string()))?;
+                            command_kb.add_values(object_id.clone(), values.clone(), date_time).await.map_err(|e| CoCoError::KnowledgeBaseError(e.to_string()))?;
                             command_db.add_values(object_id.clone(), values.clone(), date_time).await.map_err(|e| CoCoError::DatabaseError(e.to_string()))?;
                             Ok::<(), CoCoError>(())
                         }
@@ -258,6 +261,11 @@ impl CoCo {
         });
 
         let coco = CoCo { tx: command_tx, event_tx };
+
+        for module in modules {
+            module.init(db.clone(), kb.clone(), coco.clone()).await.expect("Failed to initialize CoCo module");
+        }
+
         coco.init(classes, rules, objects).await.expect("Failed to initialize CoCo with data from database");
         coco
     }

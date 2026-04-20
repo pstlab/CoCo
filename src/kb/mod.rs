@@ -4,6 +4,7 @@ use crate::model::{Class, Object, Property, Rule, Value};
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use std::{
+    any::Any,
     collections::{HashMap, HashSet},
     fmt,
 };
@@ -71,12 +72,4 @@ pub trait KnowledgeBase: Clone + Send + Sync + 'static {
     async fn add_values(&self, object_id: String, values: HashMap<String, Value>, date_time: DateTime<Utc>) -> Result<(), KnowledgeBaseError>;
 
     fn take_event_receiver(&mut self) -> Option<mpsc::Receiver<KnowledgeBaseEvent>>;
-}
-
-pub fn setup_kb() -> Result<impl KnowledgeBase, KnowledgeBaseError> {
-    #[cfg(feature = "clips")]
-    return Ok(CLIPSKnowledgeBase::default());
-
-    #[cfg(not(feature = "clips"))]
-    panic!("No knowledge base backend configured");
 }

@@ -1,11 +1,13 @@
+use coco::CoCoModule;
+use coco::db::mongodb::MongoDB;
 #[cfg(feature = "fcm")]
 use coco::fcm::{fcm_router, setup_fcm};
+use coco::kb::clips::CLIPSKnowledgeBase;
 #[cfg(feature = "ollama")]
-use coco::kb::clips::ollama::setup_ollama;
-use coco::kb::setup_kb;
+use coco::kb::clips::ollama::OllamaModule;
 #[cfg(feature = "mqtt")]
 use coco::mqtt::setup_mqtt;
-use coco::{CoCo, db::setup_mongodb, server::coco_router};
+use coco::{CoCo, server::coco_router};
 use tower_http::services::{ServeDir, ServeFile};
 use tracing::info;
 use tracing::{Level, error, subscriber};
@@ -15,21 +17,15 @@ async fn main() {
     let subscriber = tracing_subscriber::fmt().with_max_level(Level::TRACE).finish();
     subscriber::set_global_default(subscriber).expect("Failed to set global default subscriber");
 
-    let db = setup_mongodb().await.unwrap_or_else(|e| {
+    let db = MongoDB::default().await.unwrap_or_else(|e| {
         error!("Failed to set up MongoDB: {}", e);
         std::process::exit(1);
     });
-
-    let kb = setup_kb().unwrap_or_else(|e| {
-        error!("Failed to set up knowledge base: {}", e);
-        std::process::exit(1);
-    });
+    let kb = CLIPSKnowledgeBase::default();
+    let mut modules: Vec<Box<dyn CoCoModule<MongoDB, CLIPSKnowledgeBase>>> = Vec::new();
 
     #[cfg(feature = "ollama")]
-    setup_ollama(&kb).await.unwrap_or_else(|e| {
-        error!("Failed to set up Ollama integration: {}", e);
-        std::process::exit(1);
-    });
+    modules.push(Box::new(OllamaModule::default()));
 
     #[cfg(feature = "fcm")]
     setup_fcm(db.clone(), &kb).await.unwrap_or_else(|e| {
@@ -37,7 +33,7 @@ async fn main() {
         std::process::exit(1);
     });
 
-    let coco = CoCo::new(db.clone(), kb).await;
+    let coco = CoCo::new(db.clone(), kb, modules).await;
 
     #[cfg(feature = "mqtt")]
     setup_mqtt(coco.clone()).await.unwrap_or_else(|e| {
