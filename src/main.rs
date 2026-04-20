@@ -6,7 +6,7 @@ use coco::kb::clips::CLIPSKnowledgeBase;
 #[cfg(feature = "ollama")]
 use coco::kb::clips::ollama::OllamaModule;
 #[cfg(feature = "mqtt")]
-use coco::mqtt::setup_mqtt;
+use coco::mqtt::MQTTModule;
 use coco::{CoCo, server::coco_router};
 use tower_http::services::{ServeDir, ServeFile};
 use tracing::info;
@@ -30,13 +30,10 @@ async fn main() {
     #[cfg(feature = "fcm")]
     modules.push(Box::new(FCMModule::default()));
 
-    let coco = CoCo::new(db.clone(), kb, modules).await;
-
     #[cfg(feature = "mqtt")]
-    setup_mqtt(coco.clone()).await.unwrap_or_else(|e| {
-        error!("Failed to set up MQTT integration: {}", e);
-        std::process::exit(1);
-    });
+    modules.push(Box::new(MQTTModule::default()));
+
+    let coco = CoCo::new(db.clone(), kb, modules).await;
 
     let app = coco_router(coco).await;
     #[cfg(feature = "fcm")]

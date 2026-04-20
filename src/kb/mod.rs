@@ -4,7 +4,6 @@ use crate::model::{Class, Object, Property, Rule, Value};
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use std::{
-    any::Any,
     collections::{HashMap, HashSet},
     fmt,
 };
