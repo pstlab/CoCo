@@ -3,6 +3,7 @@ use crate::{
     kb::clips::CLIPSKnowledgeBase,
     model::CoCoError,
 };
+use async_trait::async_trait;
 use axum::{
     Router,
     extract::{Path, State},
@@ -15,6 +16,38 @@ use reqwest::{Client, StatusCode};
 use serde_json::json;
 use tracing::{trace, warn};
 use yup_oauth2::{ServiceAccountAuthenticator, read_service_account_key};
+
+#[async_trait]
+trait FCMTokenManager: Database {
+    async fn add_token(&self, object_id: &str, token: &str) -> Result<(), String>;
+    async fn remove_token(&self, object_id: &str, token: &str) -> Result<(), String>;
+    async fn get_tokens(&self, object_id: &str) -> Result<Vec<String>, String>;
+}
+
+#[async_trait]
+impl FCMTokenManager for MongoDB {
+    async fn add_token(&self, object_id: &str, token: &str) -> Result<(), String> {
+        let oid = ObjectId::parse_str(object_id).map_err(|e| e.to_string())?;
+        let collection = self.client.database(self.name()).collection::<Document>("fcm_tokens");
+        collection.update_one(doc! { "_id": oid }, doc! { "$addToSet": { "tokens": token } }).upsert(true).await.map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    async fn remove_token(&self, object_id: &str, token: &str) -> Result<(), String> {
+        let oid = ObjectId::parse_str(object_id).map_err(|e| e.to_string())?;
+        let collection = self.client.database(self.name()).collection::<Document>("fcm_tokens");
+        collection.update_one(doc! { "_id": oid }, doc! { "$pull": { "tokens": token } }).await.map_err(|e| e.to_string())?;
+        Ok(())
+    }
+
+    async fn get_tokens(&self, object_id: &str) -> Result<Vec<String>, String> {
+        let oid = ObjectId::parse_str(object_id).map_err(|e| e.to_string())?;
+        let collection = self.client.database(self.name()).collection::<Document>("fcm_tokens");
+        let doc = collection.find_one(doc! { "_id": oid }).await.map_err(|e| e.to_string())?;
+
+        if let Some(doc) = doc { if let Ok(tokens) = doc.get_array("tokens") { Ok(tokens.iter().filter_map(|v| v.as_str()).map(|s| s.to_string()).collect()) } else { Ok(vec![]) } } else { Ok(vec![]) }
+    }
+}
 
 pub async fn setup_fcm(db: MongoDB, kb: &CLIPSKnowledgeBase) -> Result<(), CoCoError> {
     let project_id = std::env::var("FCM_PROJECT_ID").map_err(|_| CoCoError::ConfigurationError("Missing FCM_PROJECT_ID environment variable".to_string()))?;
@@ -45,7 +78,7 @@ pub async fn add_fcm(db: MongoDB, kb: &CLIPSKnowledgeBase, project_id: String) -
             let client = client.clone();
             let url = url.clone();
             tokio::spawn(async move {
-                let tokens = match get_fcm_tokens(&db, &object_id).await {
+                let tokens = match db.get_tokens(&object_id).await {
                     Ok(tokens) => tokens,
                     Err(e) => {
                         warn!("Failed to load FCM tokens for object_id={}: {}", object_id, e);
@@ -69,7 +102,7 @@ pub async fn add_fcm(db: MongoDB, kb: &CLIPSKnowledgeBase, project_id: String) -
                 for token in tokens {
                     if let Err(e) = send_message(&client, &url, &access_token, &token, &title, &message).await {
                         warn!("FCM send failed for object_id={}, token={} (removing token): {}", object_id, token, e);
-                        if let Err(remove_err) = remove_fcm_token(&db, &object_id, &token).await {
+                        if let Err(remove_err) = db.remove_token(&object_id, &token).await {
                             warn!("Failed removing stale token for object_id={}, token={}: {}", object_id, token, remove_err);
                         }
                     }
@@ -110,32 +143,10 @@ async fn add_token(State(db): State<MongoDB>, Path(id): Path<String>, token: Str
         Err(_) => return (StatusCode::BAD_REQUEST, "ID must be a valid MongoDB ObjectId".to_string()).into_response(),
     };
 
-    match add_fcm_token(&db, &object_id.to_hex(), token).await {
+    match db.add_token(&object_id.to_hex(), token).await {
         Ok(_) => (StatusCode::OK, "Token added successfully".to_string()).into_response(),
         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to add token: {}", e)).into_response(),
     }
-}
-
-async fn add_fcm_token(db: &MongoDB, object_id: &str, token: &str) -> Result<(), String> {
-    let oid = ObjectId::parse_str(object_id).map_err(|e| e.to_string())?;
-    let collection = db.client.database(db.name()).collection::<Document>("fcm_tokens");
-    collection.update_one(doc! { "_id": oid }, doc! { "$addToSet": { "tokens": token } }).upsert(true).await.map_err(|e| e.to_string())?;
-    Ok(())
-}
-
-async fn remove_fcm_token(db: &MongoDB, object_id: &str, token: &str) -> Result<(), String> {
-    let oid = ObjectId::parse_str(object_id).map_err(|e| e.to_string())?;
-    let collection = db.client.database(db.name()).collection::<Document>("fcm_tokens");
-    collection.update_one(doc! { "_id": oid }, doc! { "$pull": { "tokens": token } }).await.map_err(|e| e.to_string())?;
-    Ok(())
-}
-
-async fn get_fcm_tokens(db: &MongoDB, object_id: &str) -> Result<Vec<String>, String> {
-    let oid = ObjectId::parse_str(object_id).map_err(|e| e.to_string())?;
-    let collection = db.client.database(db.name()).collection::<Document>("fcm_tokens");
-    let doc = collection.find_one(doc! { "_id": oid }).await.map_err(|e| e.to_string())?;
-
-    if let Some(doc) = doc { if let Ok(tokens) = doc.get_array("tokens") { Ok(tokens.iter().filter_map(|v| v.as_str()).map(|s| s.to_string()).collect()) } else { Ok(vec![]) } } else { Ok(vec![]) }
 }
 
 async fn send_message(client: &Client, url: &str, access_token: &str, token: &str, title: &str, message: &str) -> Result<(), String> {
