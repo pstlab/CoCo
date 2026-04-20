@@ -22,16 +22,14 @@ async fn main() {
         std::process::exit(1);
     });
     let kb = CLIPSKnowledgeBase::default();
-    let mut modules: Vec<Box<dyn CoCoModule<MongoDB, CLIPSKnowledgeBase>>> = Vec::new();
-
-    #[cfg(feature = "ollama")]
-    modules.push(Box::new(OllamaModule::default()));
-
-    #[cfg(feature = "fcm")]
-    modules.push(Box::new(FCMModule::default()));
-
-    #[cfg(feature = "mqtt")]
-    modules.push(Box::new(MQTTModule::default()));
+    let modules: Vec<Box<dyn CoCoModule<MongoDB, CLIPSKnowledgeBase>>> = vec![
+        #[cfg(feature = "ollama")]
+        Box::new(OllamaModule::default()),
+        #[cfg(feature = "fcm")]
+        Box::new(FCMModule::default()),
+        #[cfg(feature = "mqtt")]
+        Box::new(MQTTModule::default()),
+    ];
 
     let coco = CoCo::new(db.clone(), kb, modules).await;
 

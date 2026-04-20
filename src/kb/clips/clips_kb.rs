@@ -13,13 +13,14 @@ use tokio::sync::{mpsc, oneshot};
 use tracing::{error, info, trace};
 
 type Udf = Box<dyn FnMut(&mut Environment, &mut UDFContext) -> ClipsValue + Send>;
+type ClassPropertyMap = HashMap<String, HashMap<String, Property>>;
 
 enum KBCommand {
     CreateClass(Class, oneshot::Sender<Result<(), KnowledgeBaseError>>),
     CreateRule(Rule, oneshot::Sender<Result<(), KnowledgeBaseError>>),
     CreateObject(Object, oneshot::Sender<Result<(), KnowledgeBaseError>>),
-    GetStaticProperties(HashSet<String>, oneshot::Sender<Result<HashMap<String, HashMap<String, Property>>, KnowledgeBaseError>>),
-    GetDynamicProperties(HashSet<String>, oneshot::Sender<Result<HashMap<String, HashMap<String, Property>>, KnowledgeBaseError>>),
+    GetStaticProperties(HashSet<String>, oneshot::Sender<Result<ClassPropertyMap, KnowledgeBaseError>>),
+    GetDynamicProperties(HashSet<String>, oneshot::Sender<Result<ClassPropertyMap, KnowledgeBaseError>>),
     AddClass(String, String, oneshot::Sender<Result<(), KnowledgeBaseError>>),
     GetObjectClasses(String, oneshot::Sender<Result<HashSet<String>, KnowledgeBaseError>>),
     SetProperties(String, HashMap<String, Value>, oneshot::Sender<Result<(), KnowledgeBaseError>>),
