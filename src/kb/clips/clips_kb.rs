@@ -349,13 +349,13 @@ impl CLIPSKnowledgeBase {
                     }
                     KBCommand::GetStaticProperties(classes, reply) => {
                         trace!("Getting static properties for classes: {:?}", classes);
-                        let result = (|| -> Result<HashMap<String, HashMap<String, Property>>, KnowledgeBaseError> { kb.get_static_properties(classes) })();
+                        let result = kb.get_static_properties(classes);
 
                         let _ = reply.send(result);
                     }
                     KBCommand::GetDynamicProperties(classes, reply) => {
                         trace!("Getting dynamic properties for classes: {:?}", classes);
-                        let result = (|| -> Result<HashMap<String, HashMap<String, Property>>, KnowledgeBaseError> { kb.get_dynamic_properties(classes) })();
+                        let result = kb.get_dynamic_properties(classes);
 
                         let _ = reply.send(result);
                     }
