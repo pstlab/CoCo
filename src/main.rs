@@ -1,3 +1,4 @@
+use coco::CoCo;
 use coco::CoCoModule;
 use coco::db::mongodb::MongoDB;
 #[cfg(feature = "fcm")]
@@ -7,7 +8,10 @@ use coco::kb::clips::CLIPSKnowledgeBase;
 use coco::kb::clips::ollama::OllamaModule;
 #[cfg(feature = "mqtt")]
 use coco::mqtt::MQTTModule;
-use coco::{CoCo, server::coco_router};
+#[cfg(feature = "secure")]
+use coco::server::secure::{UsersDB, secure_coco_router};
+#[cfg(not(feature = "secure"))]
+use coco::server::unsecure::unsecure_coco_router;
 use tower_http::services::{ServeDir, ServeFile};
 use tracing::info;
 use tracing::{Level, error, subscriber};
@@ -33,7 +37,14 @@ async fn main() {
 
     let coco = CoCo::new(db.clone(), kb, modules).await;
 
-    let app = coco_router(coco).await;
+    let app = cfg_select! {
+        feature = "secure" => secure_coco_router(coco, UsersDB::default().await.unwrap_or_else(|e| {
+            error!("Failed to set up users database: {}", e);
+            std::process::exit(1);
+        })).await,
+        _ => unsecure_coco_router(coco).await,
+    };
+
     #[cfg(feature = "fcm")]
     let app = app.merge(fcm_router(db));
     let app = app.nest_service("/assets", ServeDir::new("gui/assets")).fallback_service(ServeDir::new("gui").not_found_service(ServeFile::new("gui/index.html")));
