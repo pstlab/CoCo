@@ -26,6 +26,7 @@
   ],
   "scripts": {
     "build": "tsc",
+    "build:playground": "vite build playground",
     "dev": "vite playground"
   },
   "devDependencies": {
