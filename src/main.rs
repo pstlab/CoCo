@@ -1,7 +1,7 @@
 use coco::CoCoModule;
 use coco::db::mongodb::MongoDB;
 #[cfg(feature = "fcm")]
-use coco::fcm::{fcm_router, setup_fcm};
+use coco::fcm::{FCMModule, fcm_router};
 use coco::kb::clips::CLIPSKnowledgeBase;
 #[cfg(feature = "ollama")]
 use coco::kb::clips::ollama::OllamaModule;
@@ -28,10 +28,7 @@ async fn main() {
     modules.push(Box::new(OllamaModule::default()));
 
     #[cfg(feature = "fcm")]
-    setup_fcm(db.clone(), &kb).await.unwrap_or_else(|e| {
-        error!("Failed to add FCM to knowledge base: {}", e);
-        std::process::exit(1);
-    });
+    modules.push(Box::new(FCMModule::default()));
 
     let coco = CoCo::new(db.clone(), kb, modules).await;
 
