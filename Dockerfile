@@ -18,6 +18,8 @@ RUN cargo build --release --features "server ollama"
 # --- Stage 2: Frontend Builder ---
 FROM node:20-slim AS frontend-builder
 
+RUN apt-get update && apt-get install -y git && rm -rf /var/lib/apt/lists/*
+
 WORKDIR /usr/src/app
 
 RUN git clone https://github.com/pstlab/CoCo.git .
@@ -32,7 +34,7 @@ FROM debian:bookworm-slim
 RUN apt-get update && apt-get install -y ca-certificates && rm -rf /var/lib/apt/lists/*
 
 COPY --from=backend-builder /usr/src/app/target/release/coco-reasoner /usr/local/bin/coco
-COPY --from=frontend-builder /usr/src/app/gui/dist /usr/local/bin/gui/dist  # ← diretto
+COPY --from=frontend-builder /usr/src/app/gui/dist /usr/local/bin/gui/dist
 
 WORKDIR /usr/local/bin
 
