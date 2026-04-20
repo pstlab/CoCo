@@ -65,6 +65,15 @@ impl UsersDB {
         Ok(UsersDB { name, secret, client })
     }
 
+    pub async fn default() -> Result<Self, DatabaseError> {
+        let name = std::env::var("USERS_DB_NAME").unwrap_or_else(|_| "coco_users".to_string());
+        let host = std::env::var("USERS_DB_HOST").unwrap_or_else(|_| "localhost".to_string());
+        let port = std::env::var("USERS_DB_PORT").unwrap_or_else(|_| "27017".to_string()).parse().unwrap_or(27017);
+        let connection_string = format!("mongodb://{}:{}/{}", host, port, name);
+        let secret = std::env::var("JWT_SECRET").unwrap_or_else(|_| "default_secret".to_owned());
+        Self::new(name, secret, connection_string).await
+    }
+
     pub fn name(&self) -> &str {
         &self.name
     }
@@ -94,27 +103,11 @@ impl UsersDB {
     }
 }
 
-pub async fn setup_db() -> Result<UsersDB, DatabaseError> {
-    let users_name = std::env::var("USERS_DB_NAME").unwrap_or_else(|_| "coco_users".to_string());
-    let users_host = std::env::var("USERS_DB_HOST").unwrap_or_else(|_| "localhost".to_string());
-    let users_port = std::env::var("USERS_DB_PORT").unwrap_or_else(|_| "27017".to_string()).parse().unwrap_or(27017);
-    let users_uri = format!("mongodb://{}:{}/{}", users_host, users_port, users_name);
-    let client = Client::with_uri_str(&users_uri).await.map_err(|e| DatabaseError::ConnectionError(format!("Failed to connect to users database: {}", e)))?;
-    let secret = std::env::var("JWT_SECRET").unwrap_or_else(|_| "default_secret".to_owned());
+pub async fn secure_coco_router(coco: CoCo, users_db: UsersDB) -> Router {
+    let protected_auth_router = Router::new().route("/users", get(get_users).post(create_user)).route_layer(from_fn_with_state(users_db.clone(), auth_middleware));
+    let auth_router = Router::new().route("/register", post(register)).route("/login", post(login)).route("/refresh_token", post(refresh_token)).merge(protected_auth_router).with_state(users_db.clone());
 
-    Ok(UsersDB { name: users_name, secret, client })
-}
-
-pub async fn secure_coco_router(coco: CoCo) -> Router {
-    let db = setup_db().await.unwrap_or_else(|e| {
-        error!("Failed to set up users database: {}", e);
-        std::process::exit(1);
-    });
-
-    let protected_auth_router = Router::new().route("/users", get(get_users).post(create_user)).route_layer(from_fn_with_state(db.clone(), auth_middleware));
-    let auth_router = Router::new().route("/register", post(register)).route("/login", post(login)).route("/refresh_token", post(refresh_token)).merge(protected_auth_router).with_state(db.clone());
-
-    let protected_router = Router::new().route("/classes", post(create_class)).route("/rules", post(create_rule)).route("/objects", post(create_object)).route("/objects/{id}", patch(set_properties)).route("/objects/{id}/data", post(add_data)).route_layer(from_fn_with_state(db, auth_middleware));
+    let protected_router = Router::new().route("/classes", post(create_class)).route("/rules", post(create_rule)).route("/objects", post(create_object)).route("/objects/{id}", patch(set_properties)).route("/objects/{id}/data", post(add_data)).route_layer(from_fn_with_state(users_db, auth_middleware));
     let coco_router = Router::new()
         .route("/ws", get(ws_handler))
         .route("/classes", get(get_classes))

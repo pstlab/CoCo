@@ -21,6 +21,10 @@ pub mod server;
 type CommandResult<T> = oneshot::Sender<Result<T, CoCoError>>;
 type Pulse = (HashMap<String, Value>, DateTime<Utc>);
 
+pub trait CoCoModule {
+    fn init(&self, coco: &CoCo) -> Result<(), CoCoError>;
+}
+
 #[derive(Debug)]
 enum CoCoCommand {
     Init(Vec<Class>, Vec<Rule>, Vec<Object>, CommandResult<()>),

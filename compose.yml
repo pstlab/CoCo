@@ -1,28 +1,40 @@
 services:
   # The coco-app service is the main application that runs the reasoning engine and serves the API. It depends on both MongoDB and Ollama to function correctly.
   coco-app:
-    build: .
-    ports:
-      - "3000:3000"
+    image: coco:latest
+    container_name: coco
     environment:
       - DB_HOST=mongodb
       - OLLAMA_HOST=ollama
     depends_on:
       - mongodb
       - ollama
+    networks:
+      - coco_network
+      - npm_network
 
   # MongoDB is used to store the reasoning traces and other relevant data for the application.
   mongodb:
     image: mongo:latest
     volumes:
       - mongo_data:/data/db
+    networks:
+      - coco_network
 
   # Ollama is a local LLM server that we use to run the LLMs. Remember to set up the models in Ollama before running the application. From the container's console, run `ollama pull <model-name>` to download the desired models.
   ollama:
     image: ollama/ollama:latest
     volumes:
       - ollama_data:/data
+    networks:
+      - coco_network
 
 volumes:
   mongo_data:
   ollama_data:
+
+networks:
+  coco_network:
+    internal: true
+  npm_network:
+    external: true

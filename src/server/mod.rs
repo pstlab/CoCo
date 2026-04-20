@@ -1,11 +1,11 @@
 use crate::CoCo;
 #[cfg(feature = "secure")]
-use crate::server::secure::secure_coco_router;
+use crate::server::secure::{UsersDB, secure_coco_router};
 #[cfg(not(feature = "secure"))]
 use crate::server::unsecure::unsecure_coco_router;
 use axum::Router;
 use tower_http::services::{ServeDir, ServeFile};
-use tracing::info;
+use tracing::{error, info};
 
 #[cfg(feature = "secure")]
 pub mod secure;
@@ -23,7 +23,14 @@ pub async fn start_server(router: Router) {
 
 pub async fn coco_router(coco: CoCo) -> Router {
     #[cfg(feature = "secure")]
-    return secure_coco_router(coco).await;
+    return secure_coco_router(
+        coco,
+        UsersDB::default().await.unwrap_or_else(|e| {
+            error!("Failed to set up users database: {}", e);
+            std::process::exit(1);
+        }),
+    )
+    .await;
 
     #[cfg(not(feature = "secure"))]
     return unsecure_coco_router(coco).await;

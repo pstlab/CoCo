@@ -109,16 +109,11 @@ async fn parse_response(response: Response) {
 mod tests {
     use tracing::{Level, subscriber};
 
-    use crate::kb::setup_clips;
-
     use super::*;
 
     #[tokio::test]
     async fn test_add_ollama() {
-        let kb = setup_clips().unwrap_or_else(|e| {
-            error!("Failed to set up knowledge base: {}", e);
-            std::process::exit(1);
-        });
+        let kb = CLIPSKnowledgeBase::default();
 
         setup_ollama(&kb).await.unwrap_or_else(|e| {
             error!("Failed to set up Ollama integration: {}", e);

@@ -2,9 +2,10 @@
 use coco::fcm::{fcm_router, setup_fcm};
 #[cfg(feature = "ollama")]
 use coco::kb::clips::ollama::setup_ollama;
+use coco::kb::setup_kb;
 #[cfg(feature = "mqtt")]
 use coco::mqtt::setup_mqtt;
-use coco::{CoCo, db::setup_mongodb, kb::setup_clips, server::coco_router};
+use coco::{CoCo, db::setup_mongodb, server::coco_router};
 use tower_http::services::{ServeDir, ServeFile};
 use tracing::info;
 use tracing::{Level, error, subscriber};
@@ -19,7 +20,7 @@ async fn main() {
         std::process::exit(1);
     });
 
-    let kb = setup_clips().unwrap_or_else(|e| {
+    let kb = setup_kb().unwrap_or_else(|e| {
         error!("Failed to set up knowledge base: {}", e);
         std::process::exit(1);
     });

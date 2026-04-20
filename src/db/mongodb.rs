@@ -54,6 +54,14 @@ impl MongoDB {
         }
         Ok(Self { name, client })
     }
+
+    pub async fn default() -> Result<Self, DatabaseError> {
+        let name = std::env::var("DB_NAME").unwrap_or_else(|_| "coco_db".to_owned());
+        let host = std::env::var("DB_HOST").unwrap_or_else(|_| "localhost".to_owned());
+        let port = std::env::var("DB_PORT").ok().and_then(|p| p.parse().ok()).unwrap_or(27017);
+        let uri = format!("mongodb://{}:{}", host, port);
+        Self::new(name, uri).await
+    }
 }
 
 #[async_trait]

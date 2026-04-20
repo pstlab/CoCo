@@ -75,13 +75,8 @@ pub trait KnowledgeBase: Clone + Send + Sync + 'static {
 
 pub fn setup_kb() -> Result<impl KnowledgeBase, KnowledgeBaseError> {
     #[cfg(feature = "clips")]
-    return setup_clips();
+    return Ok(CLIPSKnowledgeBase::default());
 
     #[cfg(not(feature = "clips"))]
     panic!("No knowledge base backend configured");
-}
-
-#[cfg(feature = "clips")]
-pub fn setup_clips() -> Result<CLIPSKnowledgeBase, KnowledgeBaseError> {
-    Ok(CLIPSKnowledgeBase::new())
 }
