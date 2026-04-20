@@ -47,7 +47,7 @@ async fn main() {
     let app = coco_router(coco).await;
     #[cfg(feature = "fcm")]
     let app = app.merge(fcm_router(db));
-    let app = app.nest_service("/assets", ServeDir::new("gui/dist/assets")).fallback_service(ServeDir::new("gui/dist").not_found_service(ServeFile::new("gui/dist/index.html")));
+    let app = app.nest_service("/assets", ServeDir::new("gui/assets")).fallback_service(ServeDir::new("gui").not_found_service(ServeFile::new("gui/index.html")));
 
     let port = std::env::var("PORT").ok().and_then(|p| p.parse().ok()).unwrap_or(3000);
     info!("Starting CoCo server on port {}", port);
