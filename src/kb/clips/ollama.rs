@@ -1,4 +1,4 @@
-use crate::{CoCo, CoCoModule, db::Database, kb::CLIPSKnowledgeBase, model::CoCoError};
+use crate::{CoCo, CoCoModule, db::Database, kb::clips::CLIPSKnowledgeBase, model::CoCoError};
 use async_trait::async_trait;
 use clips::{ClipsValue, Type};
 use futures_util::StreamExt;
