@@ -47,6 +47,7 @@ pub struct CoCo {
     tx: mpsc::Sender<CoCoCommand>,
     pub event_tx: broadcast::Sender<CoCoEvent>,
 }
+
 impl CoCo {
     pub async fn new<DB, KB>(db: DB, mut kb: KB) -> Self
     where

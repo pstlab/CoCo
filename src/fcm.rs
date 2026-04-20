@@ -18,7 +18,7 @@ use tracing::{trace, warn};
 use yup_oauth2::{ServiceAccountAuthenticator, read_service_account_key};
 
 #[async_trait]
-trait FCMTokenManager: Database {
+trait FCMTokenManager {
     async fn add_token(&self, object_id: &str, token: &str) -> Result<(), String>;
     async fn remove_token(&self, object_id: &str, token: &str) -> Result<(), String>;
     async fn get_tokens(&self, object_id: &str) -> Result<Vec<String>, String>;
