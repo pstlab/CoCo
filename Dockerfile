@@ -1,5 +1,5 @@
-# --- Stage 1: The Builder ---
-FROM rust:1.95-slim-bookworm AS builder
+# --- Stage 1: The Backend Builder ---
+FROM rust:1.95-slim-bookworm AS backend-builder
 
 RUN apt-get update && apt-get install -y build-essential libclang-dev git wget unzip && rm -rf /var/lib/apt/lists/*
 
@@ -15,13 +15,24 @@ RUN wget -O clips_642.zip https://sourceforge.net/projects/clipsrules/files/CLIP
 
 RUN cargo build --release --features "server ollama"
 
-# --- Stage 2: The Final Image ---
+# --- Stage 2: Frontend Builder ---
+FROM node:20-slim AS frontend-builder
+
+WORKDIR /usr/src/app
+
+RUN git clone https://github.com/pstlab/CoCo.git .
+
+WORKDIR /usr/src/app/gui
+
+RUN npm install && npm run build
+
+# --- Stage 3: The Final Image ---
 FROM debian:bookworm-slim
 
 RUN apt-get update && apt-get install -y ca-certificates && rm -rf /var/lib/apt/lists/*
 
-COPY --from=builder /usr/src/app/target/release/coco-reasoner /usr/local/bin/coco
-COPY --from=builder /usr/src/app/gui/dist /usr/local/bin/gui
+COPY --from=backend-builder /usr/src/app/target/release/coco-reasoner /usr/local/bin/coco
+COPY --from=frontend-builder /usr/src/app/gui/dist /usr/local/bin/gui/dist  # ← diretto
 
 WORKDIR /usr/local/bin
 
