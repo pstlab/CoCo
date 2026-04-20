@@ -1,9 +1,4 @@
-use crate::{
-    CoCo, CoCoModule,
-    db::Database,
-    kb::{CLIPSKnowledgeBase, KnowledgeBaseError},
-    model::CoCoError,
-};
+use crate::{CoCo, CoCoModule, db::Database, kb::CLIPSKnowledgeBase, model::CoCoError};
 use async_trait::async_trait;
 use clips::{ClipsValue, Type};
 use futures_util::StreamExt;
@@ -98,60 +93,6 @@ struct OllamaResponse {
     done: bool,
 }
 
-pub async fn add_ollama(kb: &CLIPSKnowledgeBase, host: String, port: u16, model: String) -> Result<(), KnowledgeBaseError> {
-    info!("Setting up Ollama integration with model '{}' at {}:{}", model, host, port);
-    let url = format!("http://{}:{}/api/chat", host, port);
-    let client = Client::new();
-
-    kb.add_udf(
-        "prompt",
-        None,
-        2,
-        2,
-        vec![Type(Type::SYMBOL), Type(Type::STRING)],
-        Box::new(move |_env, ctx: &mut clips::UDFContext| {
-            let object_id_val = ctx.get_next_argument(Type(Type::SYMBOL)).expect("Failed to get object ID argument for prompt UDF");
-            let object_id = match object_id_val {
-                ClipsValue::Symbol(s) => s.to_string(),
-                _ => panic!("Expected symbol for object ID argument in prompt UDF"),
-            };
-
-            let prompt_val = ctx.get_next_argument(Type(Type::STRING)).expect("Failed to get prompt argument for prompt UDF");
-            let prompt = match prompt_val {
-                ClipsValue::String(s) => s.to_string(),
-                _ => panic!("Expected string for prompt argument in prompt UDF"),
-            };
-
-            let client = client.clone();
-            let url = url.clone();
-            let model = model.clone();
-
-            tokio::spawn(async move {
-                trace!("Sending prompt to Ollama for object_id {}: {}", object_id, prompt);
-                let body = serde_json::json!({
-                    "model": model,
-                    "messages": [{"role": "user", "content": prompt}],
-                    "stream": true
-                });
-
-                match client.post(&url).json(&body).send().await {
-                    Ok(response) => {
-                        parse_response(response).await;
-                    }
-                    Err(_) => {
-                        error!("Failed to send request to Ollama for object_id {}: {}", object_id, url);
-                    }
-                };
-            });
-
-            ClipsValue::Void()
-        }),
-    )
-    .await?;
-
-    Ok(())
-}
-
 async fn parse_response(response: Response) {
     let mut stream = response.bytes_stream();
     while let Some(chunk) = stream.next().await {
@@ -176,6 +117,9 @@ async fn parse_response(response: Response) {
             match serde_json::from_str::<OllamaResponse>(line) {
                 Ok(ollama_response) => {
                     trace!("{}", ollama_response.response);
+                    if ollama_response.done {
+                        trace!("Ollama response complete");
+                    }
                 }
                 Err(e) => {
                     error!("Error parsing Ollama response: {}", e);
