@@ -3,6 +3,8 @@ services:
   coco-app:
     image: coco:latest
     container_name: coco
+    ports:
+      - "3000:3000"
     environment:
       - DB_HOST=mongodb
       - OLLAMA_HOST=ollama
@@ -11,7 +13,6 @@ services:
       - ollama
     networks:
       - coco_network
-      - npm_network
 
   # MongoDB is used to store the reasoning traces and other relevant data for the application.
   mongodb:
@@ -36,5 +37,3 @@ volumes:
 networks:
   coco_network:
     internal: true
-  npm_network:
-    external: true

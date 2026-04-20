@@ -34,7 +34,7 @@ FROM debian:bookworm-slim
 RUN apt-get update && apt-get install -y ca-certificates && rm -rf /var/lib/apt/lists/*
 
 COPY --from=backend-builder /usr/src/app/target/release/coco-reasoner /usr/local/bin/coco
-COPY --from=frontend-builder /usr/src/app/gui/dist /usr/local/bin/gui/dist
+COPY --from=frontend-builder /usr/src/app/gui/dist /usr/local/bin/gui
 
 WORKDIR /usr/local/bin
 
