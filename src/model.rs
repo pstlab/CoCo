@@ -325,31 +325,29 @@ pub struct Object {
 }
 
 pub async fn object_from_json(coco: CoCo, mut obj: JsonValue) -> Result<Object, CoCoError> {
-    let class_names = obj.get("classes").and_then(|v| v.as_array()).ok_or_else(|| CoCoError::JsonParseError("Missing or invalid 'classes' field".to_string()))?.iter().filter_map(JsonValue::as_str).map(ToOwned::to_owned).collect::<HashSet<String>>();
+    let classes = obj.get("classes").and_then(|v| v.as_array()).ok_or_else(|| CoCoError::JsonParseError("Missing or invalid 'classes' field".to_string()))?.iter().filter_map(JsonValue::as_str).map(ToOwned::to_owned).collect::<HashSet<String>>();
     let obj_map = obj.as_object_mut().ok_or_else(|| CoCoError::JsonParseError("Object payload must be a JSON object".to_string()))?;
 
     let properties = match obj_map.remove("properties") {
-        Some(raw) => Some(properties_from_json(coco.clone(), raw).await?),
+        Some(raw) => Some(properties_from_json(coco.clone(), classes.clone(), raw).await?),
         None => None,
     };
 
     let values = match obj_map.remove("values") {
-        Some(raw) => Some(timed_values_from_json(coco.clone(), raw).await?),
+        Some(raw) => Some(timed_values_from_json(coco.clone(), classes.clone(), raw).await?),
         None => None,
     };
 
     Ok(Object {
         id: obj.get("id").and_then(JsonValue::as_str).map(ToOwned::to_owned),
-        classes: class_names,
+        classes,
         properties,
         values,
     })
 }
 
-pub async fn properties_from_json(coco: CoCo, obj: JsonValue) -> Result<HashMap<String, Value>, CoCoError> {
-    let class_names = obj.get("classes").and_then(|v| v.as_array()).ok_or_else(|| CoCoError::JsonParseError("Missing or invalid 'classes' field".to_string()))?.iter().filter_map(JsonValue::as_str).map(ToOwned::to_owned).collect::<HashSet<String>>();
-
-    match coco.get_static_properties(class_names.clone()).await {
+pub async fn properties_from_json(coco: CoCo, class_names: HashSet<String>, obj: JsonValue) -> Result<HashMap<String, Value>, CoCoError> {
+    match coco.get_static_properties(class_names).await {
         Ok(static_props) => {
             let mut properties = HashMap::new();
             for (_class_name, class_props) in static_props {
@@ -365,10 +363,8 @@ pub async fn properties_from_json(coco: CoCo, obj: JsonValue) -> Result<HashMap<
     }
 }
 
-pub async fn values_from_json(coco: CoCo, obj: JsonValue) -> Result<HashMap<String, Value>, CoCoError> {
-    let class_names = obj.get("classes").and_then(|v| v.as_array()).ok_or_else(|| CoCoError::JsonParseError("Missing or invalid 'classes' field".to_string()))?.iter().filter_map(JsonValue::as_str).map(ToOwned::to_owned).collect::<HashSet<String>>();
-
-    match coco.get_dynamic_properties(class_names.clone()).await {
+pub async fn values_from_json(coco: CoCo, class_names: HashSet<String>, obj: JsonValue) -> Result<HashMap<String, Value>, CoCoError> {
+    match coco.get_dynamic_properties(class_names).await {
         Ok(dynamic_props) => {
             let mut properties = HashMap::new();
             for (_class_name, class_props) in dynamic_props {
@@ -384,10 +380,8 @@ pub async fn values_from_json(coco: CoCo, obj: JsonValue) -> Result<HashMap<Stri
     }
 }
 
-pub async fn timed_values_from_json(coco: CoCo, obj: JsonValue) -> Result<HashMap<String, TimedValue>, CoCoError> {
-    let class_names = obj.get("classes").and_then(|v| v.as_array()).ok_or_else(|| CoCoError::JsonParseError("Missing or invalid 'classes' field".to_string()))?.iter().filter_map(JsonValue::as_str).map(ToOwned::to_owned).collect::<HashSet<String>>();
-
-    match coco.get_dynamic_properties(class_names.clone()).await {
+pub async fn timed_values_from_json(coco: CoCo, class_names: HashSet<String>, obj: JsonValue) -> Result<HashMap<String, TimedValue>, CoCoError> {
+    match coco.get_dynamic_properties(class_names).await {
         Ok(dynamic_props) => {
             let mut properties = HashMap::new();
             let timestamp = Utc::now();

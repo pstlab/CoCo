@@ -269,13 +269,17 @@ async fn create_object(State(coco): State<CoCo>, Json(object): Json<JsonValue>) 
     )]
 async fn set_properties(State(coco): State<CoCo>, Path(object_id): Path<String>, Json(properties): Json<JsonValue>) -> impl IntoResponse {
     trace!("Handling request to set properties for object with ID: {}. New properties: {:?}", object_id, properties);
-    match properties_from_json(coco.clone(), properties).await {
-        Ok(properties) => match coco.set_properties(&object_id, properties).await {
-            Ok(_) => (StatusCode::OK, "Object properties updated successfully".to_string()).into_response(),
-            Err(CoCoError::ObjectNotFound(e)) => (StatusCode::NOT_FOUND, format!("Object not found: {}", e)).into_response(),
-            Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to update properties for object with ID '{}': {}", object_id, e)).into_response(),
+    match coco.get_object_classes(&object_id).await {
+        Ok(classes) => match properties_from_json(coco.clone(), classes, properties).await {
+            Ok(properties) => match coco.set_properties(&object_id, properties).await {
+                Ok(_) => (StatusCode::OK, "Object properties updated successfully".to_string()).into_response(),
+                Err(CoCoError::ObjectNotFound(e)) => (StatusCode::NOT_FOUND, format!("Object not found: {}", e)).into_response(),
+                Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to update properties for object with ID '{}': {}", object_id, e)).into_response(),
+            },
+            Err(e) => (StatusCode::BAD_REQUEST, format!("Invalid property values in request body: {}", e)).into_response(),
         },
-        Err(e) => (StatusCode::BAD_REQUEST, format!("Invalid property values in request body: {}", e)).into_response(),
+        Err(CoCoError::ObjectNotFound(e)) => (StatusCode::NOT_FOUND, format!("Object not found: {}", e)).into_response(),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to retrieve object with ID '{}': {}", object_id, e)).into_response(),
     }
 }
 
@@ -304,13 +308,17 @@ struct DateQuery {
 async fn add_data(State(coco): State<CoCo>, Path(object_id): Path<String>, Query(date_time): Query<DateQuery>, Json(values): Json<JsonValue>) -> impl IntoResponse {
     trace!("Handling request to add data to object with ID: {}. Values: {:?}, Timestamp: {:?}", object_id, values, date_time);
     let timestamp = date_time.time.unwrap_or_else(Utc::now);
-    match values_from_json(coco.clone(), values).await {
-        Ok(values) => match coco.add_values(&object_id, values, timestamp).await {
-            Ok(_) => (StatusCode::OK, "Data added to object successfully".to_string()).into_response(),
-            Err(CoCoError::ObjectNotFound(e)) => (StatusCode::NOT_FOUND, format!("Object not found: {}", e)).into_response(),
-            Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to add data to object with ID '{}': {}", object_id, e)).into_response(),
+    match coco.get_object_classes(&object_id).await {
+        Ok(classes) => match values_from_json(coco.clone(), classes, values).await {
+            Ok(values) => match coco.add_values(&object_id, values, timestamp).await {
+                Ok(_) => (StatusCode::OK, "Data added to object successfully".to_string()).into_response(),
+                Err(CoCoError::ObjectNotFound(e)) => (StatusCode::NOT_FOUND, format!("Object not found: {}", e)).into_response(),
+                Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to add data to object with ID '{}': {}", object_id, e)).into_response(),
+            },
+            Err(e) => (StatusCode::BAD_REQUEST, format!("Invalid data values in request body: {}", e)).into_response(),
         },
-        Err(e) => (StatusCode::BAD_REQUEST, format!("Invalid data values in request body: {}", e)).into_response(),
+        Err(CoCoError::ObjectNotFound(e)) => (StatusCode::NOT_FOUND, format!("Object not found: {}", e)).into_response(),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to retrieve object with ID '{}': {}", object_id, e)).into_response(),
     }
 }
 
