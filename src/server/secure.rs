@@ -1,7 +1,8 @@
 use crate::{
     CoCo,
     db::DatabaseError,
-    model::{Class, CoCoError, CoCoEvent, Object, Property, Rule, TimedValue, Value, object_from_json, properties_from_json, values_from_json},
+    model::{Class, CoCoError, CoCoEvent, Object, Property, Rule, Value},
+    server::unsecure::{self, DateQuery, get_class, get_classes, get_data, get_object, get_objects, get_rule, get_rules},
 };
 use argon2::{
     Argon2, PasswordHash, PasswordHasher, PasswordVerifier,
@@ -18,17 +19,16 @@ use axum::{
     response::{IntoResponse, Response},
     routing::{get, patch, post},
 };
-use chrono::{DateTime, Duration, Utc};
+use chrono::{Duration, Utc};
 use futures::TryStreamExt;
 use jsonwebtoken::{DecodingKey, EncodingKey, Header, Validation, errors::Error};
 use mongodb::bson::doc;
 use mongodb::{Client, IndexModel, bson::Document, options::IndexOptions};
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
-use std::collections::HashMap;
 use tracing::{error, trace};
 use utoipa::{
-    IntoParams, Modify, OpenApi, ToSchema,
+    Modify, OpenApi, ToSchema,
     openapi::security::{HttpAuthScheme, HttpBuilder, SecurityScheme},
 };
 
@@ -343,47 +343,6 @@ async fn create_user(State(db): State<UsersDB>, Extension(user): Extension<Curre
 }
 
 #[utoipa::path(
-        get,
-        path = "/classes",
-        tag = "Classes",
-        summary = "List all classes",
-        description = "Retrieve a list of all available classes in the knowledge base.",
-        responses(
-            (status = 200, description = "List of classes", body = [Class])
-        )
-    )]
-async fn get_classes(State(coco): State<CoCo>) -> impl IntoResponse {
-    trace!("Handling request to list all classes");
-    match coco.get_classes().await {
-        Ok(classes) => Json(classes).into_response(),
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to get classes: {}", e)).into_response(),
-    }
-}
-
-#[utoipa::path(
-        get,
-        path = "/classes/{name}",
-        tag = "Classes",
-        summary = "Get a class",
-        description = "Retrieve details for a specific class by its name.",
-        params(
-            ("name" = String, Path, description = "Name of the class to retrieve")
-        ),
-        responses(
-            (status = 200, description = "The requested class", body = Class),
-            (status = 404, description = "Class not found")
-        )
-    )]
-async fn get_class(State(coco): State<CoCo>, Path(name): Path<String>) -> impl IntoResponse {
-    trace!("Handling request to get class with name: {}", name);
-    match coco.get_class(&name).await {
-        Ok(Some(class)) => Json(class).into_response(),
-        Ok(None) => (StatusCode::NOT_FOUND, format!("Class '{}' not found", name)).into_response(),
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to get class '{}': {}", name, e)).into_response(),
-    }
-}
-
-#[utoipa::path(
         post,
         path = "/classes",
         tag = "Classes",
@@ -396,54 +355,11 @@ async fn get_class(State(coco): State<CoCo>, Path(name): Path<String>) -> impl I
             (status = 500, description = "Failed to create class")
         )
     )]
-async fn create_class(State(coco): State<CoCo>, Json(class): Json<Class>) -> impl IntoResponse {
-    trace!("Handling request to create class with name: {}", class.name);
-    match coco.create_class(class).await {
-        Ok(_) => (StatusCode::CREATED, "Class created successfully".to_string()).into_response(),
-        Err(CoCoError::ClassAlreadyExists(_)) => (StatusCode::CONFLICT, "Class already exists".to_string()).into_response(),
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to create class: {}", e)).into_response(),
+async fn create_class(State(coco): State<CoCo>, Extension(user): Extension<CurrentUser>, Json(class): Json<Class>) -> impl IntoResponse {
+    if user.role != "admin" {
+        return (StatusCode::FORBIDDEN, "Only admin users can create classes").into_response();
     }
-}
-
-#[utoipa::path(
-        get,
-        path = "/rules",
-        tag = "Rules",
-        summary = "List all rules",
-        description = "Retrieve a list of all available rules in the knowledge base.",
-        responses(
-            (status = 200, description = "List of rules", body = [String])
-        )
-    )]
-async fn get_rules(State(coco): State<CoCo>) -> impl IntoResponse {
-    trace!("Handling request to list all rules");
-    match coco.get_rules().await {
-        Ok(rules) => Json(rules).into_response(),
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to get rules: {}", e)).into_response(),
-    }
-}
-
-#[utoipa::path(
-        get,
-        path = "/rules/{name}",
-        tag = "Rules",
-        summary = "Get a rule",
-        description = "Retrieve details for a specific rule by its name.",
-        params(
-            ("name" = String, Path, description = "Name of the rule to retrieve")
-        ),
-        responses(
-            (status = 200, description = "The requested rule", body = String),
-            (status = 404, description = "Rule not found")
-        )
-    )]
-async fn get_rule(State(coco): State<CoCo>, Path(name): Path<String>) -> impl IntoResponse {
-    trace!("Handling request to get rule with name: {}", name);
-    match coco.get_rule(&name).await {
-        Ok(Some(rule)) => Json(rule).into_response(),
-        Ok(None) => (StatusCode::NOT_FOUND, format!("Rule '{}' not found", name)).into_response(),
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to get rule '{}': {}", name, e)).into_response(),
-    }
+    unsecure::create_class(State(coco), Json(class)).await.into_response()
 }
 
 #[utoipa::path(
@@ -466,72 +382,7 @@ async fn create_rule(State(coco): State<CoCo>, Extension(user): Extension<Curren
     if user.role != "admin" {
         return (StatusCode::FORBIDDEN, "Only admin users can create rules").into_response();
     }
-    trace!("Handling request to create rule with name: {}", rule.name);
-    match coco.create_rule(rule).await {
-        Ok(_) => (StatusCode::CREATED, "Rule created successfully".to_string()).into_response(),
-        Err(CoCoError::RuleAlreadyExists(_)) => (StatusCode::CONFLICT, "Rule already exists".to_string()).into_response(),
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to create rule: {}", e)).into_response(),
-    }
-}
-
-#[derive(Debug, Deserialize, IntoParams)]
-#[into_params(parameter_in = Query)]
-struct ObjectFilter {
-    class: Option<String>,
-    #[serde(flatten)]
-    extra: Option<HashMap<String, String>>,
-}
-
-#[utoipa::path(
-        get,
-        path = "/objects",
-        tag = "Objects",
-        summary = "List all objects",
-        description = "Retrieve a list of all available objects in the knowledge base.",
-        params(ObjectFilter),
-        responses(
-            (status = 200, description = "List of objects", body = [OpenApiObject])
-        )
-    )]
-async fn get_objects(State(coco): State<CoCo>, Query(filter): Query<ObjectFilter>) -> impl IntoResponse {
-    trace!("Handling request to list all objects with filter: {:?}", filter);
-    match coco.get_objects().await {
-        Ok(objects) => {
-            let filtered_objects: Vec<OpenApiObject> = objects
-                .into_iter()
-                .filter(|o| {
-                    let class_match = filter.class.as_ref().is_none_or(|class_name| o.classes.contains(class_name));
-                    let extra_match = filter.extra.as_ref().is_none_or(|extra| extra.iter().all(|(k, v)| o.properties.as_ref().and_then(|props| props.get(k)).is_none_or(|prop| prop == v)));
-                    class_match && extra_match
-                })
-                .collect();
-            Json(filtered_objects).into_response()
-        }
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to get objects: {}", e)).into_response(),
-    }
-}
-
-#[utoipa::path(
-        get,
-        path = "/objects/{id}",
-        tag = "Objects",
-        summary = "Get an object",
-        description = "Retrieve details for a specific object by its ID.",
-        params(
-            ("id" = String, Path, description = "ID of the object to retrieve")
-        ),
-        responses(
-            (status = 200, description = "The requested object", body = OpenApiObject),
-            (status = 404, description = "Object not found")
-        )
-    )]
-async fn get_object(State(coco): State<CoCo>, Path(id): Path<String>) -> impl IntoResponse {
-    trace!("Handling request to get object with ID: {}", id);
-    match coco.get_object(&id).await {
-        Ok(Some(object)) => Json(object).into_response(),
-        Ok(None) => (StatusCode::NOT_FOUND, format!("Object with ID '{}' not found", id)).into_response(),
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to get object with ID '{}': {}", id, e)).into_response(),
-    }
+    unsecure::create_rule(State(coco), Json(rule)).await.into_response()
 }
 
 #[utoipa::path(
@@ -556,16 +407,7 @@ async fn create_object(State(coco): State<CoCo>, Extension(user): Extension<Curr
     if user.role != "admin" {
         return (StatusCode::FORBIDDEN, "Only admin users can create objects").into_response();
     }
-    trace!("Handling request to create object: {:?}", object);
-    match object_from_json(coco.clone(), object).await {
-        Ok(new_object) => match coco.create_object(new_object).await {
-            Ok(object_id) => (StatusCode::CREATED, object_id).into_response(),
-            Err(CoCoError::ClassNotFound(e)) => (StatusCode::NOT_FOUND, format!("Class not found: {}", e)).into_response(),
-            Err(CoCoError::ObjectAlreadyExists(e)) => (StatusCode::CONFLICT, format!("Object already exists: {}", e)).into_response(),
-            Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to create object: {}", e)).into_response(),
-        },
-        Err(e) => (StatusCode::BAD_REQUEST, format!("Invalid object data in request body: {}", e)).into_response(),
-    }
+    unsecure::create_object(State(coco), Json(object)).await.into_response()
 }
 
 #[utoipa::path(
@@ -592,24 +434,7 @@ async fn set_properties(State(coco): State<CoCo>, Extension(user): Extension<Cur
     if user.role != "admin" {
         return (StatusCode::FORBIDDEN, "Only admin users can update object properties").into_response();
     }
-    trace!("Handling request to set properties for object with ID: {}, properties: {:?}", object_id, properties);
-    match coco.get_object_classes(&object_id).await {
-        Ok(classes) => match properties_from_json(coco.clone(), classes, properties).await {
-            Ok(properties) => match coco.set_properties(&object_id, properties).await {
-                Ok(_) => (StatusCode::OK, "Object properties updated successfully".to_string()).into_response(),
-                Err(CoCoError::ObjectNotFound(e)) => (StatusCode::NOT_FOUND, format!("Object not found: {}", e)).into_response(),
-                Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to update properties for object with ID '{}': {}", object_id, e)).into_response(),
-            },
-            Err(e) => (StatusCode::BAD_REQUEST, format!("Invalid property values in request body: {}", e)).into_response(),
-        },
-        Err(CoCoError::ObjectNotFound(e)) => (StatusCode::NOT_FOUND, format!("Object not found: {}", e)).into_response(),
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to retrieve object with ID '{}': {}", object_id, e)).into_response(),
-    }
-}
-
-#[derive(Debug, Deserialize)]
-struct DateQuery {
-    time: Option<DateTime<Utc>>,
+    unsecure::set_properties(State(coco), Path(object_id), Json(properties)).await.into_response()
 }
 
 #[utoipa::path(
@@ -636,60 +461,7 @@ async fn add_data(State(coco): State<CoCo>, Extension(user): Extension<CurrentUs
     if user.role != "admin" {
         return (StatusCode::FORBIDDEN, "Only admin users can add data to objects").into_response();
     }
-    trace!("Handling request to add data to object with ID: {}, values: {:?}, time: {:?}", object_id, values, date_query.time);
-    let timestamp = date_query.time.unwrap_or_else(Utc::now);
-    match coco.get_object_classes(&object_id).await {
-        Ok(classes) => match values_from_json(coco.clone(), classes, values).await {
-            Ok(values) => match coco.add_values(&object_id, values, timestamp).await {
-                Ok(_) => (StatusCode::OK, "Data added to object successfully".to_string()).into_response(),
-                Err(CoCoError::ObjectNotFound(e)) => (StatusCode::NOT_FOUND, format!("Object not found: {}", e)).into_response(),
-                Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to add data to object with ID '{}': {}", object_id, e)).into_response(),
-            },
-            Err(e) => (StatusCode::BAD_REQUEST, format!("Invalid data values in request body: {}", e)).into_response(),
-        },
-        Err(CoCoError::ObjectNotFound(e)) => (StatusCode::NOT_FOUND, format!("Object not found: {}", e)).into_response(),
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to retrieve object with ID '{}': {}", object_id, e)).into_response(),
-    }
-}
-
-#[derive(Debug, Deserialize)]
-struct DataFilter {
-    start: Option<DateTime<Utc>>,
-    end: Option<DateTime<Utc>>,
-}
-
-#[utoipa::path(
-        get,
-        path = "/objects/{id}/data",
-        tag = "Objects",
-        summary = "Get object data",
-        description = "Retrieve data values for a specific object, optionally filtered by a time range.",
-        params(
-            ("id" = String, Path, description = "ID of the object to retrieve data for"),
-            ("start" = Option<DateTime<Utc>>, Query, description = "Start of the time range filter (optional)"),
-            ("end" = Option<DateTime<Utc>>, Query, description = "End of the time range filter (optional)")
-        ),
-        responses(
-            (status = 200, description = "List of data values for the object", body = [HashMap<String, Value>]),
-            (status = 404, description = "Object not found"),
-            (status = 500, description = "Failed to retrieve object data")
-        )
-    )]
-async fn get_data(State(coco): State<CoCo>, Path(id): Path<String>, Query(filter): Query<DataFilter>) -> impl IntoResponse {
-    trace!("Handling request to get data for object with ID: {}, filter: {:?}", id, filter);
-    match coco.get_values(&id, filter.start, filter.end).await {
-        Ok(data) => {
-            let mut result: HashMap<String, Vec<TimedValue>> = HashMap::new();
-            for (map, timestamp) in data {
-                for (key, value) in map {
-                    result.entry(key).or_default().push(TimedValue { value, timestamp });
-                }
-            }
-            Json(result).into_response()
-        }
-        Err(CoCoError::ObjectNotFound(e)) => (StatusCode::NOT_FOUND, format!("Object not found: {}", e)).into_response(),
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to get data for object with ID '{}': {}", id, e)).into_response(),
-    }
+    unsecure::add_data(State(coco), Path(object_id), Query(date_query), Json(values)).await.into_response()
 }
 
 #[utoipa::path(
@@ -867,7 +639,7 @@ impl Modify for SecurityAddon {
     servers(
         (url = "/", description = "Base URL for CoCo API")
     ),
-    paths(get_users, create_user, register, login, refresh_token, get_classes, get_class, create_class, get_objects, get_object, create_object, set_properties, add_data, get_data, get_rules, get_rule, create_rule, ws_handler, openapi),
+    paths(get_users, create_user, register, login, refresh_token, unsecure::get_classes, unsecure::get_class, create_class, unsecure::get_objects, unsecure::get_object, create_object, set_properties, add_data, unsecure::get_data, unsecure::get_rules, unsecure::get_rule, create_rule, ws_handler, openapi),
     components(
         schemas(Class, Rule, Property, OpenApiObject, OpenApiValue, User, Credentials, AuthTokens, RefreshTokenRequest)
     ),

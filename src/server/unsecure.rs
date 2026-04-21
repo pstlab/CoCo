@@ -46,7 +46,7 @@ pub async fn unsecure_coco_router(coco: CoCo) -> Router {
             (status = 200, description = "List of classes", body = [Class])
         )
     )]
-async fn get_classes(State(coco): State<CoCo>) -> impl IntoResponse {
+pub(super) async fn get_classes(State(coco): State<CoCo>) -> impl IntoResponse {
     trace!("Handling request to list all classes");
     match coco.get_classes().await {
         Ok(classes) => Json(classes).into_response(),
@@ -68,7 +68,7 @@ async fn get_classes(State(coco): State<CoCo>) -> impl IntoResponse {
             (status = 404, description = "Class not found")
         )
     )]
-async fn get_class(State(coco): State<CoCo>, Path(name): Path<String>) -> impl IntoResponse {
+pub(super) async fn get_class(State(coco): State<CoCo>, Path(name): Path<String>) -> impl IntoResponse {
     trace!("Handling request to get class with name: {}", name);
     match coco.get_class(&name).await {
         Ok(Some(class)) => Json(class).into_response(),
@@ -90,7 +90,7 @@ async fn get_class(State(coco): State<CoCo>, Path(name): Path<String>) -> impl I
             (status = 500, description = "Failed to create class")
         )
     )]
-async fn create_class(State(coco): State<CoCo>, Json(class): Json<Class>) -> impl IntoResponse {
+pub(super) async fn create_class(State(coco): State<CoCo>, Json(class): Json<Class>) -> impl IntoResponse {
     trace!("Handling request to create class with name: {}", class.name);
     match coco.create_class(class).await {
         Ok(_) => (StatusCode::CREATED, "Class created successfully".to_string()).into_response(),
@@ -109,7 +109,7 @@ async fn create_class(State(coco): State<CoCo>, Json(class): Json<Class>) -> imp
             (status = 200, description = "List of rules", body = [String])
         )
     )]
-async fn get_rules(State(coco): State<CoCo>) -> impl IntoResponse {
+pub(super) async fn get_rules(State(coco): State<CoCo>) -> impl IntoResponse {
     trace!("Handling request to list all rules");
     match coco.get_rules().await {
         Ok(rules) => Json(rules).into_response(),
@@ -131,7 +131,7 @@ async fn get_rules(State(coco): State<CoCo>) -> impl IntoResponse {
             (status = 404, description = "Rule not found")
         )
     )]
-async fn get_rule(State(coco): State<CoCo>, Path(name): Path<String>) -> impl IntoResponse {
+pub(super) async fn get_rule(State(coco): State<CoCo>, Path(name): Path<String>) -> impl IntoResponse {
     trace!("Handling request to get rule with name: {}", name);
     match coco.get_rule(&name).await {
         Ok(Some(rule)) => Json(rule).into_response(),
@@ -153,7 +153,7 @@ async fn get_rule(State(coco): State<CoCo>, Path(name): Path<String>) -> impl In
             (status = 500, description = "Failed to create rule")
         )
     )]
-async fn create_rule(State(coco): State<CoCo>, Json(rule): Json<Rule>) -> impl IntoResponse {
+pub(super) async fn create_rule(State(coco): State<CoCo>, Json(rule): Json<Rule>) -> impl IntoResponse {
     trace!("Handling request to create rule with name: {}", rule.name);
     match coco.create_rule(rule).await {
         Ok(_) => (StatusCode::CREATED, "Rule created successfully".to_string()).into_response(),
@@ -164,10 +164,10 @@ async fn create_rule(State(coco): State<CoCo>, Json(rule): Json<Rule>) -> impl I
 
 #[derive(Debug, Deserialize, IntoParams)]
 #[into_params(parameter_in = Query)]
-struct ObjectFilter {
-    class: Option<String>,
+pub(super) struct ObjectFilter {
+    pub(super) class: Option<String>,
     #[serde(flatten)]
-    extra: Option<HashMap<String, String>>,
+    pub(super) extra: Option<HashMap<String, String>>,
 }
 
 #[utoipa::path(
@@ -181,7 +181,7 @@ struct ObjectFilter {
             (status = 200, description = "List of objects", body = [OpenApiObject])
         )
     )]
-async fn get_objects(State(coco): State<CoCo>, Query(filter): Query<ObjectFilter>) -> impl IntoResponse {
+pub(super) async fn get_objects(State(coco): State<CoCo>, Query(filter): Query<ObjectFilter>) -> impl IntoResponse {
     trace!("Handling request to list all objects with filter: {:?}", filter);
     match coco.get_objects().await {
         Ok(objects) => {
@@ -213,7 +213,7 @@ async fn get_objects(State(coco): State<CoCo>, Query(filter): Query<ObjectFilter
             (status = 404, description = "Object not found")
         )
     )]
-async fn get_object(State(coco): State<CoCo>, Path(id): Path<String>) -> impl IntoResponse {
+pub(super) async fn get_object(State(coco): State<CoCo>, Path(id): Path<String>) -> impl IntoResponse {
     trace!("Handling request to get object with ID: {}", id);
     match coco.get_object(&id).await {
         Ok(Some(object)) => Json(object).into_response(),
@@ -237,7 +237,7 @@ async fn get_object(State(coco): State<CoCo>, Path(id): Path<String>) -> impl In
             (status = 500, description = "Failed to create object")
         )
     )]
-async fn create_object(State(coco): State<CoCo>, Json(object): Json<JsonValue>) -> impl IntoResponse {
+pub(super) async fn create_object(State(coco): State<CoCo>, Json(object): Json<JsonValue>) -> impl IntoResponse {
     trace!("Handling request to create object: {:?}", object);
     match object_from_json(coco.clone(), object).await {
         Ok(new_object) => match coco.create_object(new_object).await {
@@ -267,7 +267,7 @@ async fn create_object(State(coco): State<CoCo>, Json(object): Json<JsonValue>) 
             (status = 500, description = "Failed to update object properties")
         )
     )]
-async fn set_properties(State(coco): State<CoCo>, Path(object_id): Path<String>, Json(properties): Json<JsonValue>) -> impl IntoResponse {
+pub(super) async fn set_properties(State(coco): State<CoCo>, Path(object_id): Path<String>, Json(properties): Json<JsonValue>) -> impl IntoResponse {
     trace!("Handling request to set properties for object with ID: {}. New properties: {:?}", object_id, properties);
     match coco.get_object_classes(&object_id).await {
         Ok(classes) => match properties_from_json(coco.clone(), classes, properties).await {
@@ -284,8 +284,8 @@ async fn set_properties(State(coco): State<CoCo>, Path(object_id): Path<String>,
 }
 
 #[derive(Debug, Deserialize)]
-struct DateQuery {
-    time: Option<DateTime<Utc>>,
+pub(super) struct DateQuery {
+    pub(super) time: Option<DateTime<Utc>>,
 }
 
 #[utoipa::path(
@@ -305,7 +305,7 @@ struct DateQuery {
             (status = 500, description = "Failed to add data to object")
         )
     )]
-async fn add_data(State(coco): State<CoCo>, Path(object_id): Path<String>, Query(date_time): Query<DateQuery>, Json(values): Json<JsonValue>) -> impl IntoResponse {
+pub(super) async fn add_data(State(coco): State<CoCo>, Path(object_id): Path<String>, Query(date_time): Query<DateQuery>, Json(values): Json<JsonValue>) -> impl IntoResponse {
     trace!("Handling request to add data to object with ID: {}. Values: {:?}, Timestamp: {:?}", object_id, values, date_time);
     let timestamp = date_time.time.unwrap_or_else(Utc::now);
     match coco.get_object_classes(&object_id).await {
@@ -323,9 +323,9 @@ async fn add_data(State(coco): State<CoCo>, Path(object_id): Path<String>, Query
 }
 
 #[derive(Debug, Deserialize)]
-struct DataFilter {
-    start: Option<DateTime<Utc>>,
-    end: Option<DateTime<Utc>>,
+pub(super) struct DataFilter {
+    pub(super) start: Option<DateTime<Utc>>,
+    pub(super) end: Option<DateTime<Utc>>,
 }
 
 #[utoipa::path(
@@ -345,7 +345,7 @@ struct DataFilter {
             (status = 500, description = "Failed to retrieve object data")
         )
     )]
-async fn get_data(State(coco): State<CoCo>, Path(object_id): Path<String>, Query(filter): Query<DataFilter>) -> impl IntoResponse {
+pub(super) async fn get_data(State(coco): State<CoCo>, Path(object_id): Path<String>, Query(filter): Query<DataFilter>) -> impl IntoResponse {
     trace!("Handling request to get data for object with ID: {}. Time filter: {:?}", object_id, filter);
     match coco.get_values(&object_id, filter.start, filter.end).await {
         Ok(data) => {
