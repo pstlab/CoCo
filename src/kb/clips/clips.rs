@@ -1,18 +1,40 @@
 use crate::{
-    kb::KnowledgeBaseError,
+    kb::{KnowledgeBaseError, KnowledgeBaseEvent},
     model::{Class, Object, Property, Rule, TimedValue, Value},
 };
 use chrono::{DateTime, Utc};
-use clips::{ClipsValue, Environment, Fact, FactBuilder, FactModifier, Type};
+use clips::{ClipsValue, Environment, Fact, FactBuilder, FactModifier, Type, UDFContext};
 use std::{
     cell::RefCell,
     collections::{HashMap, HashSet, VecDeque},
     rc::Rc,
 };
+use tokio::sync::{mpsc, oneshot};
 use tracing::{error, info, trace};
 
+type Udf = Box<dyn FnMut(&mut Environment, &mut UDFContext) -> ClipsValue + Send>;
+type ClassPropertyMap = HashMap<String, HashMap<String, Property>>;
+
+enum KBCommand {
+    CreateClass(Class, oneshot::Sender<Result<(), KnowledgeBaseError>>),
+    CreateRule(Rule, oneshot::Sender<Result<(), KnowledgeBaseError>>),
+    CreateObject(Object, oneshot::Sender<Result<(), KnowledgeBaseError>>),
+    GetStaticProperties(HashSet<String>, oneshot::Sender<Result<ClassPropertyMap, KnowledgeBaseError>>),
+    GetDynamicProperties(HashSet<String>, oneshot::Sender<Result<ClassPropertyMap, KnowledgeBaseError>>),
+    AddClass(String, String, oneshot::Sender<Result<(), KnowledgeBaseError>>),
+    GetObjectClasses(String, oneshot::Sender<Result<HashSet<String>, KnowledgeBaseError>>),
+    SetProperties(String, HashMap<String, Value>, oneshot::Sender<Result<(), KnowledgeBaseError>>),
+    AddValues(String, HashMap<String, Value>, DateTime<Utc>, oneshot::Sender<Result<(), KnowledgeBaseError>>),
+    Build(String, oneshot::Sender<Result<(), KnowledgeBaseError>>),
+    AddUDF(String, Option<Type>, u16, u16, Vec<Type>, Udf, oneshot::Sender<Result<(), KnowledgeBaseError>>),
+    AssertFact(String, HashMap<String, Value>, oneshot::Sender<Result<u64, KnowledgeBaseError>>),
+    ModifyFact(u64, HashMap<String, Value>, oneshot::Sender<Result<(), KnowledgeBaseError>>),
+}
+
 #[derive(Clone)]
-pub struct CLIPSKnowledgeBase {}
+pub struct CLIPSKnowledgeBase {
+    tx: mpsc::UnboundedSender<KBCommand>,
+}
 
 struct ActorState {
     classes: HashMap<String, Class>,
@@ -141,6 +163,17 @@ impl ActorState {
         Ok(())
     }
 
+    fn create_rule(&mut self, env: &mut Environment, rule: Rule) -> Result<(), KnowledgeBaseError> {
+        if self.rules.contains_key(&rule.name) {
+            return Err(KnowledgeBaseError::RuleAlreadyExists(rule.name.clone()));
+        }
+
+        env.build(rule.content.as_str()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to create rule in CLIPS: {}", e)))?;
+        self.rules.insert(rule.name.clone(), rule);
+
+        Ok(())
+    }
+
     fn add_class(&mut self, env: &mut Environment, object_id: &str, class_name: &str) -> Result<(), KnowledgeBaseError> {
         let static_props = self.get_static_properties(HashSet::from([class_name.to_owned()]))?;
         let dynamic_props = self.get_dynamic_properties(HashSet::from([class_name.to_owned()]))?;
@@ -225,13 +258,16 @@ impl ActorState {
 }
 
 impl CLIPSKnowledgeBase {
-    pub fn new() -> Self {
+    pub fn new(event_tx: mpsc::UnboundedSender<KnowledgeBaseEvent>) -> Self {
+        let (tx, mut rx) = mpsc::unbounded_channel();
+
         info!("Starting CLIPS knowledge base");
         tokio::task::spawn_blocking(move || {
             let mut env = Environment::new().expect("Failed to create CLIPS environment");
             let state = Rc::new(RefCell::new(ActorState::new()));
 
             let state_add_class = Rc::clone(&state);
+            let event_tx_add_class = event_tx.clone();
             env.add_udf("add-class", None, 2, 2, vec![Type(Type::SYMBOL), Type(Type::SYMBOL)], move |env, ctx| {
                 let state = &mut *state_add_class.borrow_mut();
                 let object_id = ctx.get_next_argument(Type(Type::SYMBOL)).expect("Failed to get object ID argument for add-class UDF");
@@ -243,6 +279,7 @@ impl CLIPSKnowledgeBase {
                 match state.add_class(env, &object_id, &class_name) {
                     Ok(_) => {
                         trace!("Successfully added class '{}' to object '{}'", class_name, object_id);
+                        let _ = event_tx_add_class.send(KnowledgeBaseEvent::AddedClass(object_id.clone(), class_name.clone()));
                     }
                     Err(e) => {
                         error!("Error adding class '{}' to object '{}': {}", class_name, object_id, e);
@@ -254,6 +291,7 @@ impl CLIPSKnowledgeBase {
             .expect("Failed to add CLIPS function");
 
             let state_set_properties = Rc::clone(&state);
+            let event_tx_set_properties = event_tx.clone();
             env.add_udf("set-properties", None, 3, 3, vec![Type(Type::SYMBOL), Type(Type::MULTIFIELD), Type(Type::MULTIFIELD)], move |env, ctx| {
                 let state = &mut *state_set_properties.borrow_mut();
                 let object_id = ctx.get_next_argument(Type(Type::SYMBOL)).expect("Failed to get object ID argument for set-properties UDF");
@@ -294,6 +332,7 @@ impl CLIPSKnowledgeBase {
                 match state.set_properties(env, &object_id, &properties) {
                     Ok(_) => {
                         trace!("Successfully set properties {:?} for object '{}'", properties, object_id);
+                        let _ = event_tx_set_properties.send(KnowledgeBaseEvent::UpdatedProperties(object_id.clone(), properties.clone()));
                     }
                     Err(e) => {
                         error!("Error setting properties {:?} for object '{}': {}", properties, object_id, e);
@@ -305,6 +344,7 @@ impl CLIPSKnowledgeBase {
             .expect("Failed to add CLIPS function");
 
             let state_add_data = Rc::clone(&state);
+            let event_tx_add_data = event_tx.clone();
             env.add_udf("add-data", None, 3, 4, vec![Type(Type::SYMBOL), Type(Type::MULTIFIELD), Type(Type::MULTIFIELD), Type(Type::INTEGER)], move |env, ctx| {
                 let state = &mut *state_add_data.borrow_mut();
                 let object_id = ctx.get_next_argument(Type(Type::SYMBOL)).expect("Failed to get object ID argument for add-data UDF");
@@ -352,6 +392,7 @@ impl CLIPSKnowledgeBase {
                 match state.add_values(env, &object_id, &values, date_time) {
                     Ok(_) => {
                         trace!("Successfully added values {:?} to object '{}' at {}", values, object_id, date_time);
+                        let _ = event_tx_add_data.send(KnowledgeBaseEvent::AddedValues(object_id.clone(), values.clone(), date_time));
                     }
                     Err(e) => {
                         error!("Error adding values {:?} to object '{}' at {}: {}", values, object_id, date_time, e);
@@ -361,9 +402,27 @@ impl CLIPSKnowledgeBase {
                 ClipsValue::Void()
             })
             .expect("Failed to add CLIPS function");
-        });
 
-        CLIPSKnowledgeBase {}
+            let state_build = Rc::clone(&state);
+            while let Some(cmd) = rx.blocking_recv() {
+                match cmd {
+                    KBCommand::CreateClass(class, resp_tx) => {
+                        let state = &mut *state_build.borrow_mut();
+                        let result = state.create_class(&mut env, class);
+                        let _ = resp_tx.send(result);
+                    }
+                    KBCommand::CreateRule(rule, reply) => {
+                        let mut state = state_build.borrow_mut();
+                        let result = state.create_rule(&mut env, rule);
+                        let _ = reply.send(result);
+                    }
+                    _ => {
+                        error!("Received unsupported command in CLIPS knowledge base actor");
+                    }
+                }
+            }
+        });
+        CLIPSKnowledgeBase { tx }
     }
 }
 
