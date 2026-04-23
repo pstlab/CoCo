@@ -325,6 +325,7 @@ async fn get_users(State(db): State<UsersDB>, Extension(user): Extension<Current
         security(("bearerAuth" = [])),
         responses(
             (status = 201, description = "User created successfully"),
+            (status = 400, description = "Invalid user data in request body"),
             (status = 401, description = "Missing or invalid JWT token"),
             (status = 403, description = "Forbidden - only admin users can create new users"),
             (status = 409, description = "Username already exists"),
@@ -351,6 +352,9 @@ async fn create_user(State(db): State<UsersDB>, Extension(user): Extension<Curre
         request_body = Class,
         responses(
             (status = 201, description = "Class created successfully"),
+            (status = 400, description = "Invalid class data in request body"),
+            (status = 401, description = "Missing or invalid JWT token"),
+            (status = 403, description = "Forbidden - only admin users can create classes"),
             (status = 409, description = "Class already exists"),
             (status = 500, description = "Failed to create class")
         )
@@ -372,6 +376,7 @@ async fn create_class(State(coco): State<CoCo>, Extension(user): Extension<Curre
         security(("bearerAuth" = [])),
         responses(
             (status = 201, description = "Rule created successfully"),
+            (status = 400, description = "Invalid rule data in request body"),
             (status = 401, description = "Missing or invalid JWT token"),
             (status = 403, description = "Forbidden - only admin users can create rules"),
             (status = 409, description = "Rule already exists"),
@@ -451,6 +456,7 @@ async fn set_properties(State(coco): State<CoCo>, Extension(user): Extension<Cur
         security(("bearerAuth" = [])),
         responses(
             (status = 200, description = "Data added to object successfully"),
+            (status = 400, description = "Invalid data values in request body"),
             (status = 401, description = "Missing or invalid JWT token"),
             (status = 403, description = "Forbidden - only admin users can add data to objects"),
             (status = 404, description = "Object not found"),

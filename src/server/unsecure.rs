@@ -86,6 +86,7 @@ pub(super) async fn get_class(State(coco): State<CoCo>, Path(name): Path<String>
         request_body = Class,
         responses(
             (status = 201, description = "Class created successfully"),
+            (status = 400, description = "Invalid class data in request body"),
             (status = 409, description = "Class already exists"),
             (status = 500, description = "Failed to create class")
         )
@@ -93,7 +94,7 @@ pub(super) async fn get_class(State(coco): State<CoCo>, Path(name): Path<String>
 pub(super) async fn create_class(State(coco): State<CoCo>, Json(class): Json<Class>) -> impl IntoResponse {
     trace!("Handling request to create class with name: {}", class.name);
     match coco.create_class(class).await {
-        Ok(_) => (StatusCode::CREATED, "Class created successfully".to_string()).into_response(),
+        Ok(_) => StatusCode::CREATED.into_response(),
         Err(CoCoError::ClassAlreadyExists(_)) => (StatusCode::CONFLICT, "Class already exists".to_string()).into_response(),
         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to create class: {}", e)).into_response(),
     }
@@ -149,6 +150,7 @@ pub(super) async fn get_rule(State(coco): State<CoCo>, Path(name): Path<String>)
         request_body = Rule,
         responses(
             (status = 201, description = "Rule created successfully"),
+            (status = 400, description = "Invalid rule data in request body"),
             (status = 409, description = "Rule already exists"),
             (status = 500, description = "Failed to create rule")
         )
@@ -156,7 +158,7 @@ pub(super) async fn get_rule(State(coco): State<CoCo>, Path(name): Path<String>)
 pub(super) async fn create_rule(State(coco): State<CoCo>, Json(rule): Json<Rule>) -> impl IntoResponse {
     trace!("Handling request to create rule with name: {}", rule.name);
     match coco.create_rule(rule).await {
-        Ok(_) => (StatusCode::CREATED, "Rule created successfully".to_string()).into_response(),
+        Ok(_) => StatusCode::CREATED.into_response(),
         Err(CoCoError::RuleAlreadyExists(_)) => (StatusCode::CONFLICT, "Rule already exists".to_string()).into_response(),
         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to create rule: {}", e)).into_response(),
     }
@@ -301,6 +303,7 @@ pub(super) struct DateQuery {
         request_body = inline(HashMap<String, OpenApiValue>),
         responses(
             (status = 200, description = "Data added to object successfully"),
+            (status = 400, description = "Invalid data values in request body"),
             (status = 404, description = "Object not found"),
             (status = 500, description = "Failed to add data to object")
         )

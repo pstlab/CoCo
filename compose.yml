@@ -3,14 +3,14 @@ services:
   coco-app:
     image: coco:latest
     container_name: coco-server
-    ports:
-      - "3000:3000"
     environment:
       - DB_HOST=coco-mongodb
       - OLLAMA_HOST=coco-ollama
     depends_on:
       - mongodb
       - ollama
+    networks:
+      - coco-network
 
   # MongoDB is used to store the reasoning traces and other relevant data for the application.
   mongodb:
@@ -18,14 +18,21 @@ services:
     container_name: coco-mongodb
     volumes:
       - mongo_data:/data/db
+    networks:
+      - coco-network
 
   # Ollama is a local LLM server that we use to run the LLMs. Remember to set up the models in Ollama before running the application. From the container's console, run `ollama pull <model-name>` to download the desired models.
   ollama:
     image: ollama/ollama:latest
     container_name: coco-ollama
     volumes:
-      - ollama_data:/data
+      - ollama_data:/root/.ollama
+    networks:
+      - coco-network
 
 volumes:
   mongo_data:
   ollama_data:
+
+networks:
+  coco-network:

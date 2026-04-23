@@ -348,13 +348,13 @@ impl CoCo {
         response_rx.await.map_err(|e| CoCoError::KnowledgeBaseError(format!("Failed to receive response from CoCo: {}", e)))?
     }
 
-    pub async fn create_object(&self, object: Object) -> Result<(), CoCoError> {
+    pub async fn create_object(&self, object: Object) -> Result<String, CoCoError> {
         let (response_tx, response_rx) = oneshot::channel();
         self.tx.send(CoCoCommand::CreateObject(object, response_tx)).await.map_err(|e| CoCoError::KnowledgeBaseError(format!("Failed to send command to CoCo: {}", e)))?;
         match response_rx.await.map_err(|e| CoCoError::KnowledgeBaseError(format!("Failed to receive response from CoCo: {}", e)))? {
             Ok(id) => {
-                self.event_tx.send(CoCoEvent::ObjectCreated(id)).map_err(|e| CoCoError::KnowledgeBaseError(format!("Failed to send event from CoCo: {}", e)))?;
-                Ok(())
+                self.event_tx.send(CoCoEvent::ObjectCreated(id.clone())).map_err(|e| CoCoError::KnowledgeBaseError(format!("Failed to send event from CoCo: {}", e)))?;
+                Ok(id)
             }
             Err(e) => Err(e),
         }
