@@ -274,7 +274,7 @@ pub(super) async fn set_properties(State(coco): State<CoCo>, Path(object_id): Pa
     match coco.get_object_classes(&object_id).await {
         Ok(classes) => match properties_from_json(coco.clone(), classes, properties).await {
             Ok(properties) => match coco.set_properties(&object_id, properties).await {
-                Ok(_) => (StatusCode::OK, "Object properties updated successfully".to_string()).into_response(),
+                Ok(_) => StatusCode::OK.into_response(),
                 Err(CoCoError::ObjectNotFound(e)) => (StatusCode::NOT_FOUND, format!("Object not found: {}", e)).into_response(),
                 Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to update properties for object with ID '{}': {}", object_id, e)).into_response(),
             },
@@ -314,7 +314,7 @@ pub(super) async fn add_data(State(coco): State<CoCo>, Path(object_id): Path<Str
     match coco.get_object_classes(&object_id).await {
         Ok(classes) => match values_from_json(coco.clone(), classes, values).await {
             Ok(values) => match coco.add_values(&object_id, values, timestamp).await {
-                Ok(_) => (StatusCode::OK, "Data added to object successfully".to_string()).into_response(),
+                Ok(_) => StatusCode::OK.into_response(),
                 Err(CoCoError::ObjectNotFound(e)) => (StatusCode::NOT_FOUND, format!("Object not found: {}", e)).into_response(),
                 Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to add data to object with ID '{}': {}", object_id, e)).into_response(),
             },

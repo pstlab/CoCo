@@ -302,11 +302,8 @@ impl CoCo {
 
     pub async fn create_class(&self, class: Class) -> Result<(), CoCoError> {
         let (response_tx, response_rx) = oneshot::channel();
-        let class_name = class.name.clone();
         self.tx.send(CoCoCommand::CreateClass(class, response_tx)).await.map_err(|e| CoCoError::KnowledgeBaseError(format!("Failed to send command to CoCo: {}", e)))?;
-        let _ = response_rx.await.map_err(|e| CoCoError::KnowledgeBaseError(format!("Failed to receive response from CoCo: {}", e)))?;
-        self.event_tx.send(CoCoEvent::ClassCreated(class_name)).map_err(|e| CoCoError::KnowledgeBaseError(format!("Failed to send event from CoCo: {}", e)))?;
-        Ok(())
+        response_rx.await.map_err(|e| CoCoError::KnowledgeBaseError(format!("Failed to receive response from CoCo: {}", e)))?
     }
 
     pub async fn get_rules(&self) -> Result<Vec<Rule>, CoCoError> {
@@ -323,11 +320,8 @@ impl CoCo {
 
     pub async fn create_rule(&self, rule: Rule) -> Result<(), CoCoError> {
         let (response_tx, response_rx) = oneshot::channel();
-        let rule_name = rule.name.clone();
         self.tx.send(CoCoCommand::CreateRule(rule, response_tx)).await.map_err(|e| CoCoError::KnowledgeBaseError(format!("Failed to send command to CoCo: {}", e)))?;
-        let _ = response_rx.await.map_err(|e| CoCoError::KnowledgeBaseError(format!("Failed to receive response from CoCo: {}", e)))?;
-        self.event_tx.send(CoCoEvent::RuleCreated(rule_name)).map_err(|e| CoCoError::KnowledgeBaseError(format!("Failed to send event from CoCo: {}", e)))?;
-        Ok(())
+        response_rx.await.map_err(|e| CoCoError::KnowledgeBaseError(format!("Failed to receive response from CoCo: {}", e)))?
     }
 
     pub async fn get_objects(&self) -> Result<Vec<Object>, CoCoError> {
@@ -351,13 +345,7 @@ impl CoCo {
     pub async fn create_object(&self, object: Object) -> Result<String, CoCoError> {
         let (response_tx, response_rx) = oneshot::channel();
         self.tx.send(CoCoCommand::CreateObject(object, response_tx)).await.map_err(|e| CoCoError::KnowledgeBaseError(format!("Failed to send command to CoCo: {}", e)))?;
-        match response_rx.await.map_err(|e| CoCoError::KnowledgeBaseError(format!("Failed to receive response from CoCo: {}", e)))? {
-            Ok(id) => {
-                self.event_tx.send(CoCoEvent::ObjectCreated(id.clone())).map_err(|e| CoCoError::KnowledgeBaseError(format!("Failed to send event from CoCo: {}", e)))?;
-                Ok(id)
-            }
-            Err(e) => Err(e),
-        }
+        response_rx.await.map_err(|e| CoCoError::KnowledgeBaseError(format!("Failed to receive response from CoCo: {}", e)))?
     }
 
     pub async fn add_class(&self, object_id: &str, class_name: &str) -> Result<(), CoCoError> {

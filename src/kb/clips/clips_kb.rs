@@ -164,6 +164,20 @@ impl CLIPSKnowledgeBase {
                 env,
             };
 
+            let add_class_event_tx = event_tx.clone();
+            kb.env
+                .add_udf("add-class", None, 2, 2, vec![Type(Type::SYMBOL), Type(Type::SYMBOL)], move |_env, ctx| {
+                    let object_id = ctx.get_next_argument(Type(Type::SYMBOL)).expect("Failed to get object ID argument for add-class UDF");
+                    let object_id = if let ClipsValue::Symbol(s) = object_id { s } else { panic!("Expected symbol for object ID argument in add-class UDF") };
+                    let class_name = ctx.get_next_argument(Type(Type::SYMBOL)).expect("Failed to get class name argument for add-class UDF");
+                    let class_name = if let ClipsValue::Symbol(s) = class_name { s } else { panic!("Expected symbol for class name argument in add-class UDF") };
+
+                    add_class_event_tx.blocking_send(KnowledgeBaseEvent::AddedClass(object_id.clone(), class_name.clone())).expect("Failed to send AddedClass event from add-class UDF");
+
+                    ClipsValue::Void()
+                })
+                .expect("Failed to add CLIPS function");
+
             let add_data_event_tx = event_tx.clone();
             kb.env
                 .add_udf("add-data", None, 3, 4, vec![Type(Type::SYMBOL), Type(Type::MULTIFIELD), Type(Type::MULTIFIELD), Type(Type::INTEGER)], move |_env, ctx| {
@@ -343,6 +357,7 @@ impl CLIPSKnowledgeBase {
                             }
 
                             kb.objects.insert(object_id, object);
+                            kb.env.run(-1);
                             Ok(())
                         })();
 
@@ -406,7 +421,7 @@ impl CLIPSKnowledgeBase {
                                 }
                             }
 
-                            let _ = event_tx.blocking_send(KnowledgeBaseEvent::AddedClass(object_id.clone(), class_name.clone()));
+                            kb.env.run(-1);
                             Ok(())
                         })();
 
@@ -438,7 +453,7 @@ impl CLIPSKnowledgeBase {
                                 }
                             }
 
-                            let _ = event_tx.blocking_send(KnowledgeBaseEvent::UpdatedProperties(object_id.clone(), properties.clone()));
+                            kb.env.run(-1);
                             Ok(())
                         })();
 
@@ -461,7 +476,7 @@ impl CLIPSKnowledgeBase {
                                 }
                             }
 
-                            let _ = event_tx.blocking_send(KnowledgeBaseEvent::AddedValues(object_id.clone(), values.clone(), timestamp));
+                            kb.env.run(-1);
                             Ok(())
                         })();
 
@@ -494,6 +509,7 @@ impl CLIPSKnowledgeBase {
                             let id = kb.next_fact_id;
                             kb.next_fact_id += 1;
                             kb.external_facts.insert(id, fact);
+                            kb.env.run(-1);
                             Ok(id)
                         })();
                         let _ = reply.send(result);
@@ -505,6 +521,7 @@ impl CLIPSKnowledgeBase {
                             let fm = kb.env.fact_modifier(fact).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to create fact modifier for fact {}: {}", fact_id, e)))?;
                             let fm = fields.iter().try_fold(fm, |fm, (slot, value)| update_value(&kb.env, fm, slot, value))?;
                             kb.env.modify_fact(fm).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to modify fact {}: {}", fact_id, e)))?;
+                            kb.env.run(-1);
                             Ok(())
                         })();
                         let _ = reply.send(result);
