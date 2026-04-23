@@ -68,5 +68,5 @@ pub trait KnowledgeBase: Clone + Send + Sync + 'static {
     async fn set_properties(&self, object_id: String, properties: HashMap<String, Value>) -> Result<(), KnowledgeBaseError>;
     async fn add_values(&self, object_id: String, values: HashMap<String, Value>, date_time: DateTime<Utc>) -> Result<(), KnowledgeBaseError>;
 
-    fn take_event_receiver(&mut self) -> Option<mpsc::Receiver<KnowledgeBaseEvent>>;
+    fn take_event_receiver(&mut self) -> Option<mpsc::UnboundedReceiver<KnowledgeBaseEvent>>;
 }
