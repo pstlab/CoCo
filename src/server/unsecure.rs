@@ -70,7 +70,7 @@ pub(super) async fn get_classes(State(coco): State<CoCo>) -> impl IntoResponse {
     )]
 pub(super) async fn get_class(State(coco): State<CoCo>, Path(name): Path<String>) -> impl IntoResponse {
     trace!("Handling request to get class with name: {}", name);
-    match coco.get_class(&name).await {
+    match coco.get_class(name.clone()).await {
         Ok(Some(class)) => Json(class).into_response(),
         Ok(None) => (StatusCode::NOT_FOUND, format!("Class '{}' not found", name)).into_response(),
         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to get class '{}': {}", name, e)).into_response(),
@@ -134,7 +134,7 @@ pub(super) async fn get_rules(State(coco): State<CoCo>) -> impl IntoResponse {
     )]
 pub(super) async fn get_rule(State(coco): State<CoCo>, Path(name): Path<String>) -> impl IntoResponse {
     trace!("Handling request to get rule with name: {}", name);
-    match coco.get_rule(&name).await {
+    match coco.get_rule(name.clone()).await {
         Ok(Some(rule)) => Json(rule).into_response(),
         Ok(None) => (StatusCode::NOT_FOUND, format!("Rule '{}' not found", name)).into_response(),
         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to get rule '{}': {}", name, e)).into_response(),
@@ -217,7 +217,7 @@ pub(super) async fn get_objects(State(coco): State<CoCo>, Query(filter): Query<O
     )]
 pub(super) async fn get_object(State(coco): State<CoCo>, Path(id): Path<String>) -> impl IntoResponse {
     trace!("Handling request to get object with ID: {}", id);
-    match coco.get_object(&id).await {
+    match coco.get_object(id.clone()).await {
         Ok(Some(object)) => Json(object).into_response(),
         Ok(None) => (StatusCode::NOT_FOUND, format!("Object with ID '{}' not found", id)).into_response(),
         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to get object with ID '{}': {}", id, e)).into_response(),
@@ -271,9 +271,9 @@ pub(super) async fn create_object(State(coco): State<CoCo>, Json(object): Json<J
     )]
 pub(super) async fn set_properties(State(coco): State<CoCo>, Path(object_id): Path<String>, Json(properties): Json<JsonValue>) -> impl IntoResponse {
     trace!("Handling request to set properties for object with ID: {}. New properties: {:?}", object_id, properties);
-    match coco.get_object_classes(&object_id).await {
+    match coco.get_object_classes(object_id.clone()).await {
         Ok(classes) => match properties_from_json(coco.clone(), classes, properties).await {
-            Ok(properties) => match coco.set_properties(&object_id, properties).await {
+            Ok(properties) => match coco.set_properties(object_id.clone(), properties).await {
                 Ok(_) => StatusCode::OK.into_response(),
                 Err(CoCoError::ObjectNotFound(e)) => (StatusCode::NOT_FOUND, format!("Object not found: {}", e)).into_response(),
                 Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to update properties for object with ID '{}': {}", object_id, e)).into_response(),
@@ -311,9 +311,9 @@ pub(super) struct DateQuery {
 pub(super) async fn add_data(State(coco): State<CoCo>, Path(object_id): Path<String>, Query(date_time): Query<DateQuery>, Json(values): Json<JsonValue>) -> impl IntoResponse {
     trace!("Handling request to add data to object with ID: {}. Values: {:?}, Timestamp: {:?}", object_id, values, date_time);
     let timestamp = date_time.time.unwrap_or_else(Utc::now);
-    match coco.get_object_classes(&object_id).await {
+    match coco.get_object_classes(object_id.clone()).await {
         Ok(classes) => match values_from_json(coco.clone(), classes, values).await {
-            Ok(values) => match coco.add_values(&object_id, values, timestamp).await {
+            Ok(values) => match coco.add_values(object_id.clone(), values, timestamp).await {
                 Ok(_) => StatusCode::OK.into_response(),
                 Err(CoCoError::ObjectNotFound(e)) => (StatusCode::NOT_FOUND, format!("Object not found: {}", e)).into_response(),
                 Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to add data to object with ID '{}': {}", object_id, e)).into_response(),
@@ -350,7 +350,7 @@ pub(super) struct DataFilter {
     )]
 pub(super) async fn get_data(State(coco): State<CoCo>, Path(object_id): Path<String>, Query(filter): Query<DataFilter>) -> impl IntoResponse {
     trace!("Handling request to get data for object with ID: {}. Time filter: {:?}", object_id, filter);
-    match coco.get_values(&object_id, filter.start, filter.end).await {
+    match coco.get_values(object_id.clone(), filter.start, filter.end).await {
         Ok(data) => {
             let mut result: HashMap<String, Vec<TimedValue>> = HashMap::new();
             for (map, timestamp) in data {
@@ -441,7 +441,7 @@ async fn handle_socket(mut socket: WebSocket, coco: CoCo) {
         let send_result = match msg {
             CoCoEvent::ClassCreated(class_name) => {
                 trace!("Received event: ClassCreated for class '{}'", class_name);
-                match coco.get_class(&class_name).await {
+                match coco.get_class(class_name).await {
                     Ok(Some(class)) => {
                         let mut update_msg = serde_json::to_value(class).unwrap();
                         update_msg["msg_type"] = serde_json::json!("class-created");
@@ -453,7 +453,7 @@ async fn handle_socket(mut socket: WebSocket, coco: CoCo) {
             }
             CoCoEvent::RuleCreated(rule) => {
                 trace!("Received event: RuleCreated for rule '{}'", rule);
-                match coco.get_rule(&rule).await {
+                match coco.get_rule(rule).await {
                     Ok(Some(rule)) => {
                         let mut update_msg = serde_json::to_value(rule).unwrap();
                         update_msg["msg_type"] = serde_json::json!("rule-created");
@@ -465,7 +465,7 @@ async fn handle_socket(mut socket: WebSocket, coco: CoCo) {
             }
             CoCoEvent::ObjectCreated(object_id) => {
                 trace!("Received event: ObjectCreated for object '{}'", object_id);
-                match coco.get_object(&object_id).await {
+                match coco.get_object(object_id).await {
                     Ok(Some(object)) => {
                         let mut update_msg = serde_json::to_value(object).unwrap();
                         update_msg["msg_type"] = serde_json::json!("object-created");

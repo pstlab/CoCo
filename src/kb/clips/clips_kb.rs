@@ -465,13 +465,25 @@ impl CLIPSKnowledgeBase {
             while let Some(cmd) = rx.blocking_recv() {
                 match cmd {
                     KBCommand::CreateClass(class, resp_tx) => {
-                        let _ = resp_tx.send(state_build.borrow_mut().create_class(&mut env, class));
+                        let result = state_build.borrow_mut().create_class(&mut env, class);
+                        if result.is_ok() {
+                            env.run(-1);
+                        }
+                        let _ = resp_tx.send(result);
                     }
                     KBCommand::CreateRule(rule, reply) => {
-                        let _ = reply.send(state_build.borrow_mut().create_rule(&mut env, rule));
+                        let result = state_build.borrow_mut().create_rule(&mut env, rule);
+                        if result.is_ok() {
+                            env.run(-1);
+                        }
+                        let _ = reply.send(result);
                     }
                     KBCommand::CreateObject(object, reply) => {
-                        let _ = reply.send(state_build.borrow_mut().create_object(&mut env, object));
+                        let result = state_build.borrow_mut().create_object(&mut env, object);
+                        if result.is_ok() {
+                            env.run(-1);
+                        }
+                        let _ = reply.send(result);
                     }
                     KBCommand::GetStaticProperties(class_names, reply) => {
                         let _ = reply.send(state_build.borrow().get_static_properties(class_names));
@@ -480,17 +492,29 @@ impl CLIPSKnowledgeBase {
                         let _ = reply.send(state_build.borrow().get_dynamic_properties(class_names));
                     }
                     KBCommand::AddClass(object_id, class_name, reply) => {
-                        let _ = reply.send(state_build.borrow_mut().add_class(&mut env, &object_id, &class_name));
+                        let result = state_build.borrow_mut().add_class(&mut env, &object_id, &class_name);
+                        if result.is_ok() {
+                            env.run(-1);
+                        }
+                        let _ = reply.send(result);
                     }
                     KBCommand::GetObjectClasses(object_id, reply) => {
                         let state = state_build.borrow();
                         let _ = reply.send(state.objects.get(&object_id).ok_or(KnowledgeBaseError::ObjectNotFound(object_id)).and_then(|object| state.get_object_classes(object)));
                     }
                     KBCommand::SetProperties(object_id, properties, reply) => {
-                        let _ = reply.send(state_build.borrow_mut().set_properties(&mut env, &object_id, &properties));
+                        let result = state_build.borrow_mut().set_properties(&mut env, &object_id, &properties);
+                        if result.is_ok() {
+                            env.run(-1);
+                        }
+                        let _ = reply.send(result);
                     }
                     KBCommand::AddValues(object_id, values, date_time, reply) => {
-                        let _ = reply.send(state_build.borrow_mut().add_values(&mut env, &object_id, &values, date_time));
+                        let result = state_build.borrow_mut().add_values(&mut env, &object_id, &values, date_time);
+                        if result.is_ok() {
+                            env.run(-1);
+                        }
+                        let _ = reply.send(result);
                     }
                     KBCommand::AddUDF(name, return_type, min_args, max_args, arg_types, func, reply) => {
                         let _ = reply.send(env.add_udf(&name, return_type, min_args, max_args, arg_types, func).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to add UDF {}: {}", name, e))));

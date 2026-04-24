@@ -282,9 +282,9 @@ impl CoCo {
         response_rx.await.map_err(|e| CoCoError::KnowledgeBaseError(format!("Failed to receive response from CoCo: {}", e)))?
     }
 
-    pub async fn get_class(&self, name: &str) -> Result<Option<Class>, CoCoError> {
+    pub async fn get_class(&self, name: String) -> Result<Option<Class>, CoCoError> {
         let (response_tx, response_rx) = oneshot::channel();
-        self.tx.send(CoCoCommand::GetClass(name.to_owned(), response_tx)).await.map_err(|e| CoCoError::KnowledgeBaseError(format!("Failed to send command to CoCo: {}", e)))?;
+        self.tx.send(CoCoCommand::GetClass(name, response_tx)).await.map_err(|e| CoCoError::KnowledgeBaseError(format!("Failed to send command to CoCo: {}", e)))?;
         response_rx.await.map_err(|e| CoCoError::KnowledgeBaseError(format!("Failed to receive response from CoCo: {}", e)))?
     }
 
@@ -312,9 +312,9 @@ impl CoCo {
         response_rx.await.map_err(|e| CoCoError::KnowledgeBaseError(format!("Failed to receive response from CoCo: {}", e)))?
     }
 
-    pub async fn get_rule(&self, name: &str) -> Result<Option<Rule>, CoCoError> {
+    pub async fn get_rule(&self, name: String) -> Result<Option<Rule>, CoCoError> {
         let (response_tx, response_rx) = oneshot::channel();
-        self.tx.send(CoCoCommand::GetRule(name.to_owned(), response_tx)).await.map_err(|e| CoCoError::KnowledgeBaseError(format!("Failed to send command to CoCo: {}", e)))?;
+        self.tx.send(CoCoCommand::GetRule(name, response_tx)).await.map_err(|e| CoCoError::KnowledgeBaseError(format!("Failed to send command to CoCo: {}", e)))?;
         response_rx.await.map_err(|e| CoCoError::KnowledgeBaseError(format!("Failed to receive response from CoCo: {}", e)))?
     }
 
@@ -330,15 +330,15 @@ impl CoCo {
         response_rx.await.map_err(|e| CoCoError::KnowledgeBaseError(format!("Failed to receive response from CoCo: {}", e)))?
     }
 
-    pub async fn get_object(&self, object_id: &str) -> Result<Option<Object>, CoCoError> {
+    pub async fn get_object(&self, object_id: String) -> Result<Option<Object>, CoCoError> {
         let (response_tx, response_rx) = oneshot::channel();
-        self.tx.send(CoCoCommand::GetObject(object_id.to_owned(), response_tx)).await.map_err(|e| CoCoError::KnowledgeBaseError(format!("Failed to send command to CoCo: {}", e)))?;
+        self.tx.send(CoCoCommand::GetObject(object_id, response_tx)).await.map_err(|e| CoCoError::KnowledgeBaseError(format!("Failed to send command to CoCo: {}", e)))?;
         response_rx.await.map_err(|e| CoCoError::KnowledgeBaseError(format!("Failed to receive response from CoCo: {}", e)))?
     }
 
-    pub async fn get_object_classes(&self, object_id: &str) -> Result<HashSet<String>, CoCoError> {
+    pub async fn get_object_classes(&self, object_id: String) -> Result<HashSet<String>, CoCoError> {
         let (response_tx, response_rx) = oneshot::channel();
-        self.tx.send(CoCoCommand::GetObjectClasses(object_id.to_owned(), response_tx)).await.map_err(|e| CoCoError::KnowledgeBaseError(format!("Failed to send command to CoCo: {}", e)))?;
+        self.tx.send(CoCoCommand::GetObjectClasses(object_id, response_tx)).await.map_err(|e| CoCoError::KnowledgeBaseError(format!("Failed to send command to CoCo: {}", e)))?;
         response_rx.await.map_err(|e| CoCoError::KnowledgeBaseError(format!("Failed to receive response from CoCo: {}", e)))?
     }
 
@@ -348,27 +348,27 @@ impl CoCo {
         response_rx.await.map_err(|e| CoCoError::KnowledgeBaseError(format!("Failed to receive response from CoCo: {}", e)))?
     }
 
-    pub async fn add_class(&self, object_id: &str, class_name: &str) -> Result<(), CoCoError> {
+    pub async fn add_class(&self, object_id: String, class_name: String) -> Result<(), CoCoError> {
         let (response_tx, response_rx) = oneshot::channel();
-        self.tx.send(CoCoCommand::AddClass(object_id.to_owned(), class_name.to_owned(), response_tx)).await.map_err(|e| CoCoError::KnowledgeBaseError(format!("Failed to send command to CoCo: {}", e)))?;
+        self.tx.send(CoCoCommand::AddClass(object_id, class_name, response_tx)).await.map_err(|e| CoCoError::KnowledgeBaseError(format!("Failed to send command to CoCo: {}", e)))?;
         response_rx.await.map_err(|e| CoCoError::KnowledgeBaseError(format!("Failed to receive response from CoCo: {}", e)))?
     }
 
-    pub async fn set_properties(&self, object_id: &str, properties: HashMap<String, Value>) -> Result<(), CoCoError> {
+    pub async fn set_properties(&self, object_id: String, properties: HashMap<String, Value>) -> Result<(), CoCoError> {
         let (response_tx, response_rx) = oneshot::channel();
-        self.tx.send(CoCoCommand::SetProperties(object_id.to_owned(), properties.clone(), response_tx)).await.map_err(|e| CoCoError::KnowledgeBaseError(format!("Failed to send command to CoCo: {}", e)))?;
+        self.tx.send(CoCoCommand::SetProperties(object_id, properties.clone(), response_tx)).await.map_err(|e| CoCoError::KnowledgeBaseError(format!("Failed to send command to CoCo: {}", e)))?;
         response_rx.await.map_err(|e| CoCoError::KnowledgeBaseError(format!("Failed to receive response from CoCo: {}", e)))?
     }
 
-    pub async fn add_values(&self, object_id: &str, values: HashMap<String, Value>, date_time: DateTime<Utc>) -> Result<(), CoCoError> {
+    pub async fn add_values(&self, object_id: String, values: HashMap<String, Value>, date_time: DateTime<Utc>) -> Result<(), CoCoError> {
         let (response_tx, response_rx) = oneshot::channel();
-        self.tx.send(CoCoCommand::AddValues(object_id.to_owned(), values.clone(), date_time, response_tx)).await.map_err(|e| CoCoError::KnowledgeBaseError(format!("Failed to send command to CoCo: {}", e)))?;
+        self.tx.send(CoCoCommand::AddValues(object_id, values.clone(), date_time, response_tx)).await.map_err(|e| CoCoError::KnowledgeBaseError(format!("Failed to send command to CoCo: {}", e)))?;
         response_rx.await.map_err(|e| CoCoError::KnowledgeBaseError(format!("Failed to receive response from CoCo: {}", e)))?
     }
 
-    pub async fn get_values(&self, object_id: &str, start_time: Option<DateTime<Utc>>, end_time: Option<DateTime<Utc>>) -> Result<Vec<(HashMap<String, Value>, DateTime<Utc>)>, CoCoError> {
+    pub async fn get_values(&self, object_id: String, start_time: Option<DateTime<Utc>>, end_time: Option<DateTime<Utc>>) -> Result<Vec<(HashMap<String, Value>, DateTime<Utc>)>, CoCoError> {
         let (response_tx, response_rx) = oneshot::channel();
-        self.tx.send(CoCoCommand::GetValues(object_id.to_owned(), start_time, end_time, response_tx)).await.map_err(|e| CoCoError::KnowledgeBaseError(format!("Failed to send command to CoCo: {}", e)))?;
+        self.tx.send(CoCoCommand::GetValues(object_id, start_time, end_time, response_tx)).await.map_err(|e| CoCoError::KnowledgeBaseError(format!("Failed to send command to CoCo: {}", e)))?;
         response_rx.await.map_err(|e| CoCoError::KnowledgeBaseError(format!("Failed to receive response from CoCo: {}", e)))?
     }
 }

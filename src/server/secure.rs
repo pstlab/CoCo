@@ -546,7 +546,7 @@ async fn handle_socket(mut socket: WebSocket, coco: CoCo) {
         let send_result = match msg {
             CoCoEvent::ClassCreated(class_name) => {
                 trace!("Received event: ClassCreated for class '{}'", class_name);
-                match coco.get_class(&class_name).await {
+                match coco.get_class(class_name).await {
                     Ok(Some(class)) => {
                         let mut update_msg = serde_json::to_value(class).unwrap();
                         update_msg["msg_type"] = serde_json::json!("class-created");
@@ -558,7 +558,7 @@ async fn handle_socket(mut socket: WebSocket, coco: CoCo) {
             }
             CoCoEvent::ObjectCreated(object_id) => {
                 trace!("Received event: ObjectCreated for object '{}'", object_id);
-                match coco.get_object(&object_id).await {
+                match coco.get_object(object_id).await {
                     Ok(Some(object)) => {
                         let mut update_msg = serde_json::to_value(object).unwrap();
                         update_msg["msg_type"] = serde_json::json!("object-created");
@@ -598,7 +598,7 @@ async fn handle_socket(mut socket: WebSocket, coco: CoCo) {
             }
             CoCoEvent::RuleCreated(rule) => {
                 trace!("Received event: RuleCreated for rule '{}'", rule);
-                match coco.get_rule(&rule).await {
+                match coco.get_rule(rule).await {
                     Ok(Some(rule)) => {
                         let mut update_msg = serde_json::to_value(rule).unwrap();
                         update_msg["msg_type"] = serde_json::json!("rule-created");

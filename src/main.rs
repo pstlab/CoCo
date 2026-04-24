@@ -13,8 +13,7 @@ use coco::server::secure::{UsersDB, secure_coco_router};
 #[cfg(not(feature = "secure"))]
 use coco::server::unsecure::unsecure_coco_router;
 use tower_http::services::{ServeDir, ServeFile};
-use tracing::info;
-use tracing::{Level, error, subscriber};
+use tracing::{Level, error, info, subscriber};
 
 #[tokio::main]
 async fn main() {
@@ -25,7 +24,7 @@ async fn main() {
         error!("Failed to set up MongoDB: {}", e);
         std::process::exit(1);
     });
-    let kb = CLIPSKnowledgeBase::new();
+    let (kb, event) = CLIPSKnowledgeBase::new();
     let modules: Vec<Box<dyn CoCoModule<MongoDB, CLIPSKnowledgeBase>>> = vec![
         #[cfg(feature = "ollama")]
         Box::new(OllamaModule::default()),
@@ -35,7 +34,7 @@ async fn main() {
         Box::new(MQTTModule::default()),
     ];
 
-    let coco = CoCo::new(db.clone(), kb.0, kb.1, modules).await;
+    let coco = CoCo::new(db.clone(), kb, event, modules).await;
 
     let app = cfg_select! {
         feature = "secure" => secure_coco_router(coco, UsersDB::default().await.unwrap_or_else(|e| {
