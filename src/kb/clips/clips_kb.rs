@@ -26,10 +26,7 @@ enum KBCommand {
     GetObjectClasses(String, oneshot::Sender<Result<HashSet<String>, KnowledgeBaseError>>),
     SetProperties(String, HashMap<String, Value>, oneshot::Sender<Result<(), KnowledgeBaseError>>),
     AddValues(String, HashMap<String, Value>, DateTime<Utc>, oneshot::Sender<Result<(), KnowledgeBaseError>>),
-    Build(String, oneshot::Sender<Result<(), KnowledgeBaseError>>),
     AddUDF(String, Option<Type>, u16, u16, Vec<Type>, Udf, oneshot::Sender<Result<(), KnowledgeBaseError>>),
-    AssertFact(String, HashMap<String, Value>, oneshot::Sender<Result<u64, KnowledgeBaseError>>),
-    ModifyFact(u64, HashMap<String, Value>, oneshot::Sender<Result<(), KnowledgeBaseError>>),
 }
 
 #[derive(Clone)]
@@ -468,23 +465,47 @@ impl CLIPSKnowledgeBase {
             while let Some(cmd) = rx.blocking_recv() {
                 match cmd {
                     KBCommand::CreateClass(class, resp_tx) => {
-                        let state = &mut *state_build.borrow_mut();
-                        let result = state.create_class(&mut env, class);
-                        let _ = resp_tx.send(result);
+                        let _ = resp_tx.send(state_build.borrow_mut().create_class(&mut env, class));
                     }
                     KBCommand::CreateRule(rule, reply) => {
-                        let mut state = state_build.borrow_mut();
-                        let result = state.create_rule(&mut env, rule);
-                        let _ = reply.send(result);
+                        let _ = reply.send(state_build.borrow_mut().create_rule(&mut env, rule));
                     }
-                    _ => {
-                        error!("Received unsupported command in CLIPS knowledge base actor");
+                    KBCommand::CreateObject(object, reply) => {
+                        let _ = reply.send(state_build.borrow_mut().create_object(&mut env, object));
+                    }
+                    KBCommand::GetStaticProperties(class_names, reply) => {
+                        let _ = reply.send(state_build.borrow().get_static_properties(class_names));
+                    }
+                    KBCommand::GetDynamicProperties(class_names, reply) => {
+                        let _ = reply.send(state_build.borrow().get_dynamic_properties(class_names));
+                    }
+                    KBCommand::AddClass(object_id, class_name, reply) => {
+                        let _ = reply.send(state_build.borrow_mut().add_class(&mut env, &object_id, &class_name));
+                    }
+                    KBCommand::GetObjectClasses(object_id, reply) => {
+                        let state = state_build.borrow();
+                        let _ = reply.send(state.objects.get(&object_id).ok_or_else(|| KnowledgeBaseError::ObjectNotFound(object_id)).and_then(|object| state.get_object_classes(object)));
+                    }
+                    KBCommand::SetProperties(object_id, properties, reply) => {
+                        let _ = reply.send(state_build.borrow_mut().set_properties(&mut env, &object_id, &properties));
+                    }
+                    KBCommand::AddValues(object_id, values, date_time, reply) => {
+                        let _ = reply.send(state_build.borrow_mut().add_values(&mut env, &object_id, &values, date_time));
+                    }
+                    KBCommand::AddUDF(name, return_type, min_args, max_args, arg_types, func, reply) => {
+                        let _ = reply.send(env.add_udf(&name, return_type, min_args, max_args, arg_types, func).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to add UDF {}: {}", name, e))));
                     }
                 }
             }
         });
 
         (CLIPSKnowledgeBase { command_tx: tx }, event_rx)
+    }
+
+    pub async fn add_udf(&self, name: &str, return_type: Option<Type>, min_args: u16, max_args: u16, arg_types: Vec<Type>, func: Udf) -> Result<(), KnowledgeBaseError> {
+        let (resp_tx, resp_rx) = oneshot::channel();
+        self.command_tx.send(KBCommand::AddUDF(name.to_owned(), return_type, min_args, max_args, arg_types, func, resp_tx)).map_err(|_| KnowledgeBaseError::KBError("Failed to send AddUdf command to CLIPS knowledge base actor".to_owned()))?;
+        resp_rx.await.map_err(|_| KnowledgeBaseError::KBError("Failed to receive response for AddUdf command from CLIPS knowledge base actor".to_owned()))?
     }
 }
 
