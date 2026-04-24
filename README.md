@@ -88,7 +88,7 @@ Below are minimal examples that show JSON payloads (useful for APIs or config fi
 ```json
 {
    "name": "greet",
-   "content": "(defrule greet (Person (name ?n)) => (printout t \\\"Hello \\\" ?n \\\"!\\\" crlf))"
+   "content": "(defrule greet (Person_name (id ?id) (value ?n)) => (printout t \\\"Hello \\\" ?n \\\"!\\\" crlf))"
 }
 ```
 
