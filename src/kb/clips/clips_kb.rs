@@ -173,7 +173,7 @@ impl ActorState {
     }
 
     fn create_object(&mut self, env: &mut Environment, object: Object) -> Result<(), KnowledgeBaseError> {
-        let object_id = object.id.clone().ok_or_else(|| KnowledgeBaseError::ObjectIDRequired)?;
+        let object_id = object.id.clone().ok_or(KnowledgeBaseError::ObjectIDRequired)?;
         if self.objects.contains_key(&object_id) {
             return Err(KnowledgeBaseError::ObjectAlreadyExists(object_id));
         }
@@ -198,12 +198,12 @@ impl ActorState {
                 let fb = env.fact_builder(&template_name).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to create fact builder for property {} of object {}: {}", name, object_id, e)))?;
                 let fb = fb.put_symbol("id", object_id.as_str()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set id slot for property {} of object {}: {}", name, object_id, e)))?;
                 if let Some(v) = object.properties.as_ref().and_then(|props| props.get(&name)) {
-                    let fb: FactBuilder = set_prop(&env, fb, &prop, v.clone(), None).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set property {} for object {}: {:#?}", name, object_id, e)))?;
+                    let fb: FactBuilder = set_prop(env, fb, &prop, v.clone(), None).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set property {} for object {}: {:#?}", name, object_id, e)))?;
                     let fact = env.assert_fact(fb).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to assert fact for property {} of object {}: {}", name, object_id, e)))?;
                     self.values.entry(class_name.clone()).or_default().entry(object_id.clone()).or_default().insert(name.clone(), fact);
                 } else {
                     let def = get_default(&prop);
-                    let fb = set_prop(&env, fb, &prop, def.clone(), None).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set default value for property {} of object {}: {:#?}", name, object_id, e)))?;
+                    let fb = set_prop(env, fb, &prop, def.clone(), None).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set default value for property {} of object {}: {:#?}", name, object_id, e)))?;
                     let fact = env.assert_fact(fb).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to assert fact for default value of property {} of object {}: {}", name, object_id, e)))?;
                     self.values.entry(class_name.clone()).or_default().entry(object_id.clone()).or_default().insert(name.clone(), fact);
                 }
@@ -216,12 +216,12 @@ impl ActorState {
                 let fb = env.fact_builder(&template_name).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to create fact builder for dynamic property {} of object {}: {}", name, object_id, e)))?;
                 let fb = fb.put_symbol("id", object_id.as_str()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set id slot for dynamic property {} of object {}: {}", name, object_id, e)))?;
                 if let Some(v) = object.values.as_ref().and_then(|vals| vals.get(&name)) {
-                    let fb = set_prop(&env, fb, &prop, v.value.clone(), Some(v.timestamp)).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set dynamic property {} for object {}: {:#?}", name, object_id, e)))?;
+                    let fb = set_prop(env, fb, &prop, v.value.clone(), Some(v.timestamp)).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set dynamic property {} for object {}: {:#?}", name, object_id, e)))?;
                     let fact = env.assert_fact(fb).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to assert fact for dynamic property {} of object {}: {}", name, object_id, e)))?;
                     self.values.entry(class_name.clone()).or_default().entry(object_id.clone()).or_default().insert(name.clone(), fact);
                 } else {
                     let def = get_default(&prop);
-                    let fb = set_prop(&env, fb, &prop, def.clone(), Some(Utc::now())).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set default value for dynamic property {} of object {}: {:#?}", name, object_id, e)))?;
+                    let fb = set_prop(env, fb, &prop, def.clone(), Some(Utc::now())).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set default value for dynamic property {} of object {}: {:#?}", name, object_id, e)))?;
                     let fact = env.assert_fact(fb).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to assert fact for default value of dynamic property {} of object {}: {}", name, object_id, e)))?;
                     self.values.entry(class_name.clone()).or_default().entry(object_id.clone()).or_default().insert(name.clone(), fact);
                 }
@@ -484,7 +484,7 @@ impl CLIPSKnowledgeBase {
                     }
                     KBCommand::GetObjectClasses(object_id, reply) => {
                         let state = state_build.borrow();
-                        let _ = reply.send(state.objects.get(&object_id).ok_or_else(|| KnowledgeBaseError::ObjectNotFound(object_id)).and_then(|object| state.get_object_classes(object)));
+                        let _ = reply.send(state.objects.get(&object_id).ok_or(KnowledgeBaseError::ObjectNotFound(object_id)).and_then(|object| state.get_object_classes(object)));
                     }
                     KBCommand::SetProperties(object_id, properties, reply) => {
                         let _ = reply.send(state_build.borrow_mut().set_properties(&mut env, &object_id, &properties));
