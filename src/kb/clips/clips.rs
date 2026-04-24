@@ -174,6 +174,67 @@ impl ActorState {
         Ok(())
     }
 
+    fn create_object(&mut self, env: &mut Environment, object: Object) -> Result<(), KnowledgeBaseError> {
+        let object_id = object.id.clone().ok_or_else(|| KnowledgeBaseError::ObjectIDRequired)?;
+        if self.objects.contains_key(&object_id) {
+            return Err(KnowledgeBaseError::ObjectAlreadyExists(object_id));
+        }
+
+        let classes = self.get_object_classes(&object)?;
+        if classes.is_empty() {
+            return Err(KnowledgeBaseError::ObjectClassesRequired(object_id));
+        }
+        for class_name in classes {
+            if !self.classes.contains_key(&class_name) {
+                return Err(KnowledgeBaseError::ClassNotFound(format!("Class {} not found for object {}", class_name, object_id)));
+            }
+            let fb = env.fact_builder(&class_name).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to create fact builder for class {}: {}", class_name, e)))?;
+            let fb = fb.put_symbol("id", object_id.as_str()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set id slot for object {}: {}", object_id, e)))?;
+            let fact = env.assert_fact(fb).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to assert fact for object {}: {}", object_id, e)))?;
+            self.instances.entry(class_name).or_default().insert(object_id.clone(), fact);
+        }
+
+        for (class_name, props) in self.get_static_properties(object.classes.iter().cloned().collect())? {
+            for (name, prop) in props {
+                let template_name = format!("{}_{}", class_name, name);
+                let fb = env.fact_builder(&template_name).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to create fact builder for property {} of object {}: {}", name, object_id, e)))?;
+                let fb = fb.put_symbol("id", object_id.as_str()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set id slot for property {} of object {}: {}", name, object_id, e)))?;
+                if let Some(v) = object.properties.as_ref().and_then(|props| props.get(&name)) {
+                    let fb: FactBuilder = set_prop(&env, fb, &prop, v.clone(), None).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set property {} for object {}: {:#?}", name, object_id, e)))?;
+                    let fact = env.assert_fact(fb).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to assert fact for property {} of object {}: {}", name, object_id, e)))?;
+                    self.values.entry(class_name.clone()).or_default().entry(object_id.clone()).or_default().insert(name.clone(), fact);
+                } else {
+                    let def = get_default(&prop);
+                    let fb = set_prop(&env, fb, &prop, def.clone(), None).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set default value for property {} of object {}: {:#?}", name, object_id, e)))?;
+                    let fact = env.assert_fact(fb).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to assert fact for default value of property {} of object {}: {}", name, object_id, e)))?;
+                    self.values.entry(class_name.clone()).or_default().entry(object_id.clone()).or_default().insert(name.clone(), fact);
+                }
+            }
+        }
+
+        for (class_name, props) in self.get_dynamic_properties(object.classes.iter().cloned().collect())? {
+            for (name, prop) in props {
+                let template_name = format!("{}_{}", class_name, name);
+                let fb = env.fact_builder(&template_name).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to create fact builder for dynamic property {} of object {}: {}", name, object_id, e)))?;
+                let fb = fb.put_symbol("id", object_id.as_str()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set id slot for dynamic property {} of object {}: {}", name, object_id, e)))?;
+                if let Some(v) = object.values.as_ref().and_then(|vals| vals.get(&name)) {
+                    let fb = set_prop(&env, fb, &prop, v.value.clone(), Some(v.timestamp)).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set dynamic property {} for object {}: {:#?}", name, object_id, e)))?;
+                    let fact = env.assert_fact(fb).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to assert fact for dynamic property {} of object {}: {}", name, object_id, e)))?;
+                    self.values.entry(class_name.clone()).or_default().entry(object_id.clone()).or_default().insert(name.clone(), fact);
+                } else {
+                    let def = get_default(&prop);
+                    let fb = set_prop(&env, fb, &prop, def.clone(), Some(Utc::now())).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set default value for dynamic property {} of object {}: {:#?}", name, object_id, e)))?;
+                    let fact = env.assert_fact(fb).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to assert fact for default value of dynamic property {} of object {}: {}", name, object_id, e)))?;
+                    self.values.entry(class_name.clone()).or_default().entry(object_id.clone()).or_default().insert(name.clone(), fact);
+                }
+            }
+        }
+
+        self.objects.insert(object_id.clone(), object);
+
+        Ok(())
+    }
+
     fn add_class(&mut self, env: &mut Environment, object_id: &str, class_name: &str) -> Result<(), KnowledgeBaseError> {
         let static_props = self.get_static_properties(HashSet::from([class_name.to_owned()]))?;
         let dynamic_props = self.get_dynamic_properties(HashSet::from([class_name.to_owned()]))?;
@@ -182,37 +243,35 @@ impl ActorState {
         object.classes.insert(class_name.to_owned());
 
         for (class_name, props) in static_props {
-            let class = self.classes.get(&class_name).ok_or_else(|| KnowledgeBaseError::ClassNotFound(format!("Class {} not found for object {}", class_name, object_id)))?;
             for (name, prop) in props {
-                let fb = env.fact_builder(&format!("{}_{}", class.name, name)).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to create fact builder for property {} of object {}: {}", name, object_id, e)))?;
+                let fb = env.fact_builder(&format!("{}_{}", class_name, name)).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to create fact builder for property {} of object {}: {}", name, object_id, e)))?;
                 let fb = fb.put_symbol("id", object_id).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set id slot for property {} of object {}: {}", name, object_id, e)))?;
                 if let Some(v) = object.properties.as_ref().and_then(|props| props.get(&name)) {
                     let fb: FactBuilder = set_prop(env, fb, &prop, v.clone(), None).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set property {} for object {}: {:#?}", name, object_id, e)))?;
                     let fact = env.assert_fact(fb).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to assert fact for property {} of object {}: {}", name, object_id, e)))?;
-                    self.values.entry(class.name.clone()).or_default().entry(object_id.to_owned()).or_default().insert(name.clone(), fact);
+                    self.values.entry(class_name.clone()).or_default().entry(object_id.to_owned()).or_default().insert(name.clone(), fact);
                 } else {
                     let def = get_default(&prop);
                     let fb = set_prop(env, fb, &prop, def.clone(), None).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set default value for property {} of object {}: {:#?}", name, object_id, e)))?;
                     let fact = env.assert_fact(fb).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to assert fact for default value of property {} of object {}: {}", name, object_id, e)))?;
-                    self.values.entry(class.name.clone()).or_default().entry(object_id.to_owned()).or_default().insert(name.clone(), fact);
+                    self.values.entry(class_name.clone()).or_default().entry(object_id.to_owned()).or_default().insert(name.clone(), fact);
                 }
             }
         }
 
         for (class_name, props) in dynamic_props {
-            let class = self.classes.get(&class_name).ok_or_else(|| KnowledgeBaseError::ClassNotFound(format!("Class {} not found for object {}", class_name, object_id)))?;
             for (name, prop) in props {
                 if let Some(v) = object.values.as_ref().and_then(|vals| vals.get(&name)) {
-                    let fb = env.fact_builder(&format!("{}_{}", class.name, name)).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to create fact builder for dynamic property {} of object {}: {}", name, object_id, e)))?;
+                    let fb = env.fact_builder(&format!("{}_{}", class_name, name)).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to create fact builder for dynamic property {} of object {}: {}", name, object_id, e)))?;
                     let fb = set_prop(env, fb, &prop, v.value.clone(), Some(v.timestamp)).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set dynamic property {} for object {}: {:#?}", name, object_id, e)))?;
                     let fact = env.assert_fact(fb).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to assert fact for dynamic property {} of object {}: {}", name, object_id, e)))?;
-                    self.values.entry(class.name.clone()).or_default().entry(object_id.to_owned()).or_default().insert(name.clone(), fact);
+                    self.values.entry(class_name.clone()).or_default().entry(object_id.to_owned()).or_default().insert(name.clone(), fact);
                 } else {
                     let def = get_default(&prop);
-                    let fb = env.fact_builder(&format!("{}_{}", class.name, name)).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to create fact builder for dynamic property {} of object {}: {}", name, object_id, e)))?;
+                    let fb = env.fact_builder(&format!("{}_{}", class_name, name)).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to create fact builder for dynamic property {} of object {}: {}", name, object_id, e)))?;
                     let fb = set_prop(env, fb, &prop, def.clone(), Some(Utc::now()))?;
                     let fact = env.assert_fact(fb).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to assert fact for default value of dynamic property {} of object {}: {}", name, object_id, e)))?;
-                    self.values.entry(class.name.clone()).or_default().entry(object_id.to_owned()).or_default().insert(name.clone(), fact);
+                    self.values.entry(class_name.clone()).or_default().entry(object_id.to_owned()).or_default().insert(name.clone(), fact);
                 }
             }
         }
@@ -772,88 +831,6 @@ fn update_prop(env: &Environment, fm: FactModifier, property: &Property, value: 
         _ => Err(KnowledgeBaseError::KBError("Property type and value type do not match".to_owned())),
     };
     if let Some(t) = time { modifier.and_then(|fm| fm.put_int("time", t.timestamp()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set time slot for property value: {}", e)))) } else { modifier }
-}
-
-fn set_value(env: &Environment, fb: FactBuilder, slot: &str, value: &Value) -> Result<FactBuilder, KnowledgeBaseError> {
-    match value {
-        Value::Bool(b) => fb.put_symbol(slot, if *b { "TRUE" } else { "FALSE" }).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set bool field {}: {}", slot, e))),
-        Value::Int(i) => fb.put_int(slot, *i).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set int field {}: {}", slot, e))),
-        Value::Float(f) => fb.put_float(slot, *f).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set float field {}: {}", slot, e))),
-        Value::String(s) => fb.put_string(slot, s.as_str()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set string field {}: {}", slot, e))),
-        Value::Symbol(s) | Value::Object(s) => fb.put_symbol(slot, s.as_str()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set symbol field {}: {}", slot, e))),
-        Value::Null => fb.put_symbol(slot, "nil").map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set null field {}: {}", slot, e))),
-        Value::BoolArray(arr) => {
-            let builder = env.multifield_builder(arr.len()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to create multifield for {}: {}", slot, e)))?;
-            let builder = arr.iter().fold(builder, |b, &v| b.put_symbol(if v { "TRUE" } else { "FALSE" }));
-            fb.put_multifield(slot, builder.create()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set bool array field {}: {}", slot, e)))
-        }
-        Value::IntArray(arr) => {
-            let builder = env.multifield_builder(arr.len()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to create multifield for {}: {}", slot, e)))?;
-            let builder = arr.iter().fold(builder, |b, &v| b.put_int(v));
-            fb.put_multifield(slot, builder.create()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set int array field {}: {}", slot, e)))
-        }
-        Value::FloatArray(arr) => {
-            let builder = env.multifield_builder(arr.len()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to create multifield for {}: {}", slot, e)))?;
-            let builder = arr.iter().fold(builder, |b, &v| b.put_float(v));
-            fb.put_multifield(slot, builder.create()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set float array field {}: {}", slot, e)))
-        }
-        Value::StringArray(arr) => {
-            let builder = env.multifield_builder(arr.len()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to create multifield for {}: {}", slot, e)))?;
-            let builder = arr.iter().fold(builder, |b, v| b.put_string(v.as_str()));
-            fb.put_multifield(slot, builder.create()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set string array field {}: {}", slot, e)))
-        }
-        Value::SymbolArray(arr) => {
-            let builder = env.multifield_builder(arr.len()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to create multifield for {}: {}", slot, e)))?;
-            let builder = arr.iter().fold(builder, |b, v| b.put_string(v.as_str()));
-            fb.put_multifield(slot, builder.create()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set string array field {}: {}", slot, e)))
-        }
-        Value::ObjectArray(arr) => {
-            let builder = env.multifield_builder(arr.len()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to create multifield for {}: {}", slot, e)))?;
-            let builder = arr.iter().fold(builder, |b, v| b.put_string(v.as_str()));
-            fb.put_multifield(slot, builder.create()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set string array field {}: {}", slot, e)))
-        }
-    }
-}
-
-fn update_value(env: &Environment, fm: FactModifier, slot: &str, value: &Value) -> Result<FactModifier, KnowledgeBaseError> {
-    match value {
-        Value::Bool(b) => fm.put_symbol(slot, if *b { "TRUE" } else { "FALSE" }).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set bool field {}: {}", slot, e))),
-        Value::Int(i) => fm.put_int(slot, *i).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set int field {}: {}", slot, e))),
-        Value::Float(f) => fm.put_float(slot, *f).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set float field {}: {}", slot, e))),
-        Value::String(s) => fm.put_string(slot, s.as_str()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set string field {}: {}", slot, e))),
-        Value::Symbol(s) | Value::Object(s) => fm.put_symbol(slot, s.as_str()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set symbol field {}: {}", slot, e))),
-        Value::Null => fm.put_symbol(slot, "nil").map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set null field {}: {}", slot, e))),
-        Value::BoolArray(arr) => {
-            let builder = env.multifield_builder(arr.len()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to create multifield for {}: {}", slot, e)))?;
-            let builder = arr.iter().fold(builder, |b, &v| b.put_symbol(if v { "TRUE" } else { "FALSE" }));
-            fm.put_multifield(slot, builder.create()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set bool array field {}: {}", slot, e)))
-        }
-        Value::IntArray(arr) => {
-            let builder = env.multifield_builder(arr.len()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to create multifield for {}: {}", slot, e)))?;
-            let builder = arr.iter().fold(builder, |b, &v| b.put_int(v));
-            fm.put_multifield(slot, builder.create()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set int array field {}: {}", slot, e)))
-        }
-        Value::FloatArray(arr) => {
-            let builder = env.multifield_builder(arr.len()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to create multifield for {}: {}", slot, e)))?;
-            let builder = arr.iter().fold(builder, |b, &v| b.put_float(v));
-            fm.put_multifield(slot, builder.create()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set float array field {}: {}", slot, e)))
-        }
-        Value::StringArray(arr) => {
-            let builder = env.multifield_builder(arr.len()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to create multifield for {}: {}", slot, e)))?;
-            let builder = arr.iter().fold(builder, |b, v| b.put_string(v.as_str()));
-            fm.put_multifield(slot, builder.create()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set string array field {}: {}", slot, e)))
-        }
-        Value::SymbolArray(arr) => {
-            let builder = env.multifield_builder(arr.len()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to create multifield for {}: {}", slot, e)))?;
-            let builder = arr.iter().fold(builder, |b, v| b.put_string(v.as_str()));
-            fm.put_multifield(slot, builder.create()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set string array field {}: {}", slot, e)))
-        }
-        Value::ObjectArray(arr) => {
-            let builder = env.multifield_builder(arr.len()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to create multifield for {}: {}", slot, e)))?;
-            let builder = arr.iter().fold(builder, |b, v| b.put_string(v.as_str()));
-            fm.put_multifield(slot, builder.create()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set string array field {}: {}", slot, e)))
-        }
-    }
 }
 
 fn get_default(property: &Property) -> Value {
