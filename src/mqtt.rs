@@ -55,7 +55,7 @@ impl<DB: Database, KB: KnowledgeBase> CoCoModule<DB, KB> for MQTTModule {
         tokio::spawn(async move {
             while let Ok(msg) = rx.recv().await {
                 match msg {
-                    CoCoEvent::ClassCreated(class_name) => match coco_clone.get_class(&class_name).await {
+                    CoCoEvent::ClassCreated(class_name) => match coco_clone.get_class(class_name.clone()).await {
                         Ok(Some(class)) => {
                             let mut update_msg = serde_json::to_value(class).unwrap();
                             update_msg["msg_type"] = serde_json::json!("class-created");
@@ -65,7 +65,7 @@ impl<DB: Database, KB: KnowledgeBase> CoCoModule<DB, KB> for MQTTModule {
                         Ok(None) => trace!("Class '{}' not found after creation event", class_name),
                         Err(e) => trace!("Error loading class '{}' after creation event: {}", class_name, e),
                     },
-                    CoCoEvent::ObjectCreated(object_id) => match coco_clone.get_object(&object_id).await {
+                    CoCoEvent::ObjectCreated(object_id) => match coco_clone.get_object(object_id.clone()).await {
                         Ok(Some(object)) => {
                             let mut update_msg = serde_json::to_value(object).unwrap();
                             update_msg["msg_type"] = serde_json::json!("object-created");
@@ -103,7 +103,7 @@ impl<DB: Database, KB: KnowledgeBase> CoCoModule<DB, KB> for MQTTModule {
                         client.publish(format!("coco/{}/dynamic", object_id), QoS::AtLeastOnce, false, payload).await.unwrap();
                     }
                     CoCoEvent::RuleCreated(rule) => {
-                        let mut update_msg = serde_json::to_value(coco_clone.get_rule(&rule).await.unwrap()).unwrap();
+                        let mut update_msg = serde_json::to_value(coco_clone.get_rule(rule).await.unwrap()).unwrap();
                         update_msg["msg_type"] = serde_json::json!("rule_created");
                         let payload = serde_json::to_string(&update_msg).unwrap();
                         client.publish("coco/events", QoS::AtLeastOnce, false, payload).await.unwrap();
@@ -126,12 +126,12 @@ impl<DB: Database, KB: KnowledgeBase> CoCoModule<DB, KB> for MQTTModule {
                             let msg = String::from_utf8_lossy(&publish.payload).to_string();
                             if topic_parts[2] == "static" {
                                 let data: HashMap<String, Value> = serde_json::from_str(&msg).unwrap();
-                                coco.set_properties(topic_parts[1], data).await.unwrap();
+                                coco.set_properties(topic_parts[1].to_string(), data).await.unwrap();
                             } else if topic_parts[2] == "dynamic" {
                                 let mut update: serde_json::Value = serde_json::from_str(&msg).unwrap();
                                 let values: HashMap<String, Value> = serde_json::from_value(update["values"].take()).unwrap();
                                 let date_time: DateTime<Utc> = if update.get("date_time").is_some() { serde_json::from_value(update["date_time"].take()).unwrap() } else { Utc::now() };
-                                coco.add_values(topic_parts[1], values, date_time).await.unwrap();
+                                coco.add_values(topic_parts[1].to_string(), values, date_time).await.unwrap();
                             }
                         }
                         _ => {}

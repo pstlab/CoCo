@@ -1,6 +1,12 @@
 use std::collections::{HashMap, HashSet};
 
 use chrono::Utc;
+#[cfg(feature = "fcm")]
+use coco::fcm::FCMModule;
+#[cfg(feature = "ollama")]
+use coco::kb::clips::ollama::OllamaModule;
+#[cfg(feature = "mqtt")]
+use coco::mqtt::MQTTModule;
 use coco::{
     CoCo, CoCoModule,
     db::{Database, mongodb::MongoDB},
