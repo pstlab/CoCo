@@ -55,7 +55,7 @@ pub struct CoCo {
 }
 
 impl CoCo {
-    pub async fn new<DB, KB>(db: DB, mut kb: KB, modules: Vec<Box<dyn CoCoModule<DB, KB>>>) -> Self
+    pub async fn new<DB, KB>(db: DB, kb: KB, kb_event: mpsc::UnboundedReceiver<KnowledgeBaseEvent>, modules: Vec<Box<dyn CoCoModule<DB, KB>>>) -> Self
     where
         DB: Database,
         KB: KnowledgeBase,
@@ -64,7 +64,7 @@ impl CoCo {
         let (event_tx, _) = broadcast::channel(100);
 
         // Spawn a task to listen for events from the KnowledgeBase and forward them to CoCo's event channel
-        let mut event_rx = kb.take_event_receiver().expect("KnowledgeBase must provide an event receiver");
+        let mut event_rx = kb_event;
         let event_tx_for_kb = event_tx.clone();
         let event_db = db.clone();
         tokio::spawn(async move {

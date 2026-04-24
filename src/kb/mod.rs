@@ -5,7 +5,6 @@ use std::{
     collections::{HashMap, HashSet},
     fmt,
 };
-use tokio::sync::mpsc;
 
 #[cfg(feature = "clips")]
 pub mod clips;
@@ -71,6 +70,4 @@ pub trait KnowledgeBase: Clone + Send + Sync + 'static {
     async fn get_object_classes(&self, object_id: String) -> Result<HashSet<String>, KnowledgeBaseError>;
     async fn set_properties(&self, object_id: String, properties: HashMap<String, Value>) -> Result<(), KnowledgeBaseError>;
     async fn add_values(&self, object_id: String, values: HashMap<String, Value>, date_time: DateTime<Utc>) -> Result<(), KnowledgeBaseError>;
-
-    fn take_event_receiver(&mut self) -> Option<mpsc::UnboundedReceiver<KnowledgeBaseEvent>>;
 }

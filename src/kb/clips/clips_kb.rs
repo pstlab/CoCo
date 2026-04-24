@@ -6,16 +6,15 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use clips::{ClipsValue, Environment, Fact, FactBuilder, FactModifier, Type, UDFContext};
 use std::{
+    cell::RefCell,
     collections::{HashMap, HashSet, VecDeque},
-    sync::{Arc, Mutex},
+    rc::Rc,
 };
 use tokio::sync::{mpsc, oneshot};
 use tracing::{error, info, trace};
 
 type Udf = Box<dyn FnMut(&mut Environment, &mut UDFContext) -> ClipsValue + Send>;
 type ClassPropertyMap = HashMap<String, HashMap<String, Property>>;
-
-const MAX_RULE_FIRINGS_PER_RUN: i64 = 10_000;
 
 enum KBCommand {
     CreateClass(Class, oneshot::Sender<Result<(), KnowledgeBaseError>>),
@@ -35,8 +34,7 @@ enum KBCommand {
 
 #[derive(Clone)]
 pub struct CLIPSKnowledgeBase {
-    tx: mpsc::Sender<KBCommand>,
-    event_rx: Arc<Mutex<Option<mpsc::UnboundedReceiver<KnowledgeBaseEvent>>>>,
+    command_tx: mpsc::UnboundedSender<KBCommand>,
 }
 
 struct ActorState {
@@ -46,11 +44,19 @@ struct ActorState {
 
     instances: HashMap<String, HashMap<String, Fact>>,               // class name -> object id -> fact
     values: HashMap<String, HashMap<String, HashMap<String, Fact>>>, // class name -> object id -> property name -> fact
-    external_facts: HashMap<u64, Fact>,
-    next_fact_id: u64,
 }
 
 impl ActorState {
+    fn new() -> Self {
+        ActorState {
+            classes: HashMap::new(),
+            objects: HashMap::new(),
+            rules: HashMap::new(),
+            instances: HashMap::new(),
+            values: HashMap::new(),
+        }
+    }
+
     fn get_static_properties(&self, classes: HashSet<String>) -> Result<HashMap<String, HashMap<String, Property>>, KnowledgeBaseError> {
         let mut queue: VecDeque<String> = classes.into_iter().collect();
         let mut visited: HashSet<String> = HashSet::new();
@@ -139,6 +145,97 @@ impl ActorState {
         Ok(visited)
     }
 
+    fn create_class(&mut self, env: &mut Environment, class: Class) -> Result<(), KnowledgeBaseError> {
+        if self.classes.contains_key(&class.name) {
+            return Err(KnowledgeBaseError::ClassAlreadyExists(class.name));
+        }
+        env.build(format!("(deftemplate {} (slot id (type SYMBOL)))", class.name).as_str()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to create class in CLIPS: {}", e)))?;
+        if let Some(static_props) = &class.static_properties {
+            for (name, prop) in static_props {
+                env.build(prop_deftemplate(&class, name, prop, true).as_str()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to create static property {} for class {} in CLIPS: {}", name, class.name, e)))?;
+            }
+        }
+        if let Some(dynamic_props) = &class.dynamic_properties {
+            for (name, prop) in dynamic_props {
+                env.build(prop_deftemplate(&class, name, prop, false).as_str()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to create dynamic property {} for class {} in CLIPS: {}", name, class.name, e)))?;
+            }
+        }
+        self.classes.insert(class.name.clone(), class);
+        Ok(())
+    }
+
+    fn create_rule(&mut self, env: &mut Environment, rule: Rule) -> Result<(), KnowledgeBaseError> {
+        if self.rules.contains_key(&rule.name) {
+            return Err(KnowledgeBaseError::RuleAlreadyExists(rule.name.clone()));
+        }
+
+        env.build(rule.content.as_str()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to create rule in CLIPS: {}", e)))?;
+        self.rules.insert(rule.name.clone(), rule);
+
+        Ok(())
+    }
+
+    fn create_object(&mut self, env: &mut Environment, object: Object) -> Result<(), KnowledgeBaseError> {
+        let object_id = object.id.clone().ok_or_else(|| KnowledgeBaseError::ObjectIDRequired)?;
+        if self.objects.contains_key(&object_id) {
+            return Err(KnowledgeBaseError::ObjectAlreadyExists(object_id));
+        }
+
+        let classes = self.get_object_classes(&object)?;
+        if classes.is_empty() {
+            return Err(KnowledgeBaseError::ObjectClassesRequired(object_id));
+        }
+        for class_name in classes {
+            if !self.classes.contains_key(&class_name) {
+                return Err(KnowledgeBaseError::ClassNotFound(format!("Class {} not found for object {}", class_name, object_id)));
+            }
+            let fb = env.fact_builder(&class_name).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to create fact builder for class {}: {}", class_name, e)))?;
+            let fb = fb.put_symbol("id", object_id.as_str()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set id slot for object {}: {}", object_id, e)))?;
+            let fact = env.assert_fact(fb).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to assert fact for object {}: {}", object_id, e)))?;
+            self.instances.entry(class_name).or_default().insert(object_id.clone(), fact);
+        }
+
+        for (class_name, props) in self.get_static_properties(object.classes.iter().cloned().collect())? {
+            for (name, prop) in props {
+                let template_name = format!("{}_{}", class_name, name);
+                let fb = env.fact_builder(&template_name).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to create fact builder for property {} of object {}: {}", name, object_id, e)))?;
+                let fb = fb.put_symbol("id", object_id.as_str()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set id slot for property {} of object {}: {}", name, object_id, e)))?;
+                if let Some(v) = object.properties.as_ref().and_then(|props| props.get(&name)) {
+                    let fb: FactBuilder = set_prop(&env, fb, &prop, v.clone(), None).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set property {} for object {}: {:#?}", name, object_id, e)))?;
+                    let fact = env.assert_fact(fb).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to assert fact for property {} of object {}: {}", name, object_id, e)))?;
+                    self.values.entry(class_name.clone()).or_default().entry(object_id.clone()).or_default().insert(name.clone(), fact);
+                } else {
+                    let def = get_default(&prop);
+                    let fb = set_prop(&env, fb, &prop, def.clone(), None).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set default value for property {} of object {}: {:#?}", name, object_id, e)))?;
+                    let fact = env.assert_fact(fb).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to assert fact for default value of property {} of object {}: {}", name, object_id, e)))?;
+                    self.values.entry(class_name.clone()).or_default().entry(object_id.clone()).or_default().insert(name.clone(), fact);
+                }
+            }
+        }
+
+        for (class_name, props) in self.get_dynamic_properties(object.classes.iter().cloned().collect())? {
+            for (name, prop) in props {
+                let template_name = format!("{}_{}", class_name, name);
+                let fb = env.fact_builder(&template_name).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to create fact builder for dynamic property {} of object {}: {}", name, object_id, e)))?;
+                let fb = fb.put_symbol("id", object_id.as_str()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set id slot for dynamic property {} of object {}: {}", name, object_id, e)))?;
+                if let Some(v) = object.values.as_ref().and_then(|vals| vals.get(&name)) {
+                    let fb = set_prop(&env, fb, &prop, v.value.clone(), Some(v.timestamp)).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set dynamic property {} for object {}: {:#?}", name, object_id, e)))?;
+                    let fact = env.assert_fact(fb).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to assert fact for dynamic property {} of object {}: {}", name, object_id, e)))?;
+                    self.values.entry(class_name.clone()).or_default().entry(object_id.clone()).or_default().insert(name.clone(), fact);
+                } else {
+                    let def = get_default(&prop);
+                    let fb = set_prop(&env, fb, &prop, def.clone(), Some(Utc::now())).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set default value for dynamic property {} of object {}: {:#?}", name, object_id, e)))?;
+                    let fact = env.assert_fact(fb).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to assert fact for default value of dynamic property {} of object {}: {}", name, object_id, e)))?;
+                    self.values.entry(class_name.clone()).or_default().entry(object_id.clone()).or_default().insert(name.clone(), fact);
+                }
+            }
+        }
+
+        self.objects.insert(object_id.clone(), object);
+
+        Ok(())
+    }
+
     fn add_class(&mut self, env: &mut Environment, object_id: &str, class_name: &str) -> Result<(), KnowledgeBaseError> {
         let static_props = self.get_static_properties(HashSet::from([class_name.to_owned()]))?;
         let dynamic_props = self.get_dynamic_properties(HashSet::from([class_name.to_owned()]))?;
@@ -147,37 +244,35 @@ impl ActorState {
         object.classes.insert(class_name.to_owned());
 
         for (class_name, props) in static_props {
-            let class = self.classes.get(&class_name).ok_or_else(|| KnowledgeBaseError::ClassNotFound(format!("Class {} not found for object {}", class_name, object_id)))?;
             for (name, prop) in props {
-                let fb = env.fact_builder(&format!("{}_{}", class.name, name)).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to create fact builder for property {} of object {}: {}", name, object_id, e)))?;
+                let fb = env.fact_builder(&format!("{}_{}", class_name, name)).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to create fact builder for property {} of object {}: {}", name, object_id, e)))?;
                 let fb = fb.put_symbol("id", object_id).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set id slot for property {} of object {}: {}", name, object_id, e)))?;
                 if let Some(v) = object.properties.as_ref().and_then(|props| props.get(&name)) {
                     let fb: FactBuilder = set_prop(env, fb, &prop, v.clone(), None).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set property {} for object {}: {:#?}", name, object_id, e)))?;
                     let fact = env.assert_fact(fb).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to assert fact for property {} of object {}: {}", name, object_id, e)))?;
-                    self.values.entry(class.name.clone()).or_default().entry(object_id.to_owned()).or_default().insert(name.clone(), fact);
+                    self.values.entry(class_name.clone()).or_default().entry(object_id.to_owned()).or_default().insert(name.clone(), fact);
                 } else {
                     let def = get_default(&prop);
                     let fb = set_prop(env, fb, &prop, def.clone(), None).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set default value for property {} of object {}: {:#?}", name, object_id, e)))?;
                     let fact = env.assert_fact(fb).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to assert fact for default value of property {} of object {}: {}", name, object_id, e)))?;
-                    self.values.entry(class.name.clone()).or_default().entry(object_id.to_owned()).or_default().insert(name.clone(), fact);
+                    self.values.entry(class_name.clone()).or_default().entry(object_id.to_owned()).or_default().insert(name.clone(), fact);
                 }
             }
         }
 
         for (class_name, props) in dynamic_props {
-            let class = self.classes.get(&class_name).ok_or_else(|| KnowledgeBaseError::ClassNotFound(format!("Class {} not found for object {}", class_name, object_id)))?;
             for (name, prop) in props {
                 if let Some(v) = object.values.as_ref().and_then(|vals| vals.get(&name)) {
-                    let fb = env.fact_builder(&format!("{}_{}", class.name, name)).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to create fact builder for dynamic property {} of object {}: {}", name, object_id, e)))?;
+                    let fb = env.fact_builder(&format!("{}_{}", class_name, name)).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to create fact builder for dynamic property {} of object {}: {}", name, object_id, e)))?;
                     let fb = set_prop(env, fb, &prop, v.value.clone(), Some(v.timestamp)).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set dynamic property {} for object {}: {:#?}", name, object_id, e)))?;
                     let fact = env.assert_fact(fb).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to assert fact for dynamic property {} of object {}: {}", name, object_id, e)))?;
-                    self.values.entry(class.name.clone()).or_default().entry(object_id.to_owned()).or_default().insert(name.clone(), fact);
+                    self.values.entry(class_name.clone()).or_default().entry(object_id.to_owned()).or_default().insert(name.clone(), fact);
                 } else {
                     let def = get_default(&prop);
-                    let fb = env.fact_builder(&format!("{}_{}", class.name, name)).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to create fact builder for dynamic property {} of object {}: {}", name, object_id, e)))?;
+                    let fb = env.fact_builder(&format!("{}_{}", class_name, name)).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to create fact builder for dynamic property {} of object {}: {}", name, object_id, e)))?;
                     let fb = set_prop(env, fb, &prop, def.clone(), Some(Utc::now()))?;
                     let fact = env.assert_fact(fb).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to assert fact for default value of dynamic property {} of object {}: {}", name, object_id, e)))?;
-                    self.values.entry(class.name.clone()).or_default().entry(object_id.to_owned()).or_default().insert(name.clone(), fact);
+                    self.values.entry(class_name.clone()).or_default().entry(object_id.to_owned()).or_default().insert(name.clone(), fact);
                 }
             }
         }
@@ -222,486 +317,226 @@ impl ActorState {
     }
 }
 
-impl Default for CLIPSKnowledgeBase {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl CLIPSKnowledgeBase {
-    pub fn new() -> Self {
-        let (tx, mut rx) = mpsc::channel(100);
+    pub fn new() -> (Self, mpsc::UnboundedReceiver<KnowledgeBaseEvent>) {
+        let (tx, mut rx) = mpsc::unbounded_channel();
         let (event_tx, event_rx) = mpsc::unbounded_channel();
 
         info!("Starting CLIPS knowledge base");
         tokio::task::spawn_blocking(move || {
             let mut env = Environment::new().expect("Failed to create CLIPS environment");
-            let state = Arc::new(Mutex::new(ActorState {
-                classes: HashMap::new(),
-                objects: HashMap::new(),
-                rules: HashMap::new(),
-                instances: HashMap::new(),
-                values: HashMap::new(),
-                external_facts: HashMap::new(),
-                next_fact_id: 0,
-            }));
+            let state = Rc::new(RefCell::new(ActorState::new()));
 
-            let add_class_state = state.clone();
-            let add_class_event_tx = event_tx.clone();
-            env
-                .add_udf("add-class", None, 2, 2, vec![Type(Type::SYMBOL), Type(Type::SYMBOL)], move |_env, ctx| {
-                    let object_id = ctx.get_next_argument(Type(Type::SYMBOL)).expect("Failed to get object ID argument for add-class UDF");
-                    let object_id = if let ClipsValue::Symbol(s) = object_id { s } else { panic!("Expected symbol for object ID argument in add-class UDF") };
-                    let class_name = ctx.get_next_argument(Type(Type::SYMBOL)).expect("Failed to get class name argument for add-class UDF");
-                    let class_name = if let ClipsValue::Symbol(s) = class_name { s } else { panic!("Expected symbol for class name argument in add-class UDF") };
+            let state_add_class = Rc::clone(&state);
+            let event_tx_add_class = event_tx.clone();
+            env.add_udf("add-class", None, 2, 2, vec![Type(Type::SYMBOL), Type(Type::SYMBOL)], move |env, ctx| {
+                let state = &mut *state_add_class.borrow_mut();
+                let object_id = ctx.get_next_argument(Type(Type::SYMBOL)).expect("Failed to get object ID argument for add-class UDF");
+                let object_id = if let ClipsValue::Symbol(s) = object_id { s } else { panic!("Expected symbol for object ID argument in add-class UDF") };
+                let class_name = ctx.get_next_argument(Type(Type::SYMBOL)).expect("Failed to get class name argument for add-class UDF");
+                let class_name = if let ClipsValue::Symbol(s) = class_name { s } else { panic!("Expected symbol for class name argument in add-class UDF") };
 
-                    let mut kb = add_class_state.lock().expect("Failed to lock CLIPS KB state in add-class UDF");
-                    if let Err(e) = kb.add_class(_env, &object_id, &class_name) {
-                        error!("Failed to apply add-class UDF for object '{}' and class '{}': {}", object_id, class_name, e);
-                        return ClipsValue::Void();
+                trace!("CLIPS UDF 'add-class' called with object_id='{}' and class_name='{}'", object_id, class_name);
+                match state.add_class(env, &object_id, &class_name) {
+                    Ok(_) => {
+                        trace!("Successfully added class '{}' to object '{}'", class_name, object_id);
+                        let _ = event_tx_add_class.send(KnowledgeBaseEvent::AddedClass(object_id.clone(), class_name.clone()));
                     }
-                    if let Err(e) = add_class_event_tx.send(KnowledgeBaseEvent::AddedClass(object_id, class_name)) {
-                        error!("Failed to emit AddedClass event from add-class UDF: {}", e);
+                    Err(e) => {
+                        error!("Error adding class '{}' to object '{}': {}", class_name, object_id, e);
                     }
+                }
 
-                    ClipsValue::Void()
-                })
-                .expect("Failed to add CLIPS function");
+                ClipsValue::Void()
+            })
+            .expect("Failed to add CLIPS function");
 
-            let add_data_state = state.clone();
-            let add_data_event_tx = event_tx.clone();
-            env
-                .add_udf("add-data", None, 3, 4, vec![Type(Type::SYMBOL), Type(Type::MULTIFIELD), Type(Type::MULTIFIELD), Type(Type::INTEGER)], move |_env, ctx| {
-                    let object_id = ctx.get_next_argument(Type(Type::SYMBOL)).expect("Failed to get object ID argument for add-data UDF");
-                    let object_id = if let ClipsValue::Symbol(s) = object_id { s } else { panic!("Expected symbol for object ID argument in add-data UDF") };
-                    let args = ctx.get_next_argument(Type(Type::MULTIFIELD)).expect("Failed to get args argument for add-data UDF");
-                    let args: Vec<String> = if let ClipsValue::Multifield(mf) = args {
-                        mf.into_iter()
-                            .map(|v| match v {
-                                ClipsValue::Symbol(s) => s,
-                                _ => panic!("Expected symbol, integer, or float in args multifield for add-data UDF"),
-                            })
-                            .collect()
-                    } else {
-                        panic!("Expected multifield for args argument in add-data UDF");
-                    };
-                    let vals = ctx.get_next_argument(Type(Type::MULTIFIELD)).expect("Failed to get values argument for add-data UDF");
-                    let vals: Vec<Value> = if let ClipsValue::Multifield(mf) = vals {
-                        mf.into_iter()
-                            .map(|v| match v {
-                                ClipsValue::Integer(i) => Value::Int(i),
-                                ClipsValue::Float(f) => Value::Float(f),
-                                ClipsValue::Symbol(s) => match s.as_str() {
-                                    "TRUE" => Value::Bool(true),
-                                    "FALSE" => Value::Bool(false),
-                                    "nil" => Value::Null,
-                                    other => Value::Symbol(other.to_owned()),
-                                },
-                                ClipsValue::String(s) => Value::String(s),
-                                _ => panic!("Expected symbol, integer, or float in values multifield for add-data UDF"),
-                            })
-                            .collect()
-                    } else {
-                        panic!("Expected multifield for values argument in add-data UDF");
-                    };
-                    let date_time = if ctx.has_next_argument() { Some(ctx.get_next_argument(Type(Type::INTEGER)).expect("Failed to get date_time argument for add-data UDF")) } else { None };
-                    let date_time = date_time
-                        .map(|dt| {
-                            let dt = if let ClipsValue::Integer(i) = dt { i } else { panic!("Expected integer for date_time argument in add-data UDF") };
-                            DateTime::<Utc>::from_timestamp(dt, 0).expect("Failed to convert date_time argument in add-data UDF")
+            let state_set_properties = Rc::clone(&state);
+            let event_tx_set_properties = event_tx.clone();
+            env.add_udf("set-properties", None, 3, 3, vec![Type(Type::SYMBOL), Type(Type::MULTIFIELD), Type(Type::MULTIFIELD)], move |env, ctx| {
+                let state = &mut *state_set_properties.borrow_mut();
+                let object_id = ctx.get_next_argument(Type(Type::SYMBOL)).expect("Failed to get object ID argument for set-properties UDF");
+                let object_id = if let ClipsValue::Symbol(s) = object_id { s } else { panic!("Expected symbol for object ID argument in set-properties UDF") };
+                let props = ctx.get_next_argument(Type(Type::MULTIFIELD)).expect("Failed to get properties argument for set-properties UDF");
+                let props: Vec<String> = if let ClipsValue::Multifield(mf) = props {
+                    mf.into_iter()
+                        .map(|v| match v {
+                            ClipsValue::Symbol(s) => s,
+                            _ => panic!("Expected symbol in properties multifield for set-properties UDF"),
                         })
-                        .unwrap_or(Utc::now());
+                        .collect()
+                } else {
+                    panic!("Expected multifield for properties argument in set-properties UDF");
+                };
+                let vals = ctx.get_next_argument(Type(Type::MULTIFIELD)).expect("Failed to get values argument for set-properties UDF");
+                let vals: Vec<Value> = if let ClipsValue::Multifield(mf) = vals {
+                    mf.into_iter()
+                        .map(|v| match v {
+                            ClipsValue::Integer(i) => Value::Int(i),
+                            ClipsValue::Float(f) => Value::Float(f),
+                            ClipsValue::Symbol(s) => match s.as_str() {
+                                "TRUE" => Value::Bool(true),
+                                "FALSE" => Value::Bool(false),
+                                "nil" => Value::Null,
+                                other => Value::Symbol(other.to_owned()),
+                            },
+                            ClipsValue::String(s) => Value::String(s),
+                            _ => panic!("Expected symbol, integer, or float in values multifield for set-properties UDF"),
+                        })
+                        .collect()
+                } else {
+                    panic!("Expected multifield for values argument in set-properties UDF");
+                };
 
-                    let values: HashMap<String, Value> = args.into_iter().zip(vals).collect();
-                    let mut kb = add_data_state.lock().expect("Failed to lock CLIPS KB state in add-data UDF");
-                    if let Err(e) = kb.add_values(_env, &object_id, &values, date_time) {
-                        error!("Failed to apply add-data UDF for object '{}': {}", object_id, e);
-                        return ClipsValue::Void();
+                let properties: HashMap<String, Value> = props.into_iter().zip(vals).collect();
+                trace!("CLIPS UDF 'set-properties' called with object_id='{}' and properties={:?}", object_id, properties);
+                match state.set_properties(env, &object_id, &properties) {
+                    Ok(_) => {
+                        trace!("Successfully set properties {:?} for object '{}'", properties, object_id);
+                        let _ = event_tx_set_properties.send(KnowledgeBaseEvent::UpdatedProperties(object_id.clone(), properties.clone()));
                     }
-                    if let Err(e) = add_data_event_tx.send(KnowledgeBaseEvent::AddedValues(object_id, values, date_time)) {
-                        error!("Failed to emit AddedValues event from add-data UDF: {}", e);
+                    Err(e) => {
+                        error!("Error setting properties {:?} for object '{}': {}", properties, object_id, e);
                     }
+                }
 
-                    ClipsValue::Void()
-                })
-                .expect("Failed to add CLIPS function");
+                ClipsValue::Void()
+            })
+            .expect("Failed to add CLIPS function");
 
+            let state_add_data = Rc::clone(&state);
+            let event_tx_add_data = event_tx.clone();
+            env.add_udf("add-data", None, 3, 4, vec![Type(Type::SYMBOL), Type(Type::MULTIFIELD), Type(Type::MULTIFIELD), Type(Type::INTEGER)], move |env, ctx| {
+                let state = &mut *state_add_data.borrow_mut();
+                let object_id = ctx.get_next_argument(Type(Type::SYMBOL)).expect("Failed to get object ID argument for add-data UDF");
+                let object_id = if let ClipsValue::Symbol(s) = object_id { s } else { panic!("Expected symbol for object ID argument in add-data UDF") };
+                let args = ctx.get_next_argument(Type(Type::MULTIFIELD)).expect("Failed to get args argument for add-data UDF");
+                let args: Vec<String> = if let ClipsValue::Multifield(mf) = args {
+                    mf.into_iter()
+                        .map(|v| match v {
+                            ClipsValue::Symbol(s) => s,
+                            _ => panic!("Expected symbol, integer, or float in args multifield for add-data UDF"),
+                        })
+                        .collect()
+                } else {
+                    panic!("Expected multifield for args argument in add-data UDF");
+                };
+                let vals = ctx.get_next_argument(Type(Type::MULTIFIELD)).expect("Failed to get values argument for add-data UDF");
+                let vals: Vec<Value> = if let ClipsValue::Multifield(mf) = vals {
+                    mf.into_iter()
+                        .map(|v| match v {
+                            ClipsValue::Integer(i) => Value::Int(i),
+                            ClipsValue::Float(f) => Value::Float(f),
+                            ClipsValue::Symbol(s) => match s.as_str() {
+                                "TRUE" => Value::Bool(true),
+                                "FALSE" => Value::Bool(false),
+                                "nil" => Value::Null,
+                                other => Value::Symbol(other.to_owned()),
+                            },
+                            ClipsValue::String(s) => Value::String(s),
+                            _ => panic!("Expected symbol, integer, or float in values multifield for add-data UDF"),
+                        })
+                        .collect()
+                } else {
+                    panic!("Expected multifield for values argument in add-data UDF");
+                };
+                let date_time = if ctx.has_next_argument() { Some(ctx.get_next_argument(Type(Type::INTEGER)).expect("Failed to get date_time argument for add-data UDF")) } else { None };
+                let date_time = date_time
+                    .map(|dt| {
+                        let dt = if let ClipsValue::Integer(i) = dt { i } else { panic!("Expected integer for date_time argument in add-data UDF") };
+                        DateTime::<Utc>::from_timestamp(dt, 0).expect("Failed to convert date_time argument in add-data UDF")
+                    })
+                    .unwrap_or(Utc::now());
+
+                let values: HashMap<String, Value> = args.into_iter().zip(vals).collect();
+                trace!("CLIPS UDF 'add-data' called with object_id='{}', values={:?}, and date_time={}", object_id, values, date_time);
+                match state.add_values(env, &object_id, &values, date_time) {
+                    Ok(_) => {
+                        trace!("Successfully added values {:?} to object '{}' at {}", values, object_id, date_time);
+                        let _ = event_tx_add_data.send(KnowledgeBaseEvent::AddedValues(object_id.clone(), values.clone(), date_time));
+                    }
+                    Err(e) => {
+                        error!("Error adding values {:?} to object '{}' at {}: {}", values, object_id, date_time, e);
+                    }
+                }
+
+                ClipsValue::Void()
+            })
+            .expect("Failed to add CLIPS function");
+
+            let state_build = Rc::clone(&state);
             while let Some(cmd) = rx.blocking_recv() {
                 match cmd {
-                    KBCommand::CreateClass(class, reply) => {
-                        trace!("Creating class: {}", class.name);
-
-                        let result = (|| -> Result<(), KnowledgeBaseError> {
-                            let mut kb = state.lock().expect("Failed to lock CLIPS KB state for CreateClass");
-                            if kb.classes.contains_key(&class.name) {
-                                return Err(KnowledgeBaseError::ClassAlreadyExists(class.name.clone()));
-                            }
-
-                            env.build(format!("(deftemplate {} (slot id (type SYMBOL)))", class.name).as_str()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to create class in CLIPS: {}", e)))?;
-                            if let Some(static_props) = &class.static_properties {
-                                for (name, prop) in static_props {
-                                    env.build(prop_deftemplate(&class, name, prop, true).as_str()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to create static property {} for class {} in CLIPS: {}", name, class.name, e)))?;
-                                }
-                            }
-                            if let Some(dynamic_props) = &class.dynamic_properties {
-                                for (name, prop) in dynamic_props {
-                                    env.build(prop_deftemplate(&class, name, prop, false).as_str()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to create dynamic property {} for class {} in CLIPS: {}", name, class.name, e)))?;
-                                }
-                            }
-                            kb.classes.insert(class.name.clone(), class);
-
-                            Ok(())
-                        })();
-
-                        let _ = reply.send(result);
+                    KBCommand::CreateClass(class, resp_tx) => {
+                        let state = &mut *state_build.borrow_mut();
+                        let result = state.create_class(&mut env, class);
+                        let _ = resp_tx.send(result);
                     }
                     KBCommand::CreateRule(rule, reply) => {
-                        trace!("Creating rule: {}", rule.name);
-                        let result = (|| -> Result<(), KnowledgeBaseError> {
-                            let mut kb = state.lock().expect("Failed to lock CLIPS KB state for CreateRule");
-                            if kb.rules.contains_key(&rule.name) {
-                                return Err(KnowledgeBaseError::RuleAlreadyExists(rule.name.clone()));
-                            }
-
-                            env.build(rule.content.as_str()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to create rule in CLIPS: {}", e)))?;
-                            kb.rules.insert(rule.name.clone(), rule);
-
-                            Ok(())
-                        })();
-
+                        let mut state = state_build.borrow_mut();
+                        let result = state.create_rule(&mut env, rule);
                         let _ = reply.send(result);
                     }
-                    KBCommand::CreateObject(object, reply) => {
-                        let Some(object_id) = object.id.clone() else {
-                            let _ = reply.send(Err(KnowledgeBaseError::CreationError("Object ID is required".to_string())));
-                            continue;
-                        };
-                        {
-                            let kb = state.lock().expect("Failed to lock CLIPS KB state for CreateObject precheck");
-                            if kb.objects.contains_key(&object_id) {
-                                let _ = reply.send(Err(KnowledgeBaseError::ObjectAlreadyExists(object_id.clone())));
-                                continue;
-                            }
-                        }
-                        trace!("Creating object: {}", object_id);
-
-                        let result = (|| -> Result<(), KnowledgeBaseError> {
-                            let mut kb = state.lock().expect("Failed to lock CLIPS KB state for CreateObject");
-                            match kb.get_object_classes(&object) {
-                                Ok(classes) => {
-                                    if classes.is_empty() {
-                                        return Err(KnowledgeBaseError::CreationError(format!("Object {} must belong to at least one class", object_id)));
-                                    }
-                                    for class_name in classes {
-                                        if !kb.classes.contains_key(&class_name) {
-                                            return Err(KnowledgeBaseError::ClassNotFound(format!("Class {} not found for object {}", class_name, object_id)));
-                                        }
-                                        let fb = env.fact_builder(&class_name).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to create fact builder for class {}: {}", class_name, e)))?;
-                                        let fb = fb.put_symbol("id", object_id.as_str()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set id slot for object {}: {}", object_id, e)))?;
-                                        let fact = env.assert_fact(fb).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to assert fact for object {}: {}", object_id, e)))?;
-                                        kb.instances.entry(class_name).or_default().insert(object_id.clone(), fact);
-                                    }
-                                }
-                                Err(e) => {
-                                    error!("Error getting classes for object {}: {}", object_id, e);
-                                    return Err(e);
-                                }
-                            }
-
-                            match kb.get_static_properties(object.classes.iter().cloned().collect()) {
-                                Ok(class_props) => {
-                                    for (class_name, props) in class_props {
-                                        let class = kb.classes.get(&class_name).ok_or_else(|| KnowledgeBaseError::ClassNotFound(format!("Class {} not found for object {}", class_name, object_id)))?;
-                                        let class_key = class.name.clone();
-                                        for (name, prop) in props {
-                                            let template_name = format!("{}_{}", class_key, name);
-                                            let fb = env.fact_builder(&template_name).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to create fact builder for property {} of object {}: {}", name, object_id, e)))?;
-                                            let fb = fb.put_symbol("id", object_id.as_str()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set id slot for property {} of object {}: {}", name, object_id, e)))?;
-                                            if let Some(v) = object.properties.as_ref().and_then(|props| props.get(&name)) {
-                                                let fb: FactBuilder = set_prop(&env, fb, &prop, v.clone(), None).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set property {} for object {}: {:#?}", name, object_id, e)))?;
-                                                let fact = env.assert_fact(fb).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to assert fact for property {} of object {}: {}", name, object_id, e)))?;
-                                                kb.values.entry(class_key.clone()).or_default().entry(object_id.clone()).or_default().insert(name.clone(), fact);
-                                            } else {
-                                                let def = get_default(&prop);
-                                                let fb = set_prop(&env, fb, &prop, def.clone(), None).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set default value for property {} of object {}: {:#?}", name, object_id, e)))?;
-                                                let fact = env.assert_fact(fb).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to assert fact for default value of property {} of object {}: {}", name, object_id, e)))?;
-                                                kb.values.entry(class_key.clone()).or_default().entry(object_id.clone()).or_default().insert(name.clone(), fact);
-                                            }
-                                        }
-                                    }
-                                }
-                                Err(e) => {
-                                    error!("Error getting static properties for object {}: {}", object_id, e);
-                                    return Err(e);
-                                }
-                            }
-
-                            match kb.get_dynamic_properties(object.classes.iter().cloned().collect()) {
-                                Ok(class_props) => {
-                                    for (class_name, props) in class_props {
-                                        let class = kb.classes.get(&class_name).ok_or_else(|| KnowledgeBaseError::ClassNotFound(format!("Class {} not found for object {}", class_name, object_id)))?;
-                                        let class_key = class.name.clone();
-                                        for (name, prop) in props {
-                                            let template_name = format!("{}_{}", class_key, name);
-                                            let fb = env.fact_builder(&template_name).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to create fact builder for dynamic property {} of object {}: {}", name, object_id, e)))?;
-                                            let fb = fb.put_symbol("id", object_id.as_str()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set id slot for dynamic property {} of object {}: {}", name, object_id, e)))?;
-                                            if let Some(v) = object.values.as_ref().and_then(|vals| vals.get(&name)) {
-                                                let fb = set_prop(&env, fb, &prop, v.value.clone(), Some(v.timestamp)).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set dynamic property {} for object {}: {:#?}", name, object_id, e)))?;
-                                                let fact = env.assert_fact(fb).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to assert fact for dynamic property {} of object {}: {}", name, object_id, e)))?;
-                                                kb.values.entry(class_key.clone()).or_default().entry(object_id.clone()).or_default().insert(name.clone(), fact);
-                                            } else {
-                                                let def = get_default(&prop);
-                                                let fb = set_prop(&env, fb, &prop, def.clone(), Some(Utc::now())).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set default value for dynamic property {} of object {}: {:#?}", name, object_id, e)))?;
-                                                let fact = env.assert_fact(fb).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to assert fact for default value of dynamic property {} of object {}: {}", name, object_id, e)))?;
-                                                kb.values.entry(class_key.clone()).or_default().entry(object_id.clone()).or_default().insert(name.clone(), fact);
-                                            }
-                                        }
-                                    }
-                                }
-                                Err(e) => {
-                                    error!("Error getting dynamic properties for object {}: {}", object_id, e);
-                                    return Err(e);
-                                }
-                            }
-
-                            kb.objects.insert(object_id, object);
-                            Ok(())
-                        })();
-
-                        let result = if result.is_ok() {
-                            run_rules(&mut env).and(result)
-                        } else {
-                            result
-                        };
-
-                        let _ = reply.send(result);
-                    }
-                    KBCommand::GetStaticProperties(classes, reply) => {
-                        trace!("Getting static properties for classes: {:?}", classes);
-                        let kb = state.lock().expect("Failed to lock CLIPS KB state for GetStaticProperties");
-                        let result = kb.get_static_properties(classes);
-
-                        let _ = reply.send(result);
-                    }
-                    KBCommand::GetDynamicProperties(classes, reply) => {
-                        trace!("Getting dynamic properties for classes: {:?}", classes);
-                        let kb = state.lock().expect("Failed to lock CLIPS KB state for GetDynamicProperties");
-                        let result = kb.get_dynamic_properties(classes);
-
-                        let _ = reply.send(result);
-                    }
-                    KBCommand::AddClass(object_id, class_name, reply) => {
-                        trace!("Adding class '{}' to object '{}'", class_name, object_id);
-
-                        let result = (|| -> Result<(), KnowledgeBaseError> {
-                            let mut kb = state.lock().expect("Failed to lock CLIPS KB state for AddClass");
-                            kb.add_class(&mut env, &object_id, &class_name)?;
-                            Ok(())
-                        })();
-
-                        let result = if result.is_ok() {
-                            run_rules(&mut env).and(result)
-                        } else {
-                            result
-                        };
-
-                        let _ = reply.send(result);
-                    }
-                    KBCommand::GetObjectClasses(object_id, reply) => {
-                        trace!("Getting classes for object '{}'", object_id);
-                        let result = (|| -> Result<HashSet<String>, KnowledgeBaseError> {
-                            let kb = state.lock().expect("Failed to lock CLIPS KB state for GetObjectClasses");
-                            let object = kb.objects.get(&object_id).ok_or_else(|| KnowledgeBaseError::ObjectNotFound(object_id.to_owned()))?;
-                            kb.get_object_classes(object)
-                        })();
-
-                        let _ = reply.send(result);
-                    }
-                    KBCommand::SetProperties(object_id, properties, reply) => {
-                        trace!("Setting properties for object '{}': {:?}", object_id, properties);
-                        let result = (|| -> Result<(), KnowledgeBaseError> {
-                            let mut kb = state.lock().expect("Failed to lock CLIPS KB state for SetProperties");
-                            kb.set_properties(&mut env, &object_id, &properties)?;
-                            Ok(())
-                        })();
-
-                        let result = if result.is_ok() {
-                            run_rules(&mut env).and(result)
-                        } else {
-                            result
-                        };
-
-                        let _ = reply.send(result);
-                    }
-                    KBCommand::AddValues(object_id, values, timestamp, reply) => {
-                        trace!("Adding values for object '{}': {:?} at {}", object_id, values, timestamp);
-                        let result = (|| -> Result<(), KnowledgeBaseError> {
-                            let mut kb = state.lock().expect("Failed to lock CLIPS KB state for AddValues");
-                            kb.add_values(&mut env, &object_id, &values, timestamp)?;
-                            Ok(())
-                        })();
-
-                        let result = if result.is_ok() {
-                            run_rules(&mut env).and(result)
-                        } else {
-                            result
-                        };
-                        let _ = reply.send(result);
-                    }
-                    KBCommand::Build(construct, reply) => {
-                        trace!("Building construct: {}", construct);
-                        let result = (|| -> Result<(), KnowledgeBaseError> {
-                            env.build(construct.as_str()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to build construct in CLIPS: {}", e)))?;
-                            Ok(())
-                        })();
-
-                        let _ = reply.send(result);
-                    }
-                    KBCommand::AddUDF(name, return_type, min_args, max_args, arg_types, func, reply) => {
-                        trace!("Adding UDF '{}'", name);
-                        let result = (|| -> Result<(), KnowledgeBaseError> {
-                            env.add_udf(&name, return_type, min_args, max_args, arg_types, func).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to add UDF {}: {}", name, e)))?;
-                            Ok(())
-                        })();
-
-                        let _ = reply.send(result);
-                    }
-                    KBCommand::AssertFact(template, fields, reply) => {
-                        trace!("Asserting fact for template '{}'", template);
-                        let result = (|| -> Result<u64, KnowledgeBaseError> {
-                            let mut kb = state.lock().expect("Failed to lock CLIPS KB state for AssertFact");
-                            let fb = env.fact_builder(&template).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to create fact builder for template {}: {}", template, e)))?;
-                            let fb = fields.iter().try_fold(fb, |fb, (slot, value)| set_value(&env, fb, slot, value))?;
-                            let fact = env.assert_fact(fb).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to assert fact for template {}: {}", template, e)))?;
-                            let id = kb.next_fact_id;
-                            kb.next_fact_id += 1;
-                            kb.external_facts.insert(id, fact);
-                            Ok(id)
-                        })();
-
-                        let result = if result.is_ok() {
-                            run_rules(&mut env).and(result)
-                        } else {
-                            result
-                        };
-                        let _ = reply.send(result);
-                    }
-                    KBCommand::ModifyFact(fact_id, fields, reply) => {
-                        trace!("Modifying fact {}", fact_id);
-                        let result = (|| -> Result<(), KnowledgeBaseError> {
-                            let kb = state.lock().expect("Failed to lock CLIPS KB state for ModifyFact");
-                            let fact = kb.external_facts.get(&fact_id).ok_or_else(|| KnowledgeBaseError::KBError(format!("External fact {} not found", fact_id)))?;
-                            let fm = env.fact_modifier(fact).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to create fact modifier for fact {}: {}", fact_id, e)))?;
-                            let fm = fields.iter().try_fold(fm, |fm, (slot, value)| update_value(&env, fm, slot, value))?;
-                            env.modify_fact(fm).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to modify fact {}: {}", fact_id, e)))?;
-                            Ok(())
-                        })();
-
-                        let result = if result.is_ok() {
-                            run_rules(&mut env).and(result)
-                        } else {
-                            result
-                        };
-                        let _ = reply.send(result);
+                    _ => {
+                        error!("Received unsupported command in CLIPS knowledge base actor");
                     }
                 }
             }
         });
 
-        Self { tx, event_rx: Arc::new(Mutex::new(Some(event_rx))) }
-    }
-
-    pub async fn build(&self, construct: &str) -> Result<(), KnowledgeBaseError> {
-        let (reply_tx, reply_rx) = oneshot::channel();
-        self.tx.send(KBCommand::Build(construct.to_owned(), reply_tx)).await.map_err(|e| KnowledgeBaseError::KBError(format!("Failed to send Build command: {}", e)))?;
-        reply_rx.await.map_err(|e| KnowledgeBaseError::KBError(format!("Failed to receive response for Build command: {}", e)))?
-    }
-
-    pub async fn add_udf(&self, name: &str, return_type: Option<Type>, min_args: u16, max_args: u16, arg_types: Vec<Type>, func: Udf) -> Result<(), KnowledgeBaseError> {
-        let (reply_tx, reply_rx) = oneshot::channel();
-        self.tx.send(KBCommand::AddUDF(name.to_owned(), return_type, min_args, max_args, arg_types, func, reply_tx)).await.map_err(|e| KnowledgeBaseError::KBError(format!("Failed to send AddUDF command: {}", e)))?;
-        reply_rx.await.map_err(|e| KnowledgeBaseError::KBError(format!("Failed to receive response for AddUDF command: {}", e)))?
-    }
-
-    pub async fn assert_fact(&self, template: &str, fields: HashMap<String, Value>) -> Result<u64, KnowledgeBaseError> {
-        let (reply_tx, reply_rx) = oneshot::channel();
-        self.tx.send(KBCommand::AssertFact(template.to_owned(), fields, reply_tx)).await.map_err(|e| KnowledgeBaseError::KBError(format!("Failed to send AssertFact command: {}", e)))?;
-        reply_rx.await.map_err(|e| KnowledgeBaseError::KBError(format!("Failed to receive response for AssertFact command: {}", e)))?
-    }
-
-    pub async fn modify_fact(&self, fact_id: u64, fields: HashMap<String, Value>) -> Result<(), KnowledgeBaseError> {
-        let (reply_tx, reply_rx) = oneshot::channel();
-        self.tx.send(KBCommand::ModifyFact(fact_id, fields, reply_tx)).await.map_err(|e| KnowledgeBaseError::KBError(format!("Failed to send ModifyFact command: {}", e)))?;
-        reply_rx.await.map_err(|e| KnowledgeBaseError::KBError(format!("Failed to receive response for ModifyFact command: {}", e)))?
+        (CLIPSKnowledgeBase { command_tx: tx }, event_rx)
     }
 }
 
 #[async_trait]
 impl KnowledgeBase for CLIPSKnowledgeBase {
     async fn create_class(&self, class: Class) -> Result<(), KnowledgeBaseError> {
-        let (reply_tx, reply_rx) = oneshot::channel();
-        self.tx.send(KBCommand::CreateClass(class, reply_tx)).await.map_err(|e| KnowledgeBaseError::KBError(format!("Failed to send CreateClass command: {}", e)))?;
-        reply_rx.await.map_err(|e| KnowledgeBaseError::KBError(format!("Failed to receive response for CreateClass command: {}", e)))?
+        let (resp_tx, resp_rx) = oneshot::channel();
+        self.command_tx.send(KBCommand::CreateClass(class, resp_tx)).map_err(|_| KnowledgeBaseError::KBError("Failed to send CreateClass command to CLIPS knowledge base actor".to_owned()))?;
+        resp_rx.await.map_err(|_| KnowledgeBaseError::KBError("Failed to receive response for CreateClass command from CLIPS knowledge base actor".to_owned()))?
     }
     async fn get_static_properties(&self, classe_names: HashSet<String>) -> Result<HashMap<String, HashMap<String, Property>>, KnowledgeBaseError> {
-        let (reply_tx, reply_rx) = oneshot::channel();
-        self.tx.send(KBCommand::GetStaticProperties(classe_names, reply_tx)).await.map_err(|e| KnowledgeBaseError::KBError(format!("Failed to send GetStaticProperties command: {}", e)))?;
-        reply_rx.await.map_err(|e| KnowledgeBaseError::KBError(format!("Failed to receive response for GetStaticProperties command: {}", e)))?
+        let (resp_tx, resp_rx) = oneshot::channel();
+        self.command_tx.send(KBCommand::GetStaticProperties(classe_names, resp_tx)).map_err(|_| KnowledgeBaseError::KBError("Failed to send GetStaticProperties command to CLIPS knowledge base actor".to_owned()))?;
+        resp_rx.await.map_err(|_| KnowledgeBaseError::KBError("Failed to receive response for GetStaticProperties command from CLIPS knowledge base actor".to_owned()))?
     }
     async fn get_dynamic_properties(&self, classe_names: HashSet<String>) -> Result<HashMap<String, HashMap<String, Property>>, KnowledgeBaseError> {
-        let (reply_tx, reply_rx) = oneshot::channel();
-        self.tx.send(KBCommand::GetDynamicProperties(classe_names, reply_tx)).await.map_err(|e| KnowledgeBaseError::KBError(format!("Failed to send GetDynamicProperties command: {}", e)))?;
-        reply_rx.await.map_err(|e| KnowledgeBaseError::KBError(format!("Failed to receive response for GetDynamicProperties command: {}", e)))?
+        let (resp_tx, resp_rx) = oneshot::channel();
+        self.command_tx.send(KBCommand::GetDynamicProperties(classe_names, resp_tx)).map_err(|_| KnowledgeBaseError::KBError("Failed to send GetDynamicProperties command to CLIPS knowledge base actor".to_owned()))?;
+        resp_rx.await.map_err(|_| KnowledgeBaseError::KBError("Failed to receive response for GetDynamicProperties command from CLIPS knowledge base actor".to_owned()))?
     }
 
     async fn create_rule(&self, rule: Rule) -> Result<(), KnowledgeBaseError> {
-        let (reply_tx, reply_rx) = oneshot::channel();
-        self.tx.send(KBCommand::CreateRule(rule, reply_tx)).await.map_err(|e| KnowledgeBaseError::KBError(format!("Failed to send CreateRule command: {}", e)))?;
-        reply_rx.await.map_err(|e| KnowledgeBaseError::KBError(format!("Failed to receive response for CreateRule command: {}", e)))?
+        let (resp_tx, resp_rx) = oneshot::channel();
+        self.command_tx.send(KBCommand::CreateRule(rule, resp_tx)).map_err(|_| KnowledgeBaseError::KBError("Failed to send CreateRule command to CLIPS knowledge base actor".to_owned()))?;
+        resp_rx.await.map_err(|_| KnowledgeBaseError::KBError("Failed to receive response for CreateRule command from CLIPS knowledge base actor".to_owned()))?
     }
 
     async fn create_object(&self, object: Object) -> Result<(), KnowledgeBaseError> {
-        let (reply_tx, reply_rx) = oneshot::channel();
-        self.tx.send(KBCommand::CreateObject(object, reply_tx)).await.map_err(|e| KnowledgeBaseError::KBError(format!("Failed to send CreateObject command: {}", e)))?;
-        reply_rx.await.map_err(|e| KnowledgeBaseError::KBError(format!("Failed to receive response for CreateObject command: {}", e)))?
+        let (resp_tx, resp_rx) = oneshot::channel();
+        self.command_tx.send(KBCommand::CreateObject(object, resp_tx)).map_err(|_| KnowledgeBaseError::KBError("Failed to send CreateObject command to CLIPS knowledge base actor".to_owned()))?;
+        resp_rx.await.map_err(|_| KnowledgeBaseError::KBError("Failed to receive response for CreateObject command from CLIPS knowledge base actor".to_owned()))?
     }
     async fn add_class(&self, object_id: String, class_name: String) -> Result<(), KnowledgeBaseError> {
-        let (reply_tx, reply_rx) = oneshot::channel();
-        self.tx.send(KBCommand::AddClass(object_id, class_name, reply_tx)).await.map_err(|e| KnowledgeBaseError::KBError(format!("Failed to send AddClass command: {}", e)))?;
-        reply_rx.await.map_err(|e| KnowledgeBaseError::KBError(format!("Failed to receive response for AddClass command: {}", e)))?
+        let (resp_tx, resp_rx) = oneshot::channel();
+        self.command_tx.send(KBCommand::AddClass(object_id, class_name, resp_tx)).map_err(|_| KnowledgeBaseError::KBError("Failed to send AddClass command to CLIPS knowledge base actor".to_owned()))?;
+        resp_rx.await.map_err(|_| KnowledgeBaseError::KBError("Failed to receive response for AddClass command from CLIPS knowledge base actor".to_owned()))?
     }
     async fn get_object_classes(&self, object_id: String) -> Result<HashSet<String>, KnowledgeBaseError> {
-        let (reply_tx, reply_rx) = oneshot::channel();
-        self.tx.send(KBCommand::GetObjectClasses(object_id, reply_tx)).await.map_err(|e| KnowledgeBaseError::KBError(format!("Failed to send GetObjectClasses command: {}", e)))?;
-        reply_rx.await.map_err(|e| KnowledgeBaseError::KBError(format!("Failed to receive response for GetObjectClasses command: {}", e)))?
+        let (resp_tx, resp_rx) = oneshot::channel();
+        self.command_tx.send(KBCommand::GetObjectClasses(object_id, resp_tx)).map_err(|_| KnowledgeBaseError::KBError("Failed to send GetObjectClasses command to CLIPS knowledge base actor".to_owned()))?;
+        resp_rx.await.map_err(|_| KnowledgeBaseError::KBError("Failed to receive response for GetObjectClasses command from CLIPS knowledge base actor".to_owned()))?
     }
     async fn set_properties(&self, object_id: String, properties: HashMap<String, Value>) -> Result<(), KnowledgeBaseError> {
-        let (reply_tx, reply_rx) = oneshot::channel();
-        self.tx.send(KBCommand::SetProperties(object_id, properties.clone(), reply_tx)).await.map_err(|e| KnowledgeBaseError::KBError(format!("Failed to send SetProperties command: {}", e)))?;
-        reply_rx.await.map_err(|e| KnowledgeBaseError::KBError(format!("Failed to receive response for SetProperties command: {}", e)))?
+        let (resp_tx, resp_rx) = oneshot::channel();
+        self.command_tx.send(KBCommand::SetProperties(object_id, properties, resp_tx)).map_err(|_| KnowledgeBaseError::KBError("Failed to send SetProperties command to CLIPS knowledge base actor".to_owned()))?;
+        resp_rx.await.map_err(|_| KnowledgeBaseError::KBError("Failed to receive response for SetProperties command from CLIPS knowledge base actor".to_owned()))?
     }
-    async fn add_values(&self, object_id: String, values: HashMap<String, Value>, timestamp: DateTime<Utc>) -> Result<(), KnowledgeBaseError> {
-        let (reply_tx, reply_rx) = oneshot::channel();
-        self.tx.send(KBCommand::AddValues(object_id, values.clone(), timestamp, reply_tx)).await.map_err(|e| KnowledgeBaseError::KBError(format!("Failed to send AddValues command: {}", e)))?;
-        reply_rx.await.map_err(|e| KnowledgeBaseError::KBError(format!("Failed to receive response for AddValues command: {}", e)))?
+    async fn add_values(&self, object_id: String, values: HashMap<String, Value>, date_time: DateTime<Utc>) -> Result<(), KnowledgeBaseError> {
+        let (resp_tx, resp_rx) = oneshot::channel();
+        self.command_tx.send(KBCommand::AddValues(object_id, values, date_time, resp_tx)).map_err(|_| KnowledgeBaseError::KBError("Failed to send AddValues command to CLIPS knowledge base actor".to_owned()))?;
+        resp_rx.await.map_err(|_| KnowledgeBaseError::KBError("Failed to receive response for AddValues command from CLIPS knowledge base actor".to_owned()))?
     }
-
-    fn take_event_receiver(&mut self) -> Option<mpsc::UnboundedReceiver<KnowledgeBaseEvent>> {
-        let mut guard = self.event_rx.lock().unwrap();
-        guard.take()
-    }
-}
-
-fn run_rules(env: &mut Environment) -> Result<(), KnowledgeBaseError> {
-    let fired = env.run(MAX_RULE_FIRINGS_PER_RUN);
-    if fired >= MAX_RULE_FIRINGS_PER_RUN {
-        return Err(KnowledgeBaseError::KBError(format!(
-            "Rule execution did not converge after {} firings",
-            MAX_RULE_FIRINGS_PER_RUN
-        )));
-    }
-
-    Ok(())
 }
 
 fn prop_deftemplate(class: &Class, name: &str, property: &Property, is_static: bool) -> String {
@@ -1052,88 +887,6 @@ fn update_prop(env: &Environment, fm: FactModifier, property: &Property, value: 
     if let Some(t) = time { modifier.and_then(|fm| fm.put_int("time", t.timestamp()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set time slot for property value: {}", e)))) } else { modifier }
 }
 
-fn set_value(env: &Environment, fb: FactBuilder, slot: &str, value: &Value) -> Result<FactBuilder, KnowledgeBaseError> {
-    match value {
-        Value::Bool(b) => fb.put_symbol(slot, if *b { "TRUE" } else { "FALSE" }).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set bool field {}: {}", slot, e))),
-        Value::Int(i) => fb.put_int(slot, *i).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set int field {}: {}", slot, e))),
-        Value::Float(f) => fb.put_float(slot, *f).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set float field {}: {}", slot, e))),
-        Value::String(s) => fb.put_string(slot, s.as_str()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set string field {}: {}", slot, e))),
-        Value::Symbol(s) | Value::Object(s) => fb.put_symbol(slot, s.as_str()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set symbol field {}: {}", slot, e))),
-        Value::Null => fb.put_symbol(slot, "nil").map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set null field {}: {}", slot, e))),
-        Value::BoolArray(arr) => {
-            let builder = env.multifield_builder(arr.len()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to create multifield for {}: {}", slot, e)))?;
-            let builder = arr.iter().fold(builder, |b, &v| b.put_symbol(if v { "TRUE" } else { "FALSE" }));
-            fb.put_multifield(slot, builder.create()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set bool array field {}: {}", slot, e)))
-        }
-        Value::IntArray(arr) => {
-            let builder = env.multifield_builder(arr.len()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to create multifield for {}: {}", slot, e)))?;
-            let builder = arr.iter().fold(builder, |b, &v| b.put_int(v));
-            fb.put_multifield(slot, builder.create()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set int array field {}: {}", slot, e)))
-        }
-        Value::FloatArray(arr) => {
-            let builder = env.multifield_builder(arr.len()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to create multifield for {}: {}", slot, e)))?;
-            let builder = arr.iter().fold(builder, |b, &v| b.put_float(v));
-            fb.put_multifield(slot, builder.create()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set float array field {}: {}", slot, e)))
-        }
-        Value::StringArray(arr) => {
-            let builder = env.multifield_builder(arr.len()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to create multifield for {}: {}", slot, e)))?;
-            let builder = arr.iter().fold(builder, |b, v| b.put_string(v.as_str()));
-            fb.put_multifield(slot, builder.create()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set string array field {}: {}", slot, e)))
-        }
-        Value::SymbolArray(arr) => {
-            let builder = env.multifield_builder(arr.len()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to create multifield for {}: {}", slot, e)))?;
-            let builder = arr.iter().fold(builder, |b, v| b.put_string(v.as_str()));
-            fb.put_multifield(slot, builder.create()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set string array field {}: {}", slot, e)))
-        }
-        Value::ObjectArray(arr) => {
-            let builder = env.multifield_builder(arr.len()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to create multifield for {}: {}", slot, e)))?;
-            let builder = arr.iter().fold(builder, |b, v| b.put_string(v.as_str()));
-            fb.put_multifield(slot, builder.create()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set string array field {}: {}", slot, e)))
-        }
-    }
-}
-
-fn update_value(env: &Environment, fm: FactModifier, slot: &str, value: &Value) -> Result<FactModifier, KnowledgeBaseError> {
-    match value {
-        Value::Bool(b) => fm.put_symbol(slot, if *b { "TRUE" } else { "FALSE" }).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set bool field {}: {}", slot, e))),
-        Value::Int(i) => fm.put_int(slot, *i).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set int field {}: {}", slot, e))),
-        Value::Float(f) => fm.put_float(slot, *f).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set float field {}: {}", slot, e))),
-        Value::String(s) => fm.put_string(slot, s.as_str()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set string field {}: {}", slot, e))),
-        Value::Symbol(s) | Value::Object(s) => fm.put_symbol(slot, s.as_str()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set symbol field {}: {}", slot, e))),
-        Value::Null => fm.put_symbol(slot, "nil").map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set null field {}: {}", slot, e))),
-        Value::BoolArray(arr) => {
-            let builder = env.multifield_builder(arr.len()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to create multifield for {}: {}", slot, e)))?;
-            let builder = arr.iter().fold(builder, |b, &v| b.put_symbol(if v { "TRUE" } else { "FALSE" }));
-            fm.put_multifield(slot, builder.create()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set bool array field {}: {}", slot, e)))
-        }
-        Value::IntArray(arr) => {
-            let builder = env.multifield_builder(arr.len()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to create multifield for {}: {}", slot, e)))?;
-            let builder = arr.iter().fold(builder, |b, &v| b.put_int(v));
-            fm.put_multifield(slot, builder.create()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set int array field {}: {}", slot, e)))
-        }
-        Value::FloatArray(arr) => {
-            let builder = env.multifield_builder(arr.len()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to create multifield for {}: {}", slot, e)))?;
-            let builder = arr.iter().fold(builder, |b, &v| b.put_float(v));
-            fm.put_multifield(slot, builder.create()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set float array field {}: {}", slot, e)))
-        }
-        Value::StringArray(arr) => {
-            let builder = env.multifield_builder(arr.len()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to create multifield for {}: {}", slot, e)))?;
-            let builder = arr.iter().fold(builder, |b, v| b.put_string(v.as_str()));
-            fm.put_multifield(slot, builder.create()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set string array field {}: {}", slot, e)))
-        }
-        Value::SymbolArray(arr) => {
-            let builder = env.multifield_builder(arr.len()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to create multifield for {}: {}", slot, e)))?;
-            let builder = arr.iter().fold(builder, |b, v| b.put_string(v.as_str()));
-            fm.put_multifield(slot, builder.create()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set string array field {}: {}", slot, e)))
-        }
-        Value::ObjectArray(arr) => {
-            let builder = env.multifield_builder(arr.len()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to create multifield for {}: {}", slot, e)))?;
-            let builder = arr.iter().fold(builder, |b, v| b.put_string(v.as_str()));
-            fm.put_multifield(slot, builder.create()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set string array field {}: {}", slot, e)))
-        }
-    }
-}
-
 fn get_default(property: &Property) -> Value {
     match property {
         Property::Bool { default, .. } => default.map(Value::Bool).unwrap_or(Value::Null),
@@ -1150,613 +903,3 @@ fn get_default(property: &Property) -> Value {
         Property::ObjectArray { default, .. } => default.clone().map(Value::StringArray).unwrap_or(Value::Null),
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::kb::KnowledgeBase;
-    use chrono::Utc;
-    use std::collections::{HashMap, HashSet};
-
-    fn mk_class(name: &str) -> Class {
-        Class { name: name.to_owned(), parents: None, static_properties: None, dynamic_properties: None }
-    }
-
-    #[tokio::test]
-    async fn create_class_succeeds_and_duplicate_fails() {
-        let kb = CLIPSKnowledgeBase::new();
-        let class = mk_class("sensor");
-
-        kb.create_class(class.clone()).await.expect("class creation should succeed");
-
-        let err = kb.create_class(class).await.expect_err("duplicate class creation should fail");
-
-        assert!(matches!(err, KnowledgeBaseError::ClassAlreadyExists(name) if name == "sensor"));
-    }
-
-    #[tokio::test]
-    async fn create_rule_succeeds_and_duplicate_fails() {
-        let kb = CLIPSKnowledgeBase::new();
-        let rule = Rule {
-            name: "always-true".to_owned(),
-            content: "(defrule always-true => (assert (rule-fired always-true)))".to_owned(),
-        };
-
-        kb.create_rule(rule.clone()).await.expect("rule creation should succeed");
-
-        let err = kb.create_rule(rule).await.expect_err("duplicate rule creation should fail");
-
-        assert!(matches!(err, KnowledgeBaseError::RuleAlreadyExists(name) if name == "always-true"));
-    }
-
-    #[tokio::test]
-    async fn create_object_without_id_fails() {
-        let kb = CLIPSKnowledgeBase::new();
-
-        let err = kb.create_object(Object { id: None, classes: HashSet::from(["sensor".to_owned()]), properties: None, values: None }).await.expect_err("object without id should fail");
-
-        assert!(matches!(err, KnowledgeBaseError::CreationError(_)));
-    }
-
-    #[tokio::test]
-    async fn create_object_with_nonexistent_class_fails() {
-        let kb = CLIPSKnowledgeBase::new();
-
-        let err = kb
-            .create_object(Object {
-                id: Some("obj1".to_owned()),
-                classes: HashSet::from(["missing".to_owned()]),
-                properties: None,
-                values: None,
-            })
-            .await
-            .expect_err("object with nonexistent class should fail");
-
-        assert!(matches!(err, KnowledgeBaseError::ClassNotFound(_)));
-    }
-
-    #[tokio::test]
-    async fn create_object_succeeds_and_duplicate_fails() {
-        let kb = CLIPSKnowledgeBase::new();
-
-        kb.create_class(mk_class("sensor")).await.expect("class creation should succeed");
-
-        let object = Object {
-            id: Some("sensor1".to_owned()),
-            classes: HashSet::from(["sensor".to_owned()]),
-            properties: None,
-            values: None,
-        };
-
-        kb.create_object(object.clone()).await.expect("object creation should succeed");
-
-        let err = kb.create_object(object).await.expect_err("duplicate object creation should fail");
-
-        assert!(matches!(err, KnowledgeBaseError::ObjectAlreadyExists(id) if id == "sensor1"));
-    }
-
-    #[tokio::test]
-    async fn add_class_to_nonexistent_object_fails() {
-        let kb = CLIPSKnowledgeBase::new();
-        kb.create_class(mk_class("class1")).await.expect("class creation should succeed");
-
-        let err = kb.add_class("missing-object".to_owned(), "class1".to_owned()).await.expect_err("add_class should fail for missing object");
-
-        assert!(matches!(err, KnowledgeBaseError::ObjectNotFound(_)));
-    }
-
-    #[tokio::test]
-    async fn add_nonexistent_class_to_object_fails() {
-        let kb = CLIPSKnowledgeBase::new();
-        kb.create_class(mk_class("class1")).await.expect("class creation should succeed");
-        kb.create_object(Object {
-            id: Some("obj1".to_owned()),
-            classes: HashSet::from(["class1".to_owned()]),
-            properties: None,
-            values: None,
-        })
-        .await
-        .expect("object creation should succeed");
-
-        let err = kb.add_class("obj1".to_owned(), "missing-class".to_owned()).await.expect_err("add_class should fail for missing class");
-
-        assert!(matches!(err, KnowledgeBaseError::ClassNotFound(_)));
-    }
-
-    #[tokio::test]
-    async fn set_properties_on_nonexistent_object_fails() {
-        let kb = CLIPSKnowledgeBase::new();
-        let err = kb.set_properties("missing-object".to_owned(), HashMap::from([("value".to_owned(), Value::Int(42))])).await.expect_err("set_properties should fail for missing object");
-
-        assert!(matches!(err, KnowledgeBaseError::ObjectNotFound(_)));
-    }
-
-    #[tokio::test]
-    async fn set_properties_on_object_succeeds() {
-        let kb = CLIPSKnowledgeBase::new();
-        kb.create_class(Class {
-            name: "Configurable".to_owned(),
-            parents: None,
-            static_properties: Some(HashMap::from([("value".to_owned(), Property::Int { default: Some(0), min: None, max: None })])),
-            dynamic_properties: None,
-        })
-        .await
-        .expect("class creation should succeed");
-
-        kb.create_object(Object {
-            id: Some("config1".to_owned()),
-            classes: HashSet::from(["Configurable".to_owned()]),
-            properties: None,
-            values: None,
-        })
-        .await
-        .expect("object creation should succeed");
-
-        kb.set_properties("config1".to_owned(), HashMap::from([("value".to_owned(), Value::Int(100))])).await.expect("set_properties should succeed");
-    }
-
-    #[tokio::test]
-    async fn add_values_on_nonexistent_object_fails() {
-        let kb = CLIPSKnowledgeBase::new();
-        let err = kb.add_values("missing-object".to_owned(), HashMap::from([("measurement".to_owned(), Value::Float(1.0))]), Utc::now()).await.expect_err("add_values should fail for missing object");
-
-        assert!(matches!(err, KnowledgeBaseError::ObjectNotFound(_)));
-    }
-
-    #[tokio::test]
-    async fn add_values_to_object_succeeds() {
-        let kb = CLIPSKnowledgeBase::new();
-        kb.create_class(Class {
-            name: "TimeSeries".to_owned(),
-            parents: None,
-            static_properties: None,
-            dynamic_properties: Some(HashMap::from([("measurement".to_owned(), Property::Float { default: Some(0.0), min: None, max: None })])),
-        })
-        .await
-        .expect("class creation should succeed");
-
-        kb.create_object(Object {
-            id: Some("ts1".to_owned()),
-            classes: HashSet::from(["TimeSeries".to_owned()]),
-            properties: None,
-            values: None,
-        })
-        .await
-        .expect("object creation should succeed");
-
-        kb.add_values("ts1".to_owned(), HashMap::from([("measurement".to_owned(), Value::Float(42.5))]), Utc::now()).await.expect("add_values should succeed");
-    }
-
-    #[test]
-    fn get_default_bool_with_and_without_default() {
-        assert_eq!(get_default(&Property::Bool { default: Some(true) }), Value::Bool(true));
-        assert_eq!(get_default(&Property::Bool { default: None }), Value::Null);
-    }
-
-    #[test]
-    fn prop_deftemplate_checks() {
-        let class = mk_class("TestClass");
-
-        let t1 = prop_deftemplate(&class, "active", &Property::Bool { default: Some(false) }, true);
-        assert!(t1.contains("TestClass_active"));
-        assert!(t1.contains("allowed-symbols TRUE FALSE nil"));
-
-        let t2 = prop_deftemplate(&class, "percentage", &Property::Int { default: Some(50), min: Some(0), max: Some(100) }, true);
-        assert!(t2.contains("range 0 100"));
-
-        let t3 = prop_deftemplate(&class, "metric", &Property::Float { default: Some(1.5), min: None, max: None }, false);
-        assert!(t3.contains("slot time"));
-    }
-
-    #[tokio::test]
-    async fn complex_workflow_threshold_rule_setup_and_updates() {
-        let kb = CLIPSKnowledgeBase::new();
-
-        kb.create_class(Class {
-            name: "ThermometerMonitor".to_owned(),
-            parents: None,
-            static_properties: None,
-            dynamic_properties: Some(HashMap::from([("temperature".to_owned(), Property::Float { default: Some(20.0), min: None, max: None })])),
-        })
-        .await
-        .expect("class creation should succeed");
-
-        kb.create_object(Object {
-            id: Some("thermo1".to_owned()),
-            classes: HashSet::from(["ThermometerMonitor".to_owned()]),
-            properties: None,
-            values: None,
-        })
-        .await
-        .expect("object creation should succeed");
-
-        kb.create_rule(Rule {
-            name: "temperature_alert_rule".to_owned(),
-            content: "(defrule temperature_alert_rule\n                (ThermometerMonitor_temperature (id ?id) (value ?temp&:(and (> ?temp 35) (< ?temp 99.9))))\n                =>\n                (add-data ?id (create$ temperature) (create$ 99.9))\n            )".to_owned(),
-        })
-        .await
-        .expect("rule creation should succeed");
-
-        kb.add_values("thermo1".to_owned(), HashMap::from([("temperature".to_owned(), Value::Float(36.0))]), Utc::now()).await.expect("add_values should succeed");
-
-        kb.add_values("thermo1".to_owned(), HashMap::from([("temperature".to_owned(), Value::Float(25.0))]), Utc::now()).await.expect("second add_values should succeed");
-    }
-
-    #[tokio::test]
-    async fn chained_rule_add_data_side_effects_reach_fixpoint() {
-        let mut kb = CLIPSKnowledgeBase::new();
-        let mut event_rx = kb.take_event_receiver().expect("event receiver should be available");
-
-        kb.create_class(Class {
-            name: "Cascade".to_owned(),
-            parents: None,
-            static_properties: None,
-            dynamic_properties: Some(HashMap::from([
-                ("temperature".to_owned(), Property::Float { default: Some(0.0), min: None, max: None }),
-                ("warning".to_owned(), Property::Float { default: Some(0.0), min: None, max: None }),
-                ("critical".to_owned(), Property::Float { default: Some(0.0), min: None, max: None }),
-            ])),
-        })
-        .await
-        .expect("class creation should succeed");
-
-        kb.create_object(Object {
-            id: Some("cascade-1".to_owned()),
-            classes: HashSet::from(["Cascade".to_owned()]),
-            properties: None,
-            values: None,
-        })
-        .await
-        .expect("object creation should succeed");
-
-        kb.create_rule(Rule {
-            name: "raise_warning".to_owned(),
-            content: "(defrule raise_warning
-                (Cascade_temperature (id ?id) (value ?temp&:(> ?temp 35)))
-                (Cascade_warning (id ?id) (value ?warning&:(<= ?warning 0)))
-                =>
-                (add-data ?id (create$ warning) (create$ 1.0))
-            )"
-            .to_owned(),
-        })
-        .await
-        .expect("first rule creation should succeed");
-
-        kb.create_rule(Rule {
-            name: "raise_critical".to_owned(),
-            content: "(defrule raise_critical
-                (Cascade_warning (id ?id) (value ?warning&:(> ?warning 0)))
-                (Cascade_critical (id ?id) (value ?critical&:(<= ?critical 0)))
-                =>
-                (add-data ?id (create$ critical) (create$ 2.0))
-            )"
-            .to_owned(),
-        })
-        .await
-        .expect("second rule creation should succeed");
-
-        kb.add_values("cascade-1".to_owned(), HashMap::from([("temperature".to_owned(), Value::Float(36.0))]), Utc::now())
-            .await
-            .expect("initial add_values should succeed");
-
-        let first_event = event_rx.recv().await.expect("warning side effect event should be emitted");
-        let second_event = event_rx.recv().await.expect("critical side effect event should be emitted");
-
-        assert!(matches!(first_event, KnowledgeBaseEvent::AddedValues(ref object_id, ref values, _) if object_id == "cascade-1" && values.get("warning") == Some(&Value::Float(1.0))));
-        assert!(matches!(second_event, KnowledgeBaseEvent::AddedValues(ref object_id, ref values, _) if object_id == "cascade-1" && values.get("critical") == Some(&Value::Float(2.0))));
-    }
-
-    #[tokio::test]
-    async fn complex_workflow_multiple_classes_and_objects() {
-        let kb = CLIPSKnowledgeBase::new();
-
-        for i in 0..5 {
-            kb.create_class(Class {
-                name: format!("Class{}", i),
-                parents: None,
-                static_properties: None,
-                dynamic_properties: Some(HashMap::from([("measurement".to_owned(), Property::Float { default: Some(0.0), min: None, max: None })])),
-            })
-            .await
-            .expect("class creation should succeed");
-        }
-
-        for i in 0..5 {
-            let id = format!("obj{}", i);
-            let class_name = format!("Class{}", i);
-            kb.create_object(Object { id: Some(id.clone()), classes: HashSet::from([class_name]), properties: None, values: None }).await.expect("object creation should succeed");
-
-            kb.add_values(id, HashMap::from([("measurement".to_owned(), Value::Float(i as f64))]), Utc::now()).await.expect("add_values should succeed");
-        }
-    }
-
-    #[tokio::test]
-    async fn complex_workflow_object_with_multiple_classes_and_updates() {
-        let kb = CLIPSKnowledgeBase::new();
-
-        kb.create_class(Class {
-            name: "Configurable".to_owned(),
-            parents: None,
-            static_properties: Some(HashMap::from([("name".to_owned(), Property::String { default: Some("Unknown".to_owned()) })])),
-            dynamic_properties: None,
-        })
-        .await
-        .expect("class creation should succeed");
-
-        kb.create_class(Class {
-            name: "TimeSeries".to_owned(),
-            parents: None,
-            static_properties: None,
-            dynamic_properties: Some(HashMap::from([("reading".to_owned(), Property::Float { default: Some(0.0), min: None, max: None })])),
-        })
-        .await
-        .expect("class creation should succeed");
-
-        kb.create_object(Object {
-            id: Some("multi_obj".to_owned()),
-            classes: HashSet::from(["Configurable".to_owned()]),
-            properties: None,
-            values: None,
-        })
-        .await
-        .expect("object creation should succeed");
-
-        kb.add_class("multi_obj".to_owned(), "TimeSeries".to_owned()).await.expect("add_class should succeed");
-
-        kb.set_properties("multi_obj".to_owned(), HashMap::from([("name".to_owned(), Value::String("Temperature Sensor".to_owned()))])).await.expect("set_properties should succeed");
-
-        kb.add_values("multi_obj".to_owned(), HashMap::from([("reading".to_owned(), Value::Float(23.5))]), Utc::now()).await.expect("add_values should succeed");
-    }
-
-    #[tokio::test]
-    async fn create_object_considers_parent_classes_for_properties_and_values() {
-        let kb = CLIPSKnowledgeBase::new();
-
-        kb.create_class(Class {
-            name: "ParentClass".to_owned(),
-            parents: None,
-            static_properties: Some(HashMap::from([("threshold".to_owned(), Property::Int { default: Some(10), min: None, max: None })])),
-            dynamic_properties: Some(HashMap::from([("baseline".to_owned(), Property::Float { default: Some(0.0), min: None, max: None })])),
-        })
-        .await
-        .expect("parent class creation should succeed");
-
-        kb.create_class(Class {
-            name: "ChildClass".to_owned(),
-            parents: Some(HashSet::from(["ParentClass".to_owned()])),
-            static_properties: Some(HashMap::from([("name".to_owned(), Property::String { default: Some("sensor".to_owned()) })])),
-            dynamic_properties: Some(HashMap::from([("reading".to_owned(), Property::Float { default: Some(0.0), min: None, max: None })])),
-        })
-        .await
-        .expect("child class creation should succeed");
-
-        kb.create_object(Object {
-            id: Some("obj-parented".to_owned()),
-            classes: HashSet::from(["ChildClass".to_owned()]),
-            properties: None,
-            values: None,
-        })
-        .await
-        .expect("object creation should succeed");
-
-        kb.set_properties("obj-parented".to_owned(), HashMap::from([("threshold".to_owned(), Value::Int(42))])).await.expect("set_properties should also work for parent class properties");
-
-        kb.add_values("obj-parented".to_owned(), HashMap::from([("baseline".to_owned(), Value::Float(12.5))]), Utc::now()).await.expect("add_values should also work for parent class dynamic properties");
-    }
-
-    /// Diagnostic test: full cascade flow without actor system
-    #[test]
-    fn diagnose_cascade_rules_without_actor() {
-        use clips::{ClipsValue, Environment};
-        use std::sync::{Arc, Mutex};
-
-        let mut env = Environment::new().unwrap();
-
-        // Build templates matching what create_class/create_object produce
-        env.build("(deftemplate Cascade (slot id (type SYMBOL)))").unwrap();
-        env.build("(deftemplate Cascade_temperature (slot id (type SYMBOL)) (slot value (type FLOAT SYMBOL) (allowed-symbols nil) (default 0.0)) (slot time (type INTEGER)))").unwrap();
-        env.build("(deftemplate Cascade_warning (slot id (type SYMBOL)) (slot value (type FLOAT SYMBOL) (allowed-symbols nil) (default 0.0)) (slot time (type INTEGER)))").unwrap();
-        env.build("(deftemplate Cascade_critical (slot id (type SYMBOL)) (slot value (type FLOAT SYMBOL) (allowed-symbols nil) (default 0.0)) (slot time (type INTEGER)))").unwrap();
-
-        // Assert initial facts (like create_object does)
-        env.assert_fact(env.fact_builder("Cascade").unwrap().put_symbol("id", "cascade-1").unwrap()).unwrap();
-        let temp_fact = env.assert_fact(env.fact_builder("Cascade_temperature").unwrap().put_symbol("id", "cascade-1").unwrap().put_float("value", 0.0).unwrap().put_int("time", 0).unwrap()).unwrap();
-        let warning_fact = env.assert_fact(env.fact_builder("Cascade_warning").unwrap().put_symbol("id", "cascade-1").unwrap().put_float("value", 0.0).unwrap().put_int("time", 0).unwrap()).unwrap();
-        let critical_fact = env.assert_fact(env.fact_builder("Cascade_critical").unwrap().put_symbol("id", "cascade-1").unwrap().put_float("value", 0.0).unwrap().put_int("time", 0).unwrap()).unwrap();
-
-        let warning_fact = Arc::new(Mutex::new(warning_fact));
-        let critical_fact = Arc::new(Mutex::new(critical_fact));
-        let w_clone = warning_fact.clone();
-        let c_clone = critical_fact.clone();
-        let events: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(vec![]));
-        let events_w = events.clone();
-        let events_c = events.clone();
-
-        // Register UDF BEFORE building rules (required by CLIPS)
-        env.add_udf("add-data", None, 3, 3, vec![clips::Type(clips::Type::SYMBOL), clips::Type(clips::Type::MULTIFIELD), clips::Type(clips::Type::MULTIFIELD)], move |env, ctx| {
-            let _id = ctx.get_next_argument(clips::Type(clips::Type::SYMBOL)).unwrap();
-            let keys = ctx.get_next_argument(clips::Type(clips::Type::MULTIFIELD)).unwrap();
-            let vals = ctx.get_next_argument(clips::Type(clips::Type::MULTIFIELD)).unwrap();
-            let key = if let ClipsValue::Multifield(v) = keys { v.into_iter().next().map(|v| if let ClipsValue::Symbol(s) = v { s } else { String::new() }).unwrap_or_default() } else { String::new() };
-            let val = if let ClipsValue::Multifield(v) = vals { v.into_iter().next().map(|v| if let ClipsValue::Float(f) = v { f } else { 0.0 }).unwrap_or(0.0) } else { 0.0 };
-            if key == "warning" {
-                let fact = w_clone.lock().unwrap();
-                if let Ok(fm) = env.fact_modifier(&fact) {
-                    if let Ok(fm) = fm.put_float("value", val) {
-                        let _ = env.modify_fact(fm);
-                        events_w.lock().unwrap().push(format!("warning={}", val));
-                    }
-                }
-            } else if key == "critical" {
-                let fact = c_clone.lock().unwrap();
-                if let Ok(fm) = env.fact_modifier(&fact) {
-                    if let Ok(fm) = fm.put_float("value", val) {
-                        let _ = env.modify_fact(fm);
-                        events_c.lock().unwrap().push(format!("critical={}", val));
-                    }
-                }
-            }
-            ClipsValue::Void()
-        }).unwrap();
-
-        // Build rules AFTER registering UDFs (like create_rule does, but UDFs registered first in CLIPSKnowledgeBase::new())
-        env.build("(defrule raise_warning (Cascade_temperature (id ?id) (value ?temp&:(> ?temp 35))) (Cascade_warning (id ?id) (value ?warning&:(<= ?warning 0))) => (add-data ?id (create$ warning) (create$ 1.0)))").unwrap();
-        env.build("(defrule raise_critical (Cascade_warning (id ?id) (value ?warning&:(> ?warning 0))) (Cascade_critical (id ?id) (value ?critical&:(<= ?critical 0))) => (add-data ?id (create$ critical) (create$ 2.0)))").unwrap();
-
-        // Simulate add_values for temperature=36.0
-        let fm = env.fact_modifier(&temp_fact).unwrap().put_float("value", 36.0).unwrap().put_int("time", 1).unwrap();
-        env.modify_fact(fm).unwrap();
-
-        // Run rules
-        let fired = env.run(-1);
-        let evs = events.lock().unwrap().clone();
-        assert_eq!(fired, 2, "expected 2 rule firings, got {}; events: {:?}", fired, evs);
-        assert!(evs.iter().any(|e| e.starts_with("warning")), "warning event missing: {:?}", evs);
-        assert!(evs.iter().any(|e| e.starts_with("critical")), "critical event missing: {:?}", evs);
-    }
-
-    /// Diagnostic test: determine if hang is in add_values() or event_rx.recv()
-    #[tokio::test]
-    async fn diagnose_chained_rule_hang_location() {
-        use tokio::time::{timeout, Duration};
-
-        let mut kb = CLIPSKnowledgeBase::new();
-        let mut event_rx = kb.take_event_receiver().expect("event receiver should be available");
-
-        kb.create_class(Class {
-            name: "Cascade".to_owned(),
-            parents: None,
-            static_properties: None,
-            dynamic_properties: Some(HashMap::from([
-                ("temperature".to_owned(), Property::Float { default: Some(0.0), min: None, max: None }),
-                ("warning".to_owned(), Property::Float { default: Some(0.0), min: None, max: None }),
-                ("critical".to_owned(), Property::Float { default: Some(0.0), min: None, max: None }),
-            ])),
-        }).await.unwrap();
-
-        kb.create_object(Object {
-            id: Some("cascade-1".to_owned()),
-            classes: HashSet::from(["Cascade".to_owned()]),
-            properties: None, values: None,
-        }).await.unwrap();
-
-        kb.create_rule(Rule {
-            name: "raise_warning".to_owned(),
-            content: "(defrule raise_warning
-                (Cascade_temperature (id ?id) (value ?temp&:(> ?temp 35)))
-                (Cascade_warning (id ?id) (value ?warning&:(<= ?warning 0)))
-                => (add-data ?id (create$ warning) (create$ 1.0)))".to_owned(),
-        }).await.unwrap();
-
-        kb.create_rule(Rule {
-            name: "raise_critical".to_owned(),
-            content: "(defrule raise_critical
-                (Cascade_warning (id ?id) (value ?warning&:(> ?warning 0)))
-                (Cascade_critical (id ?id) (value ?critical&:(<= ?critical 0)))
-                => (add-data ?id (create$ critical) (create$ 2.0)))".to_owned(),
-        }).await.unwrap();
-
-        // Test if add_values itself hangs
-        let add_result = timeout(
-            Duration::from_secs(5),
-            kb.add_values("cascade-1".to_owned(), HashMap::from([("temperature".to_owned(), Value::Float(36.0))]), Utc::now()),
-        ).await;
-        assert!(add_result.is_ok(), "add_values timed out after 5s - hang is in add_values/run_rules");
-        add_result.unwrap().expect("add_values should succeed");
-
-        // Test if event_rx.recv() hangs
-        let ev1 = timeout(Duration::from_secs(2), event_rx.recv()).await;
-        assert!(ev1.is_ok(), "first event timed out - add_values returned but no event was emitted");
-
-        let ev2 = timeout(Duration::from_secs(2), event_rx.recv()).await;
-        assert!(ev2.is_ok(), "second event timed out");
-    }
-
-    /// Low-level test: chained rules where each UDF modifies a fact triggering the next rule.
-    #[test]
-    fn clips_chained_udf_fact_modifications() {
-        use clips::{ClipsValue, Environment};
-        use std::sync::{Arc, Mutex};
-
-        let mut env = Environment::new().expect("env creation");
-
-        env.load_from_str("
-            (deftemplate sensor (slot id (type SYMBOL)) (slot temperature (type FLOAT) (default 0.0)) (slot time (type INTEGER) (default 0)))
-            (deftemplate sensor_warning (slot id (type SYMBOL)) (slot value (type FLOAT) (default 0.0)) (slot time (type INTEGER) (default 0)))
-            (deftemplate sensor_critical (slot id (type SYMBOL)) (slot value (type FLOAT) (default 0.0)) (slot time (type INTEGER) (default 0)))
-        ").unwrap();
-
-        let temp_fact = {
-            let fb = env.fact_builder("sensor").unwrap()
-                .put_symbol("id", "s1").unwrap()
-                .put_float("temperature", 36.0).unwrap()
-                .put_int("time", 0).unwrap();
-            env.assert_fact(fb).unwrap()
-        };
-        let warning_fact = {
-            let fb = env.fact_builder("sensor_warning").unwrap()
-                .put_symbol("id", "s1").unwrap()
-                .put_float("value", 0.0).unwrap()
-                .put_int("time", 0).unwrap();
-            env.assert_fact(fb).unwrap()
-        };
-        let critical_fact = {
-            let fb = env.fact_builder("sensor_critical").unwrap()
-                .put_symbol("id", "s1").unwrap()
-                .put_float("value", 0.0).unwrap()
-                .put_int("time", 0).unwrap();
-            env.assert_fact(fb).unwrap()
-        };
-
-        let warning_fact = Arc::new(Mutex::new(warning_fact));
-        let critical_fact = Arc::new(Mutex::new(critical_fact));
-        let warning_clone = warning_fact.clone();
-        let critical_clone = critical_fact.clone();
-        let warning_fired = Arc::new(Mutex::new(false));
-        let critical_fired = Arc::new(Mutex::new(false));
-        let wf = warning_fired.clone();
-        let cf = critical_fired.clone();
-
-        env.add_udf("set-warning", None, 0, 0, vec![], move |env, _ctx| {
-            let fact = warning_clone.lock().unwrap();
-            if let Ok(fm) = env.fact_modifier(&fact) {
-                if let Ok(fm) = fm.put_float("value", 1.0) {
-                    let _ = env.modify_fact(fm);
-                    *wf.lock().unwrap() = true;
-                }
-            }
-            ClipsValue::Void()
-        }).unwrap();
-
-        env.add_udf("set-critical", None, 0, 0, vec![], move |env, _ctx| {
-            let fact = critical_clone.lock().unwrap();
-            if let Ok(fm) = env.fact_modifier(&fact) {
-                if let Ok(fm) = fm.put_float("value", 2.0) {
-                    let _ = env.modify_fact(fm);
-                    *cf.lock().unwrap() = true;
-                }
-            }
-            ClipsValue::Void()
-        }).unwrap();
-
-        env.load_from_str("
-            (defrule raise-warning
-                (sensor (id ?id) (temperature ?t&:(> ?t 35)))
-                (sensor_warning (id ?id) (value ?w&:(<= ?w 0)))
-                =>
-                (set-warning))
-            (defrule raise-critical
-                (sensor_warning (id ?id) (value ?w&:(> ?w 0)))
-                (sensor_critical (id ?id) (value ?c&:(<= ?c 0)))
-                =>
-                (set-critical))
-        ").unwrap();
-
-        let fired = env.run(-1);
-        assert_eq!(fired, 2, "expected exactly 2 rule firings (raise_warning then raise_critical)");
-        assert!(*warning_fired.lock().unwrap(), "warning UDF should have fired");
-        assert!(*critical_fired.lock().unwrap(), "critical UDF should have fired");
-        drop(temp_fact); // suppress unused warning
-    }
-}
-

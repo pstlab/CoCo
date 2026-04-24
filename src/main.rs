@@ -25,7 +25,7 @@ async fn main() {
         error!("Failed to set up MongoDB: {}", e);
         std::process::exit(1);
     });
-    let kb = CLIPSKnowledgeBase::default();
+    let kb = CLIPSKnowledgeBase::new();
     let modules: Vec<Box<dyn CoCoModule<MongoDB, CLIPSKnowledgeBase>>> = vec![
         #[cfg(feature = "ollama")]
         Box::new(OllamaModule::default()),
@@ -35,7 +35,7 @@ async fn main() {
         Box::new(MQTTModule::default()),
     ];
 
-    let coco = CoCo::new(db.clone(), kb, modules).await;
+    let coco = CoCo::new(db.clone(), kb.0, kb.1, modules).await;
 
     let app = cfg_select! {
         feature = "secure" => secure_coco_router(coco, UsersDB::default().await.unwrap_or_else(|e| {
