@@ -7,7 +7,7 @@ use coco::{
     kb::clips::CLIPSKnowledgeBase,
     model::{Class, Object, Property, Rule, Value},
 };
-use tracing::{Level, error, info, subscriber};
+use tracing::{Level, error, subscriber};
 
 async fn create_coco() -> (CoCo, MongoDB) {
     let name: String = std::env::var("DB_NAME").unwrap_or_else(|_| "coco_test_db".to_owned());
