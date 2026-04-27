@@ -7,29 +7,24 @@ const LOGIN_MODAL_ID = 'coco-login-modal';
 export function UserButton(coco: coco.CoCo): VNode {
   let username = "";
   let password = "";
+  let loginModal: Modal | null = null;
+  let dropdown: Dropdown | null = null;
 
-  const showLoginModal = () => {
-    const modalEl = document.getElementById(LOGIN_MODAL_ID);
-    if (!modalEl) return;
-    Modal.getOrCreateInstance(modalEl).show();
-  };
-
-  const hideLoginModal = () => {
-    const modalEl = document.getElementById(LOGIN_MODAL_ID);
-    if (!modalEl) return;
-    Modal.getOrCreateInstance(modalEl).hide();
-  };
+  const showLoginModal = () => { loginModal?.show(); };
+  const hideLoginModal = () => { loginModal?.hide(); };
 
   return h('div.btn-group', [
     h('button.btn.dropdown-toggle', {
       attrs: { 'data-bs-toggle': 'dropdown' },
       hook: {
-        insert: (vnode) => {
-          const el = vnode.elm as HTMLElement;
-          const dropdown = Dropdown.getOrCreateInstance(el);
-          el.onclick = () => dropdown.toggle();
+        insert: (vnode) => { dropdown = Dropdown.getOrCreateInstance(vnode.elm as Element); },
+        update: (_old, vnode) => { dropdown = Dropdown.getOrCreateInstance(vnode.elm as Element); },
+        destroy: (vnode) => {
+          Dropdown.getInstance(vnode.elm as Element)?.dispose();
+          dropdown = null;
         }
-      }
+      },
+      on: { click: () => dropdown?.toggle() }
     }, h('i.fas.fa-user-circle')),
     h('ul.dropdown-menu.dropdown-menu-end', [
       LoginItem(showLoginModal),
@@ -55,6 +50,9 @@ export function UserButton(coco: coco.CoCo): VNode {
           const message = err instanceof Error ? err.message : String(err);
           alert(message.startsWith('Login failed:') ? message : 'Login failed: ' + message);
         }
+      },
+      (modal) => {
+        loginModal = modal;
       }
     )
   ]);
@@ -70,12 +68,25 @@ function LoginItem(openModal: () => void): VNode {
   }, 'Login'));
 }
 
-function LoginModal(getUsername: () => string, setUsername: (value: string) => void, getPassword: () => string, setPassword: (value: string) => void, onSubmit: () => Promise<void>): VNode {
+function LoginModal(getUsername: () => string, setUsername: (value: string) => void, getPassword: () => string, setPassword: (value: string) => void, onSubmit: () => Promise<void>, setInstance: (modal: Modal | null) => void): VNode {
   return h('div.modal.fade', {
     attrs: {
       id: LOGIN_MODAL_ID,
       tabindex: '-1',
       'aria-hidden': 'true'
+    },
+    hook: {
+      insert: (vnode) => {
+        setInstance(Modal.getOrCreateInstance(vnode.elm as Element));
+      },
+      update: (_oldVnode, vnode) => {
+        setInstance(Modal.getOrCreateInstance(vnode.elm as Element));
+      },
+      destroy: (vnode) => {
+        const modal = Modal.getInstance(vnode.elm as Element);
+        modal?.dispose();
+        setInstance(null);
+      }
     }
   }, [
     h('div.modal-dialog', [
