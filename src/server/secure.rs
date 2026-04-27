@@ -35,11 +35,20 @@ use utoipa::{
 type OpenApiValue = Value;
 type OpenApiObject = Object;
 
-#[derive(Clone, Serialize, Deserialize, Debug, PartialEq, Eq, ToSchema)]
+#[derive(Clone, Serialize, Deserialize, Debug, PartialEq, Eq, Default, ToSchema)]
 #[serde(rename_all = "lowercase")]
 pub enum Role {
     Admin,
+    #[default]
     User,
+}
+
+#[derive(Clone, Serialize, Deserialize, Debug, PartialEq, Eq, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum TokenType {
+    #[default]
+    Access,
+    Refresh,
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug, ToSchema)]
@@ -53,7 +62,7 @@ pub struct User {
 pub struct UsersDB {
     name: String,
     secret: String,
-    pub client: Client,
+    client: Client,
 }
 
 impl UsersDB {
@@ -135,7 +144,7 @@ async fn auth_middleware(State(db): State<UsersDB>, mut req: Request, next: Next
     let header = req.headers().get(header::AUTHORIZATION).and_then(|h| h.to_str().ok());
     if let Some(token) = header.and_then(|h| h.strip_prefix("Bearer "))
         && let Ok(claims) = verify_jwt(token, &db.secret)
-        && claims.token_type == "access"
+        && claims.token_type == TokenType::Access
     {
         req.extensions_mut().insert(CurrentUser { _id: claims.sub, role: claims.role });
         return Ok(next.run(req).await);
@@ -158,12 +167,8 @@ pub struct Claims {
     sub: String,
     exp: usize,
     role: Role,
-    #[serde(default = "default_token_type")]
-    token_type: String,
-}
-
-fn default_token_type() -> String {
-    "access".to_owned()
+    #[serde(default)]
+    token_type: TokenType,
 }
 
 pub fn create_jwt(user_id: &str, role: &Role, secret: &str) -> Result<String, Error> {
@@ -174,7 +179,7 @@ pub fn create_jwt(user_id: &str, role: &Role, secret: &str) -> Result<String, Er
         sub: user_id.to_owned(),
         exp: expire.timestamp() as usize,
         role: role.clone(),
-        token_type: "access".to_owned(),
+        token_type: TokenType::Access,
     };
 
     jsonwebtoken::encode(&Header::default(), &claims, &EncodingKey::from_secret(secret.as_ref()))
@@ -188,7 +193,7 @@ pub fn create_refresh_jwt(user_id: &str, role: &Role, secret: &str) -> Result<St
         sub: user_id.to_owned(),
         exp: expire.timestamp() as usize,
         role: role.clone(),
-        token_type: "refresh".to_owned(),
+        token_type: TokenType::Refresh,
     };
 
     jsonwebtoken::encode(&Header::default(), &claims, &EncodingKey::from_secret(secret.as_ref()))
@@ -205,6 +210,14 @@ pub fn verify_jwt(token: &str, secret: &str) -> Result<Claims, Error> {
 struct Credentials {
     username: String,
     password: String,
+}
+
+#[derive(Deserialize, ToSchema)]
+struct CreateUserRequest {
+    username: String,
+    password: String,
+    #[serde(default)]
+    role: Role,
 }
 
 #[derive(Serialize, ToSchema)]
@@ -293,7 +306,7 @@ async fn register(State(db): State<UsersDB>, Json(req): Json<Credentials>) -> im
     )]
 async fn refresh_token(State(db): State<UsersDB>, Json(req): Json<RefreshTokenRequest>) -> impl IntoResponse {
     match verify_jwt(&req.refresh_token, &db.secret) {
-        Ok(claims) if claims.token_type == "refresh" => issue_tokens(&claims.sub, &claims.role, &db.secret).map(Json).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR),
+        Ok(claims) if claims.token_type == TokenType::Refresh => issue_tokens(&claims.sub, &claims.role, &db.secret).map(Json).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR),
         _ => Err(StatusCode::UNAUTHORIZED),
     }
 }
@@ -327,8 +340,8 @@ async fn get_users(State(db): State<UsersDB>, Extension(user): Extension<Current
         path = "/users",
         tag = "Authentication",
         summary = "Create a new user",
-        description = "Create a new user account with a username, password, and role (admin only).",
-        request_body = Credentials,
+        description = "Create a new user account with a username, password, and role (admin only). Role defaults to user.",
+        request_body = CreateUserRequest,
         security(("bearerAuth" = [])),
         responses(
             (status = 201, description = "User created successfully"),
@@ -339,11 +352,11 @@ async fn get_users(State(db): State<UsersDB>, Extension(user): Extension<Current
             (status = 500, description = "Failed to create user")
         )
     )]
-async fn create_user(State(db): State<UsersDB>, Extension(user): Extension<CurrentUser>, Json(req): Json<Credentials>) -> impl IntoResponse {
+async fn create_user(State(db): State<UsersDB>, Extension(user): Extension<CurrentUser>, Json(req): Json<CreateUserRequest>) -> impl IntoResponse {
     if user.role != Role::Admin {
         return (StatusCode::FORBIDDEN, "Only admin users can create new users").into_response();
     }
-    match db.create_user(&req.username, &req.password, Role::User).await {
+    match db.create_user(&req.username, &req.password, req.role).await {
         Ok(_) => (StatusCode::CREATED, "User created successfully").into_response(),
         Err(DatabaseError::Exists(_)) => (StatusCode::CONFLICT, "Username already exists").into_response(),
         Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, "Failed to create user").into_response(),
@@ -654,7 +667,7 @@ impl Modify for SecurityAddon {
     ),
     paths(get_users, create_user, register, login, refresh_token, unsecure::get_classes, unsecure::get_class, create_class, unsecure::get_objects, unsecure::get_object, create_object, set_properties, add_data, unsecure::get_data, unsecure::get_rules, unsecure::get_rule, create_rule, ws_handler, openapi),
     components(
-        schemas(Class, Rule, Property, OpenApiObject, OpenApiValue, Role, User, Credentials, AuthTokens, RefreshTokenRequest)
+        schemas(Class, Rule, Property, OpenApiObject, OpenApiValue, Role, User, Credentials, CreateUserRequest, AuthTokens, RefreshTokenRequest)
     ),
     modifiers(&SecurityAddon),
     tags(
