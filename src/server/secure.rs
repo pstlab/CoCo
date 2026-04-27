@@ -119,13 +119,19 @@ impl UsersDB {
     }
 }
 
-pub async fn secure_coco_router(coco: CoCo, users_db: UsersDB) -> Router {
-    let protected_auth_router = Router::new().route("/users", get(get_users).post(create_user)).route_layer(from_fn_with_state(users_db.clone(), auth_middleware));
-    let auth_router = Router::new().route("/register", post(register)).route("/login", post(login)).route("/refresh_token", post(refresh_token)).merge(protected_auth_router).with_state(users_db.clone());
+#[derive(Clone)]
+struct AppState {
+    coco: CoCo,
+    users_db: UsersDB,
+}
 
-    let protected_router = Router::new().route("/classes", post(create_class)).route("/rules", post(create_rule)).route("/objects", post(create_object)).route("/objects/{id}", patch(set_properties)).route("/objects/{id}/data", post(add_data)).route_layer(from_fn_with_state(users_db, auth_middleware));
-    let coco_router = Router::new()
-        .route("/ws", get(ws_handler))
+pub async fn secure_coco_router(coco: CoCo, users_db: UsersDB) -> Router {
+    let app_state = AppState { coco, users_db };
+
+    let protected_auth_router = Router::new().route("/users", get(get_users).post(create_user)).route_layer(from_fn_with_state(app_state.clone(), auth_middleware));
+    let auth_router = Router::new().route("/register", post(register)).route("/login", post(login)).route("/refresh_token", post(refresh_token)).merge(protected_auth_router).with_state(app_state.clone());
+
+    let unsecure_router = Router::new()
         .route("/classes", get(get_classes))
         .route("/classes/{name}", get(get_class))
         .route("/rules", get(get_rules))
@@ -133,17 +139,19 @@ pub async fn secure_coco_router(coco: CoCo, users_db: UsersDB) -> Router {
         .route("/objects", get(get_objects))
         .route("/objects/{id}", get(get_object))
         .route("/objects/{id}/data", get(get_data))
-        .route("/openapi", get(openapi))
-        .merge(protected_router)
-        .with_state(coco);
+        .with_state(app_state.coco.clone());
+
+    let protected_router = Router::new().route("/classes", post(create_class)).route("/rules", post(create_rule)).route("/objects", post(create_object)).route("/objects/{id}", patch(set_properties)).route("/objects/{id}/data", post(add_data)).route_layer(from_fn_with_state(app_state.clone(), auth_middleware));
+
+    let coco_router = Router::new().route("/ws", get(ws_handler)).route("/openapi", get(openapi)).merge(unsecure_router).merge(protected_router).with_state(app_state);
 
     auth_router.merge(coco_router)
 }
 
-async fn auth_middleware(State(db): State<UsersDB>, mut req: Request, next: Next) -> Result<Response, StatusCode> {
+async fn auth_middleware(State(state): State<AppState>, mut req: Request, next: Next) -> Result<Response, StatusCode> {
     let header = req.headers().get(header::AUTHORIZATION).and_then(|h| h.to_str().ok());
     if let Some(token) = header.and_then(|h| h.strip_prefix("Bearer "))
-        && let Ok(claims) = verify_jwt(token, &db.secret)
+        && let Ok(claims) = verify_jwt(token, &state.users_db.secret)
         && claims.token_type == TokenType::Access
     {
         req.extensions_mut().insert(CurrentUser { _id: claims.sub, role: claims.role });
@@ -258,10 +266,9 @@ fn issue_tokens(username: &str, role: &Role, secret: &str) -> Result<AuthTokens,
             (status = 500, description = "Failed to authenticate user")
         )
     )]
-async fn login(State(db): State<UsersDB>, Json(req): Json<Credentials>) -> impl IntoResponse {
-    let user = db.get_user(&req.username, &req.password).await;
-    match user {
-        Ok(user) => issue_tokens(&user.username, &user.role, &db.secret).map(Json),
+async fn login(State(state): State<AppState>, Json(req): Json<Credentials>) -> impl IntoResponse {
+    match state.users_db.get_user(&req.username, &req.password).await {
+        Ok(user) => issue_tokens(&user.username, &user.role, &state.users_db.secret).map(Json),
         Err(DatabaseError::NotFound(_)) => Err(StatusCode::UNAUTHORIZED),
         Err(_) => Err(StatusCode::INTERNAL_SERVER_ERROR),
     }
@@ -280,10 +287,10 @@ async fn login(State(db): State<UsersDB>, Json(req): Json<Credentials>) -> impl 
             (status = 500, description = "Failed to register user")
         )
     )]
-async fn register(State(db): State<UsersDB>, Json(req): Json<Credentials>) -> impl IntoResponse {
-    match db.create_user(&req.username, &req.password, Role::User).await {
-        Ok(_) => match db.get_user(&req.username, &req.password).await {
-            Ok(user) => issue_tokens(&user.username, &user.role, &db.secret).map(Json),
+async fn register(State(state): State<AppState>, Json(req): Json<Credentials>) -> impl IntoResponse {
+    match state.users_db.create_user(&req.username, &req.password, Role::User).await {
+        Ok(_) => match state.users_db.get_user(&req.username, &req.password).await {
+            Ok(user) => issue_tokens(&user.username, &user.role, &state.users_db.secret).map(Json),
             Err(_) => Err(StatusCode::INTERNAL_SERVER_ERROR),
         },
         Err(DatabaseError::Exists(_)) => Err(StatusCode::CONFLICT),
@@ -304,9 +311,9 @@ async fn register(State(db): State<UsersDB>, Json(req): Json<Credentials>) -> im
             (status = 500, description = "Failed to refresh tokens")
         )
     )]
-async fn refresh_token(State(db): State<UsersDB>, Json(req): Json<RefreshTokenRequest>) -> impl IntoResponse {
-    match verify_jwt(&req.refresh_token, &db.secret) {
-        Ok(claims) if claims.token_type == TokenType::Refresh => issue_tokens(&claims.sub, &claims.role, &db.secret).map(Json).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR),
+async fn refresh_token(State(state): State<AppState>, Json(req): Json<RefreshTokenRequest>) -> impl IntoResponse {
+    match verify_jwt(&req.refresh_token, &state.users_db.secret) {
+        Ok(claims) if claims.token_type == TokenType::Refresh => issue_tokens(&claims.sub, &claims.role, &state.users_db.secret).map(Json).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR),
         _ => Err(StatusCode::UNAUTHORIZED),
     }
 }
@@ -325,11 +332,11 @@ async fn refresh_token(State(db): State<UsersDB>, Json(req): Json<RefreshTokenRe
             (status = 500, description = "Failed to retrieve users")
         )
     )]
-async fn get_users(State(db): State<UsersDB>, Extension(user): Extension<CurrentUser>) -> impl IntoResponse {
+async fn get_users(State(state): State<AppState>, Extension(user): Extension<CurrentUser>) -> impl IntoResponse {
     if user.role != Role::Admin {
         return (StatusCode::FORBIDDEN, "Only admin users can view the list of users").into_response();
     }
-    match db.get_users().await {
+    match state.users_db.get_users().await {
         Ok(users) => (StatusCode::OK, axum::Json(users)).into_response(),
         Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, "Failed to retrieve users").into_response(),
     }
@@ -352,11 +359,11 @@ async fn get_users(State(db): State<UsersDB>, Extension(user): Extension<Current
             (status = 500, description = "Failed to create user")
         )
     )]
-async fn create_user(State(db): State<UsersDB>, Extension(user): Extension<CurrentUser>, Json(req): Json<CreateUserRequest>) -> impl IntoResponse {
+async fn create_user(State(state): State<AppState>, Extension(user): Extension<CurrentUser>, Json(req): Json<CreateUserRequest>) -> impl IntoResponse {
     if user.role != Role::Admin {
         return (StatusCode::FORBIDDEN, "Only admin users can create new users").into_response();
     }
-    match db.create_user(&req.username, &req.password, req.role).await {
+    match state.users_db.create_user(&req.username, &req.password, req.role).await {
         Ok(_) => (StatusCode::CREATED, "User created successfully").into_response(),
         Err(DatabaseError::Exists(_)) => (StatusCode::CONFLICT, "Username already exists").into_response(),
         Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, "Failed to create user").into_response(),
@@ -379,11 +386,11 @@ async fn create_user(State(db): State<UsersDB>, Extension(user): Extension<Curre
             (status = 500, description = "Failed to create class")
         )
     )]
-async fn create_class(State(coco): State<CoCo>, Extension(user): Extension<CurrentUser>, Json(class): Json<Class>) -> impl IntoResponse {
+async fn create_class(State(state): State<AppState>, Extension(user): Extension<CurrentUser>, Json(class): Json<Class>) -> impl IntoResponse {
     if user.role != Role::Admin {
         return (StatusCode::FORBIDDEN, "Only admin users can create classes").into_response();
     }
-    unsecure::create_class(State(coco), Json(class)).await.into_response()
+    unsecure::create_class(State(state.coco), Json(class)).await.into_response()
 }
 
 #[utoipa::path(
@@ -403,11 +410,11 @@ async fn create_class(State(coco): State<CoCo>, Extension(user): Extension<Curre
             (status = 500, description = "Failed to create rule")
         )
     )]
-async fn create_rule(State(coco): State<CoCo>, Extension(user): Extension<CurrentUser>, Json(rule): Json<Rule>) -> impl IntoResponse {
+async fn create_rule(State(state): State<AppState>, Extension(user): Extension<CurrentUser>, Json(rule): Json<Rule>) -> impl IntoResponse {
     if user.role != Role::Admin {
         return (StatusCode::FORBIDDEN, "Only admin users can create rules").into_response();
     }
-    unsecure::create_rule(State(coco), Json(rule)).await.into_response()
+    unsecure::create_rule(State(state.coco), Json(rule)).await.into_response()
 }
 
 #[utoipa::path(
@@ -428,11 +435,11 @@ async fn create_rule(State(coco): State<CoCo>, Extension(user): Extension<Curren
             (status = 500, description = "Failed to create object")
         )
     )]
-async fn create_object(State(coco): State<CoCo>, Extension(user): Extension<CurrentUser>, Json(object): Json<JsonValue>) -> impl IntoResponse {
+async fn create_object(State(state): State<AppState>, Extension(user): Extension<CurrentUser>, Json(object): Json<JsonValue>) -> impl IntoResponse {
     if user.role != Role::Admin {
         return (StatusCode::FORBIDDEN, "Only admin users can create objects").into_response();
     }
-    unsecure::create_object(State(coco), Json(object)).await.into_response()
+    unsecure::create_object(State(state.coco), Json(object)).await.into_response()
 }
 
 #[utoipa::path(
@@ -455,11 +462,11 @@ async fn create_object(State(coco): State<CoCo>, Extension(user): Extension<Curr
             (status = 500, description = "Failed to update object properties")
         )
     )]
-async fn set_properties(State(coco): State<CoCo>, Extension(user): Extension<CurrentUser>, Path(object_id): Path<String>, Json(properties): Json<JsonValue>) -> impl IntoResponse {
+async fn set_properties(State(state): State<AppState>, Extension(user): Extension<CurrentUser>, Path(object_id): Path<String>, Json(properties): Json<JsonValue>) -> impl IntoResponse {
     if user.role != Role::Admin {
         return (StatusCode::FORBIDDEN, "Only admin users can update object properties").into_response();
     }
-    unsecure::set_properties(State(coco), Path(object_id), Json(properties)).await.into_response()
+    unsecure::set_properties(State(state.coco), Path(object_id), Json(properties)).await.into_response()
 }
 
 #[utoipa::path(
@@ -483,11 +490,16 @@ async fn set_properties(State(coco): State<CoCo>, Extension(user): Extension<Cur
             (status = 500, description = "Failed to add data to object")
         )
     )]
-async fn add_data(State(coco): State<CoCo>, Extension(user): Extension<CurrentUser>, Path(object_id): Path<String>, Query(date_query): Query<DateQuery>, Json(values): Json<JsonValue>) -> impl IntoResponse {
+async fn add_data(State(state): State<AppState>, Extension(user): Extension<CurrentUser>, Path(object_id): Path<String>, Query(date_query): Query<DateQuery>, Json(values): Json<JsonValue>) -> impl IntoResponse {
     if user.role != Role::Admin {
         return (StatusCode::FORBIDDEN, "Only admin users can add data to objects").into_response();
     }
-    unsecure::add_data(State(coco), Path(object_id), Query(date_query), Json(values)).await.into_response()
+    unsecure::add_data(State(state.coco), Path(object_id), Query(date_query), Json(values)).await.into_response()
+}
+
+#[derive(Deserialize)]
+struct WsToken {
+    token: Option<String>,
 }
 
 #[utoipa::path(
@@ -495,13 +507,22 @@ async fn add_data(State(coco): State<CoCo>, Extension(user): Extension<CurrentUs
         path = "/ws",
         tag = "System",
         summary = "WebSocket connection",
-        description = "Establish a WebSocket connection for real-time updates.",
+        description = "Establish a WebSocket connection for real-time updates. Accepts a JWT access token either via `Authorization: Bearer <token>` header or `?token=<token>` query parameter (required for browser clients).",
+        params(
+            ("token" = Option<String>, Query, description = "JWT access token (alternative to Authorization header, for browser WebSocket clients)")
+        ),
+        security(("bearerAuth" = [])),
         responses(
             (status = 101, description = "WebSocket connection established"),
+            (status = 401, description = "Missing or invalid JWT token"),
         )
     )]
-async fn ws_handler(ws: WebSocketUpgrade, State(state): State<CoCo>) -> impl IntoResponse {
-    ws.on_upgrade(move |socket| async move { handle_socket(socket, state).await })
+async fn ws_handler(ws: WebSocketUpgrade, State(state): State<AppState>, Query(ws_token): Query<WsToken>, headers: axum::http::HeaderMap) -> impl IntoResponse {
+    let token = headers.get(header::AUTHORIZATION).and_then(|h| h.to_str().ok()).and_then(|h| h.strip_prefix("Bearer ")).map(str::to_owned).or(ws_token.token);
+
+    let authorized = token.as_deref().and_then(|t| verify_jwt(t, &state.users_db.secret).ok()).map(|c| c.token_type == TokenType::Access).unwrap_or(false);
+
+    if authorized { ws.on_upgrade(move |socket| async move { handle_socket(socket, state.coco).await }).into_response() } else { StatusCode::UNAUTHORIZED.into_response() }
 }
 
 async fn handle_socket(mut socket: WebSocket, coco: CoCo) {
