@@ -80,20 +80,25 @@ export namespace coco {
       }
     }
 
-    async login(username: string, password: string) {
-      fetch('/login', {
+    async login(username: string, password: string): Promise<void> {
+      const res = await fetch('/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username, password })
-      }).then(res => {
-        if (!res.ok) throw new Error(`Login failed: ${res.statusText}`);
-        this.access_token = null;
-        return res.json();
-      }).then((data: { access_token: string, refresh_token: string }) => {
-        this.access_token = data.access_token;
-        localStorage.setItem('coco_access_token', this.access_token);
-        this.connect();
       });
+
+      if (!res.ok) {
+        throw new Error(`Login failed: ${res.status} ${res.statusText}`.trim());
+      }
+
+      const data = await res.json() as { access_token?: string };
+      if (!data.access_token) {
+        throw new Error('Login failed: missing access token in response');
+      }
+
+      this.access_token = data.access_token;
+      localStorage.setItem('coco_access_token', this.access_token);
+      this.connect();
     }
 
     logout() {
