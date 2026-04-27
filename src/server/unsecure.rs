@@ -182,9 +182,13 @@ async fn get_objects(State(coco): State<CoCo>, Query(filter): Query<ObjectFilter
             let filtered_objects: Vec<Object> = objects
                 .into_iter()
                 .filter(|o| {
-                    let class_match = filter.class.as_ref().is_none_or(|class_name| o.classes.contains(class_name));
-                    let extra_match = filter.extra.as_ref().is_none_or(|extra| extra.iter().all(|(k, v)| o.properties.as_ref().and_then(|props| props.get(k)).is_none_or(|prop| prop == v)));
-                    class_match && extra_match
+                    if !filter.class.as_ref().is_none_or(|class_name| o.classes.contains(class_name)) {
+                        return false;
+                    }
+                    if !filter.extra.as_ref().is_none_or(|extra| extra.iter().all(|(k, v)| o.properties.as_ref().and_then(|props| props.get(k)).is_none_or(|prop| prop == v))) {
+                        return false;
+                    }
+                    true
                 })
                 .collect();
             Json(filtered_objects).into_response()
@@ -420,44 +424,34 @@ async fn handle_socket(mut socket: WebSocket, coco: CoCo) {
     let mut rx = coco.event_tx.subscribe();
     while let Ok(msg) = rx.recv().await {
         let send_result = match msg {
-            CoCoEvent::ClassCreated(class_name) => {
-                trace!("Received event: ClassCreated for class '{}'", class_name);
-                match coco.get_class(class_name).await {
-                    Ok(Some(class)) => {
-                        let mut update_msg = serde_json::to_value(class).unwrap();
-                        update_msg["msg_type"] = serde_json::json!("class-created");
-                        socket.send(Message::Text(serde_json::to_string(&update_msg).unwrap().into())).await
-                    }
-                    Ok(None) => Ok(()),
-                    Err(_) => Ok(()),
+            CoCoEvent::ClassCreated(class_name) => match coco.get_class(class_name).await {
+                Ok(Some(class)) => {
+                    let mut update_msg = serde_json::to_value(class).unwrap();
+                    update_msg["msg_type"] = serde_json::json!("class-created");
+                    socket.send(Message::Text(serde_json::to_string(&update_msg).unwrap().into())).await
                 }
-            }
-            CoCoEvent::RuleCreated(rule) => {
-                trace!("Received event: RuleCreated for rule '{}'", rule);
-                match coco.get_rule(rule).await {
-                    Ok(Some(rule)) => {
-                        let mut update_msg = serde_json::to_value(rule).unwrap();
-                        update_msg["msg_type"] = serde_json::json!("rule-created");
-                        socket.send(Message::Text(serde_json::to_string(&update_msg).unwrap().into())).await
-                    }
-                    Ok(None) => Ok(()),
-                    Err(_) => Ok(()),
+                Ok(None) => Ok(()),
+                Err(_) => Ok(()),
+            },
+            CoCoEvent::RuleCreated(rule) => match coco.get_rule(rule).await {
+                Ok(Some(rule)) => {
+                    let mut update_msg = serde_json::to_value(rule).unwrap();
+                    update_msg["msg_type"] = serde_json::json!("rule-created");
+                    socket.send(Message::Text(serde_json::to_string(&update_msg).unwrap().into())).await
                 }
-            }
-            CoCoEvent::ObjectCreated(object_id) => {
-                trace!("Received event: ObjectCreated for object '{}'", object_id);
-                match coco.get_object(object_id).await {
-                    Ok(Some(object)) => {
-                        let mut update_msg = serde_json::to_value(object).unwrap();
-                        update_msg["msg_type"] = serde_json::json!("object-created");
-                        socket.send(Message::Text(serde_json::to_string(&update_msg).unwrap().into())).await
-                    }
-                    Ok(None) => Ok(()),
-                    Err(_) => Ok(()),
+                Ok(None) => Ok(()),
+                Err(_) => Ok(()),
+            },
+            CoCoEvent::ObjectCreated(object_id) => match coco.get_object(object_id).await {
+                Ok(Some(object)) => {
+                    let mut update_msg = serde_json::to_value(object).unwrap();
+                    update_msg["msg_type"] = serde_json::json!("object-created");
+                    socket.send(Message::Text(serde_json::to_string(&update_msg).unwrap().into())).await
                 }
-            }
+                Ok(None) => Ok(()),
+                Err(_) => Ok(()),
+            },
             CoCoEvent::AddedClass(object_id, class_name) => {
-                trace!("Received event: AddedClass - object '{}', class '{}'", object_id, class_name);
                 let update_msg = serde_json::json!({
                     "msg_type": "added-class",
                     "object_id": object_id,
@@ -466,7 +460,6 @@ async fn handle_socket(mut socket: WebSocket, coco: CoCo) {
                 socket.send(Message::Text(serde_json::to_string(&update_msg).unwrap().into())).await
             }
             CoCoEvent::UpdatedProperties(object_id, properties) => {
-                trace!("Received event: UpdatedProperties for object '{}'", object_id);
                 let update_msg = serde_json::json!({
                     "msg_type": "updated-properties",
                     "object_id": object_id,
@@ -475,7 +468,6 @@ async fn handle_socket(mut socket: WebSocket, coco: CoCo) {
                 socket.send(Message::Text(serde_json::to_string(&update_msg).unwrap().into())).await
             }
             CoCoEvent::AddedValues(object_id, values, date_time) => {
-                trace!("Received event: AddedValues for object '{}'", object_id);
                 let update_msg = serde_json::json!({
                     "msg_type": "added-values",
                     "object_id": object_id,
