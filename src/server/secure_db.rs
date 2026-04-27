@@ -30,6 +30,14 @@ pub struct User {
     write_access: HashSet<String>,
 }
 
+#[derive(Serialize, ToSchema)]
+pub struct UserResponse {
+    pub username: String,
+    pub role: Role,
+    pub read_access: HashSet<String>,
+    pub write_access: HashSet<String>,
+}
+
 #[derive(Clone)]
 pub struct UsersDB {
     name: String,
@@ -66,28 +74,57 @@ impl UsersDB {
         &self.name
     }
 
-    pub async fn get_users(&self) -> Result<Vec<User>, DatabaseError> {
+    pub fn secret(&self) -> &str {
+        &self.secret
+    }
+
+    pub async fn get_users(&self) -> Result<Vec<UserResponse>, DatabaseError> {
         let db = self.client.database(&self.name);
         let collection = db.collection::<User>("users");
         let cursor = collection.find(doc! {}).await.map_err(|e| DatabaseError::ConnectionError(e.to_string()))?;
         let users: Vec<User> = cursor.try_collect().await.map_err(|e| DatabaseError::ConnectionError(e.to_string()))?;
+        let users = users
+            .into_iter()
+            .map(|u| UserResponse {
+                username: u.username,
+                role: u.role,
+                read_access: u.read_access,
+                write_access: u.write_access,
+            })
+            .collect();
         Ok(users)
     }
 
-    pub async fn get_user(&self, username: &str, password: &str) -> Result<User, DatabaseError> {
+    pub async fn get_user(&self, username: &str, password: &str) -> Result<UserResponse, DatabaseError> {
         let db = self.client.database(&self.name);
         let users_collection = db.collection::<User>("users");
         let filter = doc! { "username": username };
         let user = users_collection.find_one(filter).await.map_err(|e| DatabaseError::NotFound(e.to_string()))?;
-        if let Some(user) = user { if verify_password(password, &user.password) { Ok(user) } else { Err(DatabaseError::NotFound("Invalid username or password".to_string())) } } else { Err(DatabaseError::NotFound("Invalid username or password".to_string())) }
+        let user = user.ok_or_else(|| DatabaseError::NotFound("User not found".to_string()))?;
+        if verify_password(password, &user.password) {
+            Ok(UserResponse {
+                username: user.username,
+                role: user.role,
+                read_access: user.read_access,
+                write_access: user.write_access,
+            })
+        } else {
+            Err(DatabaseError::NotFound("Invalid credentials".to_string()))
+        }
     }
 
-    pub async fn get_user_by_username(&self, username: &str) -> Result<User, DatabaseError> {
+    pub async fn get_user_by_username(&self, username: &str) -> Result<UserResponse, DatabaseError> {
         let db = self.client.database(&self.name);
         let users_collection = db.collection::<User>("users");
         let filter = doc! { "username": username };
         let user = users_collection.find_one(filter).await.map_err(|e| DatabaseError::NotFound(e.to_string()))?;
-        user.ok_or_else(|| DatabaseError::NotFound("User not found".to_string()))
+        let user = user.ok_or_else(|| DatabaseError::NotFound("User not found".to_string()))?;
+        Ok(UserResponse {
+            username: user.username,
+            role: user.role,
+            read_access: user.read_access,
+            write_access: user.write_access,
+        })
     }
 
     pub async fn create_user(&self, username: &str, password: &str, role: Role) -> Result<(), DatabaseError> {
