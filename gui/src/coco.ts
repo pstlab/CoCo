@@ -1,5 +1,5 @@
 export interface CoCoOptions {
-  url?: string;
+  ws_url?: string;
 }
 
 export namespace coco {
@@ -14,7 +14,7 @@ export namespace coco {
 
     constructor(options: CoCoOptions = {}) {
       this.options = {
-        url: 'ws://' + window.location.host + '/ws',
+        ws_url: (window.location.protocol === 'https:' ? 'wss' : 'ws') + '://' + window.location.host + '/ws',
         ...options
       };
     }
@@ -23,8 +23,8 @@ export namespace coco {
       if (this.socket)
         this.socket.close();
 
-      console.log('Connecting to CoCo at', this.options.url);
-      this.socket = new WebSocket(this.options.url!);
+      console.log('Connecting to CoCo at', this.options.ws_url);
+      this.socket = new WebSocket(this.options.ws_url!);
       this.socket.onopen = () => {
         console.log('CoCo connected');
         for (const listener of this.listeners) listener.connected();
