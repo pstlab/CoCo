@@ -24,7 +24,10 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 use std::collections::{HashMap, HashSet};
 use tracing::{error, trace};
-use utoipa::{OpenApi, ToSchema};
+use utoipa::{
+    Modify, OpenApi, ToSchema,
+    openapi::security::{HttpAuthScheme, HttpBuilder, SecurityScheme},
+};
 
 type OpenApiValue = Value;
 type OpenApiObject = Object;
@@ -39,7 +42,7 @@ pub async fn secure_coco_router(coco: CoCo, users_db: UsersDB) -> Router {
     let state = AppState { coco, users_db };
 
     let auth_router = Router::new()
-        .route("/users", get(get_users).post(create_user))
+        .route("/users", get(get_users).patch(update_user).post(create_user))
         .route("/classes", get(get_classes).post(create_class))
         .route("/classes/{name}", get(get_class))
         .route("/rules", get(get_rules).post(create_rule))
@@ -192,7 +195,7 @@ async fn login(State(state): State<AppState>, Json(req): Json<Credentials>) -> i
         )
     )]
 async fn register(State(state): State<AppState>, Json(req): Json<Credentials>) -> impl IntoResponse {
-    match state.users_db.create_user(&req.username, &req.password, Role::User).await {
+    match state.users_db.create_user(&req.username, &req.password, Role::User, HashSet::new(), HashSet::new()).await {
         Ok(_) => match state.users_db.get_user(&req.username, &req.password).await {
             Ok(user) => issue_tokens(&user.username, &user.role, &state.users_db.secret()).map(Json),
             Err(_) => Err(StatusCode::INTERNAL_SERVER_ERROR),
@@ -257,6 +260,8 @@ struct CreateUserRequest {
     password: String,
     #[serde(default)]
     role: Role,
+    read_access: HashSet<String>,
+    write_access: HashSet<String>,
 }
 
 #[utoipa::path(
@@ -280,10 +285,47 @@ async fn create_user(State(state): State<AppState>, Extension(user): Extension<C
     if user.role != Role::Admin {
         return (StatusCode::FORBIDDEN, "Only admin users can create new users").into_response();
     }
-    match state.users_db.create_user(&req.username, &req.password, req.role).await {
+    match state.users_db.create_user(&req.username, &req.password, req.role, req.read_access, req.write_access).await {
         Ok(_) => (StatusCode::CREATED, "User created successfully").into_response(),
         Err(DatabaseError::Exists(_)) => (StatusCode::CONFLICT, "Username already exists").into_response(),
         Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, "Failed to create user").into_response(),
+    }
+}
+
+#[derive(Deserialize, ToSchema)]
+struct UpdateUserRequest {
+    username: String,
+    #[serde(default)]
+    role: Role,
+    read_access: HashSet<String>,
+    write_access: HashSet<String>,
+}
+
+#[utoipa::path(
+        patch,
+        path = "/users",
+        tag = "Authentication",
+        summary = "Update a user",
+        description = "Update an existing user's role and permissions (admin only).",
+        request_body = UpdateUserRequest,
+        security(("bearerAuth" = [])),
+        responses(
+            (status = 200, description = "User updated successfully"),
+            (status = 400, description = "Invalid user data in request body"),
+            (status = 401, description = "Missing or invalid JWT token"),
+            (status = 403, description = "Forbidden - only admin users can update users"),
+            (status = 404, description = "User not found"),
+            (status = 500, description = "Failed to update user")
+        )
+    )]
+async fn update_user(State(state): State<AppState>, Extension(user): Extension<CurrentUser>, Json(req): Json<UpdateUserRequest>) -> impl IntoResponse {
+    if user.role != Role::Admin {
+        return (StatusCode::FORBIDDEN, "Only admin users can update users").into_response();
+    }
+    match state.users_db.update_user(&req.username, req.role, req.read_access, req.write_access).await {
+        Ok(_) => (StatusCode::OK, "User updated successfully").into_response(),
+        Err(DatabaseError::NotFound(_)) => (StatusCode::NOT_FOUND, "User not found").into_response(),
+        Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, "Failed to update user").into_response(),
     }
 }
 
@@ -826,6 +868,15 @@ async fn openapi() -> impl IntoResponse {
     Json(ApiDoc::openapi())
 }
 
+struct SecurityAddon;
+
+impl Modify for SecurityAddon {
+    fn modify(&self, openapi: &mut utoipa::openapi::OpenApi) {
+        let components = openapi.components.get_or_insert_with(Default::default);
+        components.add_security_scheme("bearerAuth", SecurityScheme::Http(HttpBuilder::new().scheme(HttpAuthScheme::Bearer).bearer_format("JWT").build()));
+    }
+}
+
 #[derive(OpenApi)]
 #[openapi(
     servers(
@@ -835,7 +886,9 @@ async fn openapi() -> impl IntoResponse {
     components(
         schemas(Class, Rule, Property, OpenApiObject, OpenApiValue)
     ),
+    modifiers(&SecurityAddon),
     tags(
+        (name = "Authentication", description = "Endpoints for user registration and login"),
         (name = "Classes", description = "Operations related to knowledge base classes"),
         (name = "Objects", description = "Operations related to knowledge base objects"),
         (name = "Rules", description = "Operations related to knowledge base rules"),

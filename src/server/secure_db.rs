@@ -127,17 +127,27 @@ impl UsersDB {
         })
     }
 
-    pub async fn create_user(&self, username: &str, password: &str, role: Role) -> Result<(), DatabaseError> {
+    pub async fn create_user(&self, username: &str, password: &str, role: Role, read_access: HashSet<String>, write_access: HashSet<String>) -> Result<(), DatabaseError> {
         let db = self.client.database(&self.name);
         let collection = db.collection::<User>("users");
         let new_user = User {
             username: username.to_owned(),
             password: hash_password(password),
             role,
-            read_access: HashSet::new(),
-            write_access: HashSet::new(),
+            read_access,
+            write_access,
         };
         collection.insert_one(new_user).await.map_err(|e| if e.to_string().contains("duplicate key error") { DatabaseError::Exists(username.to_owned()) } else { DatabaseError::ConnectionError(e.to_string()) })?;
+        Ok(())
+    }
+
+    pub async fn update_user(&self, username: &str, role: Role, read_access: HashSet<String>, write_access: HashSet<String>) -> Result<(), DatabaseError> {
+        let db = self.client.database(&self.name);
+        let collection = db.collection::<User>("users");
+        let filter = doc! { "username": username };
+        let role_bson = mongodb::bson::to_bson(&role).map_err(|e| DatabaseError::ConnectionError(e.to_string()))?;
+        let update = doc! { "$set": { "role": role_bson, "read_access": read_access.into_iter().collect::<Vec<String>>(), "write_access": write_access.into_iter().collect::<Vec<String>>() } };
+        collection.update_one(filter, update).await.map_err(|e| DatabaseError::ConnectionError(e.to_string()))?;
         Ok(())
     }
 }
