@@ -35,11 +35,18 @@ use utoipa::{
 type OpenApiValue = Value;
 type OpenApiObject = Object;
 
+#[derive(Clone, Serialize, Deserialize, Debug, PartialEq, Eq, ToSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum Role {
+    Admin,
+    User,
+}
+
 #[derive(Clone, Serialize, Deserialize, Debug, ToSchema)]
 pub struct User {
     username: String,
     password: String,
-    pub role: String,
+    role: Role,
 }
 
 #[derive(Clone)]
@@ -94,10 +101,10 @@ impl UsersDB {
         if let Some(user) = user { if verify_password(password, &user.password) { Ok(user) } else { Err(DatabaseError::NotFound("Invalid username or password".to_string())) } } else { Err(DatabaseError::NotFound("Invalid username or password".to_string())) }
     }
 
-    async fn create_user(&self, username: &str, password: &str, role: &str) -> Result<(), DatabaseError> {
+    async fn create_user(&self, username: &str, password: &str, role: Role) -> Result<(), DatabaseError> {
         let db = self.client.database(&self.name);
         let collection = db.collection::<User>("users");
-        let new_user = User { username: username.to_owned(), password: hash_password(password), role: role.to_owned() };
+        let new_user = User { username: username.to_owned(), password: hash_password(password), role };
         collection.insert_one(new_user).await.map_err(|e| if e.to_string().contains("duplicate key error") { DatabaseError::Exists(username.to_owned()) } else { DatabaseError::ConnectionError(e.to_string()) })?;
         Ok(())
     }
@@ -150,7 +157,7 @@ pub fn verify_password(password: &str, hash: &str) -> bool {
 pub struct Claims {
     sub: String,
     exp: usize,
-    role: String,
+    role: Role,
     #[serde(default = "default_token_type")]
     token_type: String,
 }
@@ -159,28 +166,28 @@ fn default_token_type() -> String {
     "access".to_owned()
 }
 
-pub fn create_jwt(user_id: &str, role: &str, secret: &str) -> Result<String, Error> {
+pub fn create_jwt(user_id: &str, role: &Role, secret: &str) -> Result<String, Error> {
     let now = Utc::now();
     let expire = now + Duration::hours(24);
 
     let claims = Claims {
         sub: user_id.to_owned(),
         exp: expire.timestamp() as usize,
-        role: role.to_owned(),
+        role: role.clone(),
         token_type: "access".to_owned(),
     };
 
     jsonwebtoken::encode(&Header::default(), &claims, &EncodingKey::from_secret(secret.as_ref()))
 }
 
-pub fn create_refresh_jwt(user_id: &str, role: &str, secret: &str) -> Result<String, Error> {
+pub fn create_refresh_jwt(user_id: &str, role: &Role, secret: &str) -> Result<String, Error> {
     let now = Utc::now();
     let expire = now + Duration::days(30);
 
     let claims = Claims {
         sub: user_id.to_owned(),
         exp: expire.timestamp() as usize,
-        role: role.to_owned(),
+        role: role.clone(),
         token_type: "refresh".to_owned(),
     };
 
@@ -215,10 +222,10 @@ struct RefreshTokenRequest {
 #[derive(Debug, Clone)]
 struct CurrentUser {
     _id: String,
-    role: String,
+    role: Role,
 }
 
-fn issue_tokens(username: &str, role: &str, secret: &str) -> Result<AuthTokens, StatusCode> {
+fn issue_tokens(username: &str, role: &Role, secret: &str) -> Result<AuthTokens, StatusCode> {
     let access_token = create_jwt(username, role, secret).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
     let refresh_token = create_refresh_jwt(username, role, secret).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR)?;
 
@@ -261,7 +268,7 @@ async fn login(State(db): State<UsersDB>, Json(req): Json<Credentials>) -> impl 
         )
     )]
 async fn register(State(db): State<UsersDB>, Json(req): Json<Credentials>) -> impl IntoResponse {
-    match db.create_user(&req.username, &req.password, "user").await {
+    match db.create_user(&req.username, &req.password, Role::User).await {
         Ok(_) => match db.get_user(&req.username, &req.password).await {
             Ok(user) => issue_tokens(&user.username, &user.role, &db.secret).map(Json),
             Err(_) => Err(StatusCode::INTERNAL_SERVER_ERROR),
@@ -306,7 +313,7 @@ async fn refresh_token(State(db): State<UsersDB>, Json(req): Json<RefreshTokenRe
         )
     )]
 async fn get_users(State(db): State<UsersDB>, Extension(user): Extension<CurrentUser>) -> impl IntoResponse {
-    if user.role != "admin" {
+    if user.role != Role::Admin {
         return (StatusCode::FORBIDDEN, "Only admin users can view the list of users").into_response();
     }
     match db.get_users().await {
@@ -333,10 +340,10 @@ async fn get_users(State(db): State<UsersDB>, Extension(user): Extension<Current
         )
     )]
 async fn create_user(State(db): State<UsersDB>, Extension(user): Extension<CurrentUser>, Json(req): Json<Credentials>) -> impl IntoResponse {
-    if user.role != "admin" {
+    if user.role != Role::Admin {
         return (StatusCode::FORBIDDEN, "Only admin users can create new users").into_response();
     }
-    match db.create_user(&req.username, &req.password, "user").await {
+    match db.create_user(&req.username, &req.password, Role::User).await {
         Ok(_) => (StatusCode::CREATED, "User created successfully").into_response(),
         Err(DatabaseError::Exists(_)) => (StatusCode::CONFLICT, "Username already exists").into_response(),
         Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, "Failed to create user").into_response(),
@@ -360,7 +367,7 @@ async fn create_user(State(db): State<UsersDB>, Extension(user): Extension<Curre
         )
     )]
 async fn create_class(State(coco): State<CoCo>, Extension(user): Extension<CurrentUser>, Json(class): Json<Class>) -> impl IntoResponse {
-    if user.role != "admin" {
+    if user.role != Role::Admin {
         return (StatusCode::FORBIDDEN, "Only admin users can create classes").into_response();
     }
     unsecure::create_class(State(coco), Json(class)).await.into_response()
@@ -384,7 +391,7 @@ async fn create_class(State(coco): State<CoCo>, Extension(user): Extension<Curre
         )
     )]
 async fn create_rule(State(coco): State<CoCo>, Extension(user): Extension<CurrentUser>, Json(rule): Json<Rule>) -> impl IntoResponse {
-    if user.role != "admin" {
+    if user.role != Role::Admin {
         return (StatusCode::FORBIDDEN, "Only admin users can create rules").into_response();
     }
     unsecure::create_rule(State(coco), Json(rule)).await.into_response()
@@ -409,7 +416,7 @@ async fn create_rule(State(coco): State<CoCo>, Extension(user): Extension<Curren
         )
     )]
 async fn create_object(State(coco): State<CoCo>, Extension(user): Extension<CurrentUser>, Json(object): Json<JsonValue>) -> impl IntoResponse {
-    if user.role != "admin" {
+    if user.role != Role::Admin {
         return (StatusCode::FORBIDDEN, "Only admin users can create objects").into_response();
     }
     unsecure::create_object(State(coco), Json(object)).await.into_response()
@@ -436,7 +443,7 @@ async fn create_object(State(coco): State<CoCo>, Extension(user): Extension<Curr
         )
     )]
 async fn set_properties(State(coco): State<CoCo>, Extension(user): Extension<CurrentUser>, Path(object_id): Path<String>, Json(properties): Json<JsonValue>) -> impl IntoResponse {
-    if user.role != "admin" {
+    if user.role != Role::Admin {
         return (StatusCode::FORBIDDEN, "Only admin users can update object properties").into_response();
     }
     unsecure::set_properties(State(coco), Path(object_id), Json(properties)).await.into_response()
@@ -464,7 +471,7 @@ async fn set_properties(State(coco): State<CoCo>, Extension(user): Extension<Cur
         )
     )]
 async fn add_data(State(coco): State<CoCo>, Extension(user): Extension<CurrentUser>, Path(object_id): Path<String>, Query(date_query): Query<DateQuery>, Json(values): Json<JsonValue>) -> impl IntoResponse {
-    if user.role != "admin" {
+    if user.role != Role::Admin {
         return (StatusCode::FORBIDDEN, "Only admin users can add data to objects").into_response();
     }
     unsecure::add_data(State(coco), Path(object_id), Query(date_query), Json(values)).await.into_response()
@@ -647,7 +654,7 @@ impl Modify for SecurityAddon {
     ),
     paths(get_users, create_user, register, login, refresh_token, unsecure::get_classes, unsecure::get_class, create_class, unsecure::get_objects, unsecure::get_object, create_object, set_properties, add_data, unsecure::get_data, unsecure::get_rules, unsecure::get_rule, create_rule, ws_handler, openapi),
     components(
-        schemas(Class, Rule, Property, OpenApiObject, OpenApiValue, User, Credentials, AuthTokens, RefreshTokenRequest)
+        schemas(Class, Rule, Property, OpenApiObject, OpenApiValue, Role, User, Credentials, AuthTokens, RefreshTokenRequest)
     ),
     modifiers(&SecurityAddon),
     tags(
