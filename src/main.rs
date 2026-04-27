@@ -9,7 +9,8 @@ use coco::kb::clips::ollama::OllamaModule;
 #[cfg(feature = "mqtt")]
 use coco::mqtt::MQTTModule;
 #[cfg(feature = "secure")]
-use coco::server::secure::{UsersDB, secure_coco_router};
+use coco::server::secure::secure_coco_router;
+use coco::server::secure_db::UsersDB;
 #[cfg(not(feature = "secure"))]
 use coco::server::unsecure::unsecure_coco_router;
 use tower_http::services::{ServeDir, ServeFile};
