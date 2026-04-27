@@ -1,6 +1,6 @@
 {
   "name": "@ratiosolver/coco",
-  "version": "0.1.4",
+  "version": "0.1.5",
   "type": "module",
   "description": "A frontend library for facilitating interaction with the CoCo (Combined deduCtiOn and abduCtiOn) cognitive architecture",
   "main": "dist/index.js",

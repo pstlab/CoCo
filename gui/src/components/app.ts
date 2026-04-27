@@ -15,9 +15,9 @@ const app_listener = {
 };
 
 const landing_page = () => h('div.container.mt-5', [
-  h('div.text-center.mb-5', [
+  h('header.text-center.mb-5', [
     h('h1.display-4', 'CoCo'),
-    h('p.lead', 'Combined Deduction and Abduction Reasoner'),
+    h('p.lead.text-body-secondary', 'Combined deduCtiOn and abduCtiOn Reasoner'),
   ]),
   h('div.row.justify-content-center', [
     h('div.col-lg-8', [
@@ -25,11 +25,21 @@ const landing_page = () => h('div.container.mt-5', [
       h('hr.my-4'),
       h('h4', 'Features'),
       h('ul.list-group.list-group-flush', [
-        h('li.list-group-item', [h('strong', 'Hybrid Reasoning'), ': Unites deductive logic with abductive inference.']),
-        h('li.list-group-item', [h('strong', 'Rust Core'), ': Designed for performance, memory safety, and concurrency.']),
-        h('li.list-group-item', [h('strong', 'CLIPS Integration'), ': Seamless binding with the C-based CLIPS expert system.']),
-        h('li.list-group-item', [h('strong', 'Web Interface'), ': Includes a web server (Axum) and visualization tools.']),
-      ])
+        h('li.list-group-item', [h('i.fas.fa-project-diagram.me-2.text-primary'), h('strong', 'Dual-process Reasoning'), ': Combines a forward-chaining deductive engine with abductive inference to explain observed evidence.']),
+        h('li.list-group-item', [h('i.fas.fa-database.me-2.text-primary'), h('strong', 'Dynamic Knowledge Base'), ': Classes and objects evolve at runtime. Properties update continuously and a full time-series history is retained.']),
+        h('li.list-group-item', [h('i.fas.fa-cog.me-2.text-primary'), h('strong', 'CLIPS Expert System'), ': Leverages the battle-tested CLIPS rule engine via seamless Rust bindings for expressive, pattern-based rule evaluation.']),
+        h('li.list-group-item', [h('i.fas.fa-broadcast-tower.me-2.text-primary'), h('strong', 'Real-time Notifications'), ': Clients subscribe to reasoner events over WebSocket and receive inferences as they fire.']),
+      ]),
+      h('hr.my-4'),
+      h('p', [
+        'The knowledge base is organized around ', h('strong', 'classes'), ' and ', h('strong', 'objects'), '. Classes define the structure of things the reasoner knows about. They carry ', h('i', 'static properties'), ' (fixed at creation time) and ', h('i', 'dynamic properties'), ' (updated as the environment evolves), and can inherit from other classes to form a hierarchy. Objects are instances of one or more classes; their properties can be updated at any time, and a full history of their values is recorded as time-series data that can be queried over any time range.',
+      ]),
+      h('p', [
+        'Reasoning is driven by ', h('strong', 'rules'), '. Each rule encodes a piece of domain knowledge: given certain conditions on the current state of objects and their data, the reasoner fires the appropriate conclusions, either deducing new facts or hypothesising explanations for observed evidence. Rules can be added dynamically, allowing the knowledge base to grow and adapt without restarting the system.',
+      ]),
+      h('p', [
+        'Clients can interact with CoCo either through its REST API or by opening a ', h('strong', 'WebSocket connection'), ' to receive real-time notifications whenever the reasoner produces new inferences.',
+      ]),
     ])
   ])
 ]);
