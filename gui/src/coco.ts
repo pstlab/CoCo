@@ -1,30 +1,22 @@
-export interface CoCoOptions {
-  ws_url?: string;
-}
-
 export namespace coco {
   export class CoCo {
 
-    private readonly options: CoCoOptions;
+    private access_token: string | null = null;
     private readonly classes: Map<string, CoCoClass> = new Map();
     private readonly objects: Map<string, CoCoObject> = new Map();
     private readonly rules: Map<string, CoCoRule> = new Map();
     private socket: WebSocket | null = null;
     private readonly listeners: Set<CoCoListener> = new Set();
 
-    constructor(options: CoCoOptions = {}) {
-      this.options = {
-        ws_url: (window.location.protocol === 'https:' ? 'wss' : 'ws') + '://' + window.location.host + '/ws',
-        ...options
-      };
+    constructor() {
     }
 
     connect() {
       if (this.socket)
         this.socket.close();
 
-      console.log('Connecting to CoCo at', this.options.ws_url);
-      this.socket = new WebSocket(this.options.ws_url!);
+      this.access_token = this.access_token || localStorage.getItem('coco_access_token');
+      this.socket = new WebSocket((window.location.protocol === 'https:' ? 'wss' : 'ws') + '://' + window.location.host + '/ws?token=' + encodeURIComponent(this.access_token || ''));
       this.socket.onopen = () => {
         console.log('CoCo connected');
         for (const listener of this.listeners) listener.connected();
@@ -87,6 +79,31 @@ export namespace coco {
         }
       }
     }
+
+    async login(username: string, password: string) {
+      fetch('/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ username, password })
+      }).then(res => {
+        if (!res.ok) throw new Error(`Login failed: ${res.statusText}`);
+        this.access_token = null;
+        return res.json();
+      }).then((data: { access_token: string, refresh_token: string }) => {
+        this.access_token = data.access_token;
+        localStorage.setItem('coco_access_token', this.access_token);
+        this.connect();
+      });
+    }
+
+    logout() {
+      this.access_token = null;
+      localStorage.removeItem('coco_access_token');
+      if (this.socket)
+        this.socket.close();
+    }
+
+    get_access_token(): string | null { return this.access_token; }
 
     get_classes(): ReadonlyMap<string, CoCoClass> { return this.classes; }
     get_class(name: string): CoCoClass { return this.classes.get(name)!; }
@@ -184,7 +201,7 @@ export namespace coco {
         start: new Date(from).toISOString(),
         end: new Date(to).toISOString()
       });
-      fetch(`/objects/${this.id}/data?${params.toString()}`).then(res => {
+      fetch(`/objects/${this.id}/data?${params.toString()}`, { headers: { 'Authorization': 'Bearer ' + this.coco.get_access_token() } }).then(res => {
         if (!res.ok) throw new Error(`Failed to load object data: ${res.statusText}`);
         return res.json();
       }).then((data: Record<string, Array<TimeValue>>) => {

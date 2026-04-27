@@ -10,6 +10,7 @@ use coco::kb::clips::ollama::OllamaModule;
 use coco::mqtt::MQTTModule;
 #[cfg(feature = "secure")]
 use coco::server::secure::secure_coco_router;
+#[cfg(feature = "secure")]
 use coco::server::secure_db::UsersDB;
 #[cfg(not(feature = "secure"))]
 use coco::server::unsecure::unsecure_coco_router;

@@ -6,6 +6,10 @@ export default defineConfig({
   server: {
     proxy: {
       // Proxy specific API routes to your Axum server
+      '/login': {
+        target: 'http://localhost:3000',
+        changeOrigin: true,
+      },
       '/classes': {
         target: 'http://localhost:3000',
         changeOrigin: true,

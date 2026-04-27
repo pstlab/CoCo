@@ -3,6 +3,7 @@ import { coco } from "../coco";
 import { App, flick, Navbar, NavbarItem, NavbarList, OffcanvasBrand } from "@ratiosolver/flick";
 import { CoCoOffcanvas } from "./offcanvas";
 import { taxonomy } from "./taxonomy";
+import { UserButton } from "./user";
 
 const app_listener = {
   initialized: () => flick.redraw(),
@@ -63,7 +64,7 @@ export function CoCoApp(coco: coco.CoCo): VNode {
     CoCoOffcanvas(coco)
   ]);
 
-  return App(Navbar(OffcanvasBrand('CoCo'), NavbarList([NavbarItem(h('i.fas.fa-home', {
+  return App(Navbar(OffcanvasBrand('CoCo'), [NavbarList([NavbarItem(h('i.fas.fa-home', {
     on: {
       click: () => {
         flick.ctx.current_page = landing_page;
@@ -80,5 +81,5 @@ export function CoCoApp(coco: coco.CoCo): VNode {
         flick.redraw();
       }
     }
-  }))])), content);
+  }))]), UserButton(coco)]), content);
 }
