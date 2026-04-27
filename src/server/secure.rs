@@ -1,8 +1,10 @@
+use std::collections::HashSet;
+
 use crate::{
     CoCo,
     db::DatabaseError,
     model::{Class, CoCoError, CoCoEvent, Object, Property, Rule, Value},
-    server::unsecure::{self, DateQuery, get_class, get_classes, get_data, get_object, get_objects, get_rule, get_rules},
+    server::unsecure::{self, DateQuery, ObjectFilter, get_class, get_classes, get_data, get_rule, get_rules},
 };
 use argon2::{
     Argon2, PasswordHash, PasswordHasher, PasswordVerifier,
@@ -17,7 +19,7 @@ use axum::{
     http::{StatusCode, header},
     middleware::{Next, from_fn_with_state},
     response::{IntoResponse, Response},
-    routing::{get, patch, post},
+    routing::{get, post},
 };
 use chrono::{Duration, Utc};
 use futures::TryStreamExt;
@@ -56,6 +58,10 @@ pub struct User {
     username: String,
     password: String,
     role: Role,
+    #[serde(default)]
+    read_access: HashSet<String>,
+    #[serde(default)]
+    write_access: HashSet<String>,
 }
 
 #[derive(Clone)]
@@ -110,10 +116,24 @@ impl UsersDB {
         if let Some(user) = user { if verify_password(password, &user.password) { Ok(user) } else { Err(DatabaseError::NotFound("Invalid username or password".to_string())) } } else { Err(DatabaseError::NotFound("Invalid username or password".to_string())) }
     }
 
+    async fn get_user_by_username(&self, username: &str) -> Result<User, DatabaseError> {
+        let db = self.client.database(&self.name);
+        let users_collection = db.collection::<User>("users");
+        let filter = doc! { "username": username };
+        let user = users_collection.find_one(filter).await.map_err(|e| DatabaseError::NotFound(e.to_string()))?;
+        user.ok_or_else(|| DatabaseError::NotFound("User not found".to_string()))
+    }
+
     async fn create_user(&self, username: &str, password: &str, role: Role) -> Result<(), DatabaseError> {
         let db = self.client.database(&self.name);
         let collection = db.collection::<User>("users");
-        let new_user = User { username: username.to_owned(), password: hash_password(password), role };
+        let new_user = User {
+            username: username.to_owned(),
+            password: hash_password(password),
+            role,
+            read_access: HashSet::new(),
+            write_access: HashSet::new(),
+        };
         collection.insert_one(new_user).await.map_err(|e| if e.to_string().contains("duplicate key error") { DatabaseError::Exists(username.to_owned()) } else { DatabaseError::ConnectionError(e.to_string()) })?;
         Ok(())
     }
@@ -131,19 +151,11 @@ pub async fn secure_coco_router(coco: CoCo, users_db: UsersDB) -> Router {
     let protected_auth_router = Router::new().route("/users", get(get_users).post(create_user)).route_layer(from_fn_with_state(app_state.clone(), auth_middleware));
     let auth_router = Router::new().route("/register", post(register)).route("/login", post(login)).route("/refresh_token", post(refresh_token)).merge(protected_auth_router).with_state(app_state.clone());
 
-    let unsecure_router = Router::new()
-        .route("/classes", get(get_classes))
-        .route("/classes/{name}", get(get_class))
-        .route("/rules", get(get_rules))
-        .route("/rules/{name}", get(get_rule))
-        .route("/objects", get(get_objects))
-        .route("/objects/{id}", get(get_object))
-        .route("/objects/{id}/data", get(get_data))
-        .with_state(app_state.coco.clone());
+    let unsecure_router = Router::new().route("/classes", get(get_classes)).route("/classes/{name}", get(get_class)).route("/rules", get(get_rules)).route("/rules/{name}", get(get_rule)).route("/objects/{id}/data", get(get_data)).with_state(app_state.coco.clone());
 
-    let protected_router = Router::new().route("/classes", post(create_class)).route("/rules", post(create_rule)).route("/objects", post(create_object)).route("/objects/{id}", patch(set_properties)).route("/objects/{id}/data", post(add_data)).route_layer(from_fn_with_state(app_state.clone(), auth_middleware));
+    let protected_router = Router::new().route("/classes", post(create_class)).route("/rules", post(create_rule)).route("/objects", post(create_object)).route("/objects/{id}", get(get_object).patch(set_properties)).route("/objects/{id}/data", post(add_data)).route_layer(from_fn_with_state(app_state.clone(), auth_middleware));
 
-    let coco_router = Router::new().route("/ws", get(ws_handler)).route("/openapi", get(openapi)).merge(unsecure_router).merge(protected_router).with_state(app_state);
+    let coco_router = Router::new().route("/ws", get(ws_handler)).route("/objects", get(get_objects)).route("/openapi", get(openapi)).merge(unsecure_router).merge(protected_router).with_state(app_state);
 
     auth_router.merge(coco_router)
 }
@@ -154,7 +166,13 @@ async fn auth_middleware(State(state): State<AppState>, mut req: Request, next: 
         && let Ok(claims) = verify_jwt(token, &state.users_db.secret)
         && claims.token_type == TokenType::Access
     {
-        req.extensions_mut().insert(CurrentUser { _id: claims.sub, role: claims.role });
+        let user = state.users_db.get_user_by_username(&claims.sub).await.map_err(|_| StatusCode::UNAUTHORIZED)?;
+        req.extensions_mut().insert(CurrentUser {
+            _id: user.username,
+            role: user.role,
+            read_access: user.read_access,
+            write_access: user.write_access,
+        });
         return Ok(next.run(req).await);
     }
     Err(StatusCode::UNAUTHORIZED)
@@ -244,6 +262,8 @@ struct RefreshTokenRequest {
 struct CurrentUser {
     _id: String,
     role: Role,
+    read_access: HashSet<String>,
+    write_access: HashSet<String>,
 }
 
 fn issue_tokens(username: &str, role: &Role, secret: &str) -> Result<AuthTokens, StatusCode> {
@@ -418,6 +438,64 @@ async fn create_rule(State(state): State<AppState>, Extension(user): Extension<C
 }
 
 #[utoipa::path(
+        get,
+        path = "/objects",
+        tag = "Objects",
+        summary = "List all objects",
+        description = "Retrieve a list of all available objects in the knowledge base.",
+        params(ObjectFilter),
+        responses(
+            (status = 200, description = "List of objects", body = [OpenApiObject])
+        )
+    )]
+async fn get_objects(State(state): State<AppState>, Extension(user): Extension<CurrentUser>, Query(filter): Query<ObjectFilter>) -> impl IntoResponse {
+    trace!("Handling request to list all objects with filter: {:?}", filter);
+    match state.coco.get_objects().await {
+        Ok(objects) => {
+            let filtered_objects: Vec<Object> = objects
+                .into_iter()
+                .filter(|o| {
+                    let class_match = filter.class.as_ref().is_none_or(|class_name| o.classes.contains(class_name));
+                    let extra_match = filter.extra.as_ref().is_none_or(|extra| extra.iter().all(|(k, v)| o.properties.as_ref().and_then(|props| props.get(k)).is_none_or(|prop| prop == v)));
+                    let access_match = user.role == Role::Admin || user.read_access.contains(o.id.as_ref().unwrap_or(&"".to_string()));
+                    class_match && extra_match && access_match
+                })
+                .collect();
+            Json(filtered_objects).into_response()
+        }
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to get objects: {}", e)).into_response(),
+    }
+}
+
+#[utoipa::path(
+        get,
+        path = "/objects/{id}",
+        tag = "Objects",
+        summary = "Get an object",
+        description = "Retrieve details for a specific object by its ID.",
+        params(
+            ("id" = String, Path, description = "ID of the object to retrieve")
+        ),
+        responses(
+            (status = 200, description = "The requested object", body = OpenApiObject),
+            (status = 401, description = "Missing or invalid JWT token"),
+            (status = 403, description = "Forbidden - user does not have access to view this object"),
+            (status = 404, description = "Object not found")
+        )
+    )]
+async fn get_object(State(state): State<AppState>, Extension(user): Extension<CurrentUser>, Path(id): Path<String>) -> impl IntoResponse {
+    trace!("Handling request to get object with ID: {}", id);
+    if user.role != Role::Admin && !user.read_access.contains(&id) {
+        return (StatusCode::FORBIDDEN, "You do not have access to view this object").into_response();
+    }
+    match state.coco.get_object(id.clone()).await {
+        Ok(Some(object)) => Json(object).into_response(),
+        Ok(None) => (StatusCode::NOT_FOUND, format!("Object with ID '{}' not found", id)).into_response(),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to get object with ID '{}': {}", id, e)).into_response(),
+    }
+}
+
+#[utoipa::path(
         post,
         path = "/objects",
         tag = "Objects",
@@ -463,8 +541,8 @@ async fn create_object(State(state): State<AppState>, Extension(user): Extension
         )
     )]
 async fn set_properties(State(state): State<AppState>, Extension(user): Extension<CurrentUser>, Path(object_id): Path<String>, Json(properties): Json<JsonValue>) -> impl IntoResponse {
-    if user.role != Role::Admin {
-        return (StatusCode::FORBIDDEN, "Only admin users can update object properties").into_response();
+    if user.role != Role::Admin || !user.write_access.contains(&object_id) {
+        return (StatusCode::FORBIDDEN, "Only admin users or users with write access to the object can update its properties").into_response();
     }
     unsecure::set_properties(State(state.coco), Path(object_id), Json(properties)).await.into_response()
 }
@@ -491,8 +569,8 @@ async fn set_properties(State(state): State<AppState>, Extension(user): Extensio
         )
     )]
 async fn add_data(State(state): State<AppState>, Extension(user): Extension<CurrentUser>, Path(object_id): Path<String>, Query(date_query): Query<DateQuery>, Json(values): Json<JsonValue>) -> impl IntoResponse {
-    if user.role != Role::Admin {
-        return (StatusCode::FORBIDDEN, "Only admin users can add data to objects").into_response();
+    if user.role != Role::Admin || !user.write_access.contains(&object_id) {
+        return (StatusCode::FORBIDDEN, "Only admin users or users with write access to the object can add data to it").into_response();
     }
     unsecure::add_data(State(state.coco), Path(object_id), Query(date_query), Json(values)).await.into_response()
 }
@@ -686,7 +764,7 @@ impl Modify for SecurityAddon {
     servers(
         (url = "/", description = "Base URL for CoCo API")
     ),
-    paths(get_users, create_user, register, login, refresh_token, unsecure::get_classes, unsecure::get_class, create_class, unsecure::get_objects, unsecure::get_object, create_object, set_properties, add_data, unsecure::get_data, unsecure::get_rules, unsecure::get_rule, create_rule, ws_handler, openapi),
+    paths(get_users, create_user, register, login, refresh_token, unsecure::get_classes, unsecure::get_class, create_class, get_objects, get_object, create_object, set_properties, add_data, unsecure::get_data, unsecure::get_rules, unsecure::get_rule, create_rule, ws_handler, openapi),
     components(
         schemas(Class, Rule, Property, OpenApiObject, OpenApiValue, Role, User, Credentials, CreateUserRequest, AuthTokens, RefreshTokenRequest)
     ),
