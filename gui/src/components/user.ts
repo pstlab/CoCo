@@ -5,12 +5,32 @@ import { flick } from "@ratiosolver/flick";
 
 let username = "";
 let password = "";
+let connected = false;
+
+const app_listener = {
+  initialized: () => { },
+  created_class: (_cls: coco.CoCoClass) => { },
+  created_object: (_obj: coco.CoCoObject) => { },
+  created_rule: (_rule: coco.CoCoRule) => { },
+  connection_error: (_error: Event) => { },
+  connected: () => { connected = true; },
+  disconnected: () => { connected = false; },
+};
 
 export function UserButton(coco: coco.CoCo): VNode {
   let loginModal: Modal | null = null;
   let dropdown: Dropdown | null = null;
 
-  return h('div.btn-group', [
+  return h('div.btn-group', {
+    hook: {
+      insert: () => {
+        coco.add_listener(app_listener);
+      },
+      destroy: () => {
+        coco.remove_listener(app_listener);
+      }
+    }
+  }, [
     h('button.btn.dropdown-toggle', {
       attrs: { 'data-bs-toggle': 'dropdown' },
       hook: {
@@ -24,7 +44,7 @@ export function UserButton(coco: coco.CoCo): VNode {
       on: { click: () => dropdown?.toggle() }
     }, h('i.fas.fa-user-circle')),
     h('ul.dropdown-menu.dropdown-menu-end', [
-      coco.get_access_token() ?
+      connected ?
         h('li', h('button.dropdown-item', {
           on: {
             click: () => {
