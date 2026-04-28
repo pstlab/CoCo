@@ -52,7 +52,7 @@ export function taxonomy(coco: coco.CoCo): VNode {
     created_rule: (_rule: coco.CoCoRule) => { },
     connection_error: (error: Event) => console.error('CoCo connection error', error),
     connected: () => { },
-    disconnected: () => { },
+    disconnected: () => { if (chart) chart.setOption(get_option()); },
   };
 
   let resize_handler: () => void;

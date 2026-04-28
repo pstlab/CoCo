@@ -108,6 +108,10 @@ export namespace coco {
       localStorage.removeItem('coco_access_token');
       if (this.socket)
         this.socket.close();
+      this.classes.clear();
+      this.objects.clear();
+      this.rules.clear();
+      for (const listener of this.listeners) listener.disconnected();
     }
 
     get_access_token(): string | null { return this.access_token; }

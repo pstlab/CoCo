@@ -5,16 +5,6 @@ import { CoCoOffcanvas } from "./offcanvas";
 import { taxonomy } from "./taxonomy";
 import { UserButton } from "./user";
 
-const app_listener = {
-  initialized: () => flick.redraw(),
-  created_class: (_cls: coco.CoCoClass) => flick.redraw(),
-  created_object: (_obj: coco.CoCoObject) => flick.redraw(),
-  created_rule: (_rule: coco.CoCoRule) => flick.redraw(),
-  connection_error: (error: Event) => console.error('CoCo connection error', error),
-  connected: () => { },
-  disconnected: () => { },
-};
-
 const landing_page = () => h('div.container.mt-5', [
   h('header.text-center.mb-5', [
     h('h1.display-4', 'CoCo'),
@@ -44,6 +34,19 @@ const landing_page = () => h('div.container.mt-5', [
     ])
   ])
 ]);
+
+const app_listener = {
+  initialized: () => flick.redraw(),
+  created_class: (_cls: coco.CoCoClass) => flick.redraw(),
+  created_object: (_obj: coco.CoCoObject) => flick.redraw(),
+  created_rule: (_rule: coco.CoCoRule) => flick.redraw(),
+  connection_error: (error: Event) => console.error('CoCo connection error', error),
+  connected: () => { },
+  disconnected: () => {
+    flick.ctx.current_page = landing_page;
+    flick.ctx.page_title = 'Home';
+  },
+};
 
 flick.ctx.current_page = landing_page;
 flick.ctx.page_title = 'Home';
