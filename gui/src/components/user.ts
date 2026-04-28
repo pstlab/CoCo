@@ -42,7 +42,17 @@ export function UserButton(coco: coco.CoCo): VNode {
     ]),
     h('div.modal.fade', {
       hook: {
-        insert: (vnode) => { loginModal = new Modal(vnode.elm as Element); },
+        insert: (vnode) => {
+          const modalElement = vnode.elm as Element;
+          loginModal = new Modal(modalElement);
+          // Restore focus to the user button when modal is hidden
+          modalElement.addEventListener('hide.bs.modal', () => {
+            const userButton = document.querySelector('.btn-group .btn.dropdown-toggle') as HTMLButtonElement;
+            if (userButton) {
+              setTimeout(() => userButton.focus(), 0);
+            }
+          });
+        },
         update: (_old, vnode) => { loginModal = new Modal(vnode.elm as Element); },
         destroy: (_vnode) => {
           loginModal?.dispose();
@@ -63,39 +73,41 @@ export function UserButton(coco: coco.CoCo): VNode {
             })
           ]),
           h('div.modal-body', [
-            h('div.mb-3', [
-              h('label.form-label', {
-                attrs: { for: 'coco-login-username' }
-              }, 'Username'),
-              h('input.form-control', {
-                attrs: {
-                  id: 'coco-login-username',
-                  type: 'text',
-                  autocomplete: 'username'
-                },
-                on: {
-                  input: (event: Event) => {
-                    username = (event.target as HTMLInputElement).value;
+            h('form', [
+              h('div.mb-3', [
+                h('label.form-label', {
+                  attrs: { for: 'coco-login-username' }
+                }, 'Username'),
+                h('input.form-control', {
+                  attrs: {
+                    id: 'coco-login-username',
+                    type: 'text',
+                    autocomplete: 'username'
+                  },
+                  on: {
+                    input: (event: Event) => {
+                      username = (event.target as HTMLInputElement).value;
+                    }
                   }
-                }
-              })
-            ]),
-            h('div.mb-3', [
-              h('label.form-label', {
-                attrs: { for: 'coco-login-password' }
-              }, 'Password'),
-              h('input.form-control', {
-                attrs: {
-                  id: 'coco-login-password',
-                  type: 'password',
-                  autocomplete: 'current-password'
-                },
-                on: {
-                  input: (event: Event) => {
-                    password = (event.target as HTMLInputElement).value;
+                })
+              ]),
+              h('div.mb-3', [
+                h('label.form-label', {
+                  attrs: { for: 'coco-login-password' }
+                }, 'Password'),
+                h('input.form-control', {
+                  attrs: {
+                    id: 'coco-login-password',
+                    type: 'password',
+                    autocomplete: 'current-password'
+                  },
+                  on: {
+                    input: (event: Event) => {
+                      password = (event.target as HTMLInputElement).value;
+                    }
                   }
-                }
-              })
+                })
+              ])
             ])
           ]),
           h('div.modal-footer', [
