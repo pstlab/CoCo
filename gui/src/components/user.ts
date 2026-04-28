@@ -7,11 +7,7 @@ let username = "";
 let password = "";
 let connected = false;
 
-const app_listener = {
-  initialized: () => { },
-  created_class: (_cls: coco.CoCoClass) => { },
-  created_object: (_obj: coco.CoCoObject) => { },
-  created_rule: (_rule: coco.CoCoRule) => { },
+const connection_listener = {
   connection_error: (_error: Event) => { },
   connected: () => { connected = true; },
   disconnected: () => { connected = false; },
@@ -24,10 +20,10 @@ export function UserButton(coco: coco.CoCo): VNode {
   return h('div.btn-group', {
     hook: {
       insert: () => {
-        coco.add_listener(app_listener);
+        coco.add_connection_listener(connection_listener);
       },
       destroy: () => {
-        coco.remove_listener(app_listener);
+        coco.remove_connection_listener(connection_listener);
       }
     }
   }, [

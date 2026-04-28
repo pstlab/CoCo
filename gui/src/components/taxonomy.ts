@@ -45,14 +45,17 @@ export function taxonomy(coco: coco.CoCo): VNode {
     };
   };
 
+  const connection_listener = {
+    connection_error: (_error: Event) => { },
+    connected: () => { },
+    disconnected: () => { if (chart) chart.setOption(get_option()); },
+  };
+
   const coco_listener = {
     initialized: () => { if (chart) chart.setOption(get_option()); },
     created_class: (_cls: coco.CoCoClass) => { if (chart) chart.setOption(get_option()); },
     created_object: (_obj: coco.CoCoObject) => { },
     created_rule: (_rule: coco.CoCoRule) => { },
-    connection_error: (error: Event) => console.error('CoCo connection error', error),
-    connected: () => { },
-    disconnected: () => { if (chart) chart.setOption(get_option()); },
   };
 
   let resize_handler: () => void;
@@ -78,10 +81,12 @@ export function taxonomy(coco: coco.CoCo): VNode {
         resize_handler = () => chart?.resize();
         window.addEventListener('resize', resize_handler);
 
+        coco.add_connection_listener(connection_listener);
         coco.add_listener(coco_listener);
       },
       destroy: () => {
         window.removeEventListener('resize', resize_handler);
+        coco.remove_connection_listener(connection_listener);
         coco.remove_listener(coco_listener);
         if (chart) {
           chart.dispose();

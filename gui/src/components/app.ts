@@ -35,17 +35,20 @@ const landing_page = () => h('div.container.mt-5', [
   ])
 ]);
 
-const app_listener = {
-  initialized: () => flick.redraw(),
-  created_class: (_cls: coco.CoCoClass) => flick.redraw(),
-  created_object: (_obj: coco.CoCoObject) => flick.redraw(),
-  created_rule: (_rule: coco.CoCoRule) => flick.redraw(),
-  connection_error: (error: Event) => console.error('CoCo connection error', error),
+const connection_listener = {
+  connection_error: (_error: Event) => { },
   connected: () => { },
   disconnected: () => {
     flick.ctx.current_page = landing_page;
     flick.ctx.page_title = 'Home';
   },
+};
+
+const coco_listener = {
+  initialized: () => flick.redraw(),
+  created_class: (_cls: coco.CoCoClass) => flick.redraw(),
+  created_object: (_obj: coco.CoCoObject) => flick.redraw(),
+  created_rule: (_rule: coco.CoCoRule) => flick.redraw(),
 };
 
 flick.ctx.current_page = landing_page;
@@ -56,10 +59,12 @@ export function CoCoApp(coco: coco.CoCo): VNode {
     {
       hook: {
         insert: () => {
-          coco.add_listener(app_listener);
+          coco.add_connection_listener(connection_listener);
+          coco.add_listener(coco_listener);
         },
         destroy: () => {
-          coco.remove_listener(app_listener);
+          coco.remove_connection_listener(connection_listener);
+          coco.remove_listener(coco_listener);
         }
       }
     }, [

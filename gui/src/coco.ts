@@ -6,6 +6,7 @@ export namespace coco {
     private readonly objects: Map<string, CoCoObject> = new Map();
     private readonly rules: Map<string, CoCoRule> = new Map();
     private socket: WebSocket | null = null;
+    private readonly connection_listeners: Set<ConnectionListener> = new Set();
     private readonly listeners: Set<CoCoListener> = new Set();
 
     constructor() {
@@ -20,15 +21,15 @@ export namespace coco {
       this.socket = new WebSocket((window.location.protocol === 'https:' ? 'wss' : 'ws') + '://' + window.location.host + '/ws?token=' + encodeURIComponent(this.access_token || ''));
       this.socket.onopen = () => {
         console.log('CoCo connected');
-        for (const listener of this.listeners) listener.connected();
+        for (const listener of this.connection_listeners) listener.connected();
       };
       this.socket.onclose = () => {
         console.log('CoCo disconnected');
-        for (const listener of this.listeners) listener.disconnected();
+        for (const listener of this.connection_listeners) listener.disconnected();
       };
       this.socket.onerror = (error) => {
         console.error('CoCo connection error', error);
-        for (const listener of this.listeners) listener.connection_error(error);
+        for (const listener of this.connection_listeners) listener.connection_error(error);
       };
       this.socket.onmessage = (event) => {
         console.trace('CoCo message received:', event.data);
@@ -111,7 +112,7 @@ export namespace coco {
       this.classes.clear();
       this.objects.clear();
       this.rules.clear();
-      for (const listener of this.listeners) listener.disconnected();
+      for (const listener of this.connection_listeners) listener.disconnected();
     }
 
     get_access_token(): string | null { return this.access_token; }
@@ -124,6 +125,9 @@ export namespace coco {
 
     get_rules(): ReadonlyMap<string, CoCoRule> { return this.rules; }
     get_rule(name: string): CoCoRule { return this.rules.get(name)!; }
+
+    add_connection_listener(listener: ConnectionListener) { this.connection_listeners.add(listener); }
+    remove_connection_listener(listener: ConnectionListener) { this.connection_listeners.delete(listener); }
 
     add_listener(listener: CoCoListener) { this.listeners.add(listener); }
     remove_listener(listener: CoCoListener) { this.listeners.delete(listener); }
@@ -248,12 +252,13 @@ export namespace coco {
     get_content(): string { return this.content; }
   }
 
-  export interface CoCoListener {
-
+  export interface ConnectionListener {
     connected(): void;
     disconnected(): void;
     connection_error(error: Event): void;
+  }
 
+  export interface CoCoListener {
     initialized(): void;
     created_class(cls: CoCoClass): void;
     created_object(obj: CoCoObject): void;
