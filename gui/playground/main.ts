@@ -6,5 +6,3 @@ import '@fortawesome/fontawesome-free/css/all.css';
 const cc = new coco.CoCo();
 
 flick.mount(() => CoCoApp(cc));
-
-cc.connect();

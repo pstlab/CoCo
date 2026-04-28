@@ -9,13 +9,14 @@ export namespace coco {
     private readonly listeners: Set<CoCoListener> = new Set();
 
     constructor() {
+      this.access_token = this.access_token || localStorage.getItem('coco_access_token');
+      if (this.access_token) this.connect();
     }
 
     connect() {
       if (this.socket)
         this.socket.close();
 
-      this.access_token = this.access_token || localStorage.getItem('coco_access_token');
       this.socket = new WebSocket((window.location.protocol === 'https:' ? 'wss' : 'ws') + '://' + window.location.host + '/ws?token=' + encodeURIComponent(this.access_token || ''));
       this.socket.onopen = () => {
         console.log('CoCo connected');
@@ -102,6 +103,7 @@ export namespace coco {
     }
 
     logout() {
+      console.log('Logging out');
       this.access_token = null;
       localStorage.removeItem('coco_access_token');
       if (this.socket)

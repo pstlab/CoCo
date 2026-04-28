@@ -1,17 +1,14 @@
-import { Dropdown, Modal } from "bootstrap";
-import { coco } from "../coco";
 import { h, VNode } from "snabbdom";
+import { coco } from "../coco";
+import { Dropdown, Modal } from "bootstrap";
+import { flick } from "@ratiosolver/flick";
 
-const LOGIN_MODAL_ID = 'coco-login-modal';
+let username = "";
+let password = "";
 
 export function UserButton(coco: coco.CoCo): VNode {
-  let username = "";
-  let password = "";
   let loginModal: Modal | null = null;
   let dropdown: Dropdown | null = null;
-
-  const showLoginModal = () => { loginModal?.show(); };
-  const hideLoginModal = () => { loginModal?.hide(); };
 
   return h('div.btn-group', [
     h('button.btn.dropdown-toggle', {
@@ -19,153 +16,108 @@ export function UserButton(coco: coco.CoCo): VNode {
       hook: {
         insert: (vnode) => { dropdown = Dropdown.getOrCreateInstance(vnode.elm as Element); },
         update: (_old, vnode) => { dropdown = Dropdown.getOrCreateInstance(vnode.elm as Element); },
-        destroy: (vnode) => {
-          Dropdown.getInstance(vnode.elm as Element)?.dispose();
+        destroy: (_vnode) => {
+          dropdown?.dispose();
           dropdown = null;
         }
       },
       on: { click: () => dropdown?.toggle() }
     }, h('i.fas.fa-user-circle')),
     h('ul.dropdown-menu.dropdown-menu-end', [
-      LoginItem(showLoginModal),
-      LogoutItem(coco)
-    ]),
-    LoginModal(
-      () => username,
-      (value) => { username = value; },
-      () => password,
-      (value) => { password = value; },
-      async () => {
-        if (!username || !password) {
-          alert('Username and password are required.');
-          return;
-        }
-
-        try {
-          await coco.login(username, password);
-          hideLoginModal();
-          username = "";
-          password = "";
-        } catch (err) {
-          const message = err instanceof Error ? err.message : String(err);
-          alert(message.startsWith('Login failed:') ? message : 'Login failed: ' + message);
-        }
-      },
-      (modal) => {
-        loginModal = modal;
-      }
-    )
-  ]);
-}
-
-function LoginItem(openModal: () => void): VNode {
-  return h('li', h('button.dropdown-item', {
-    on: {
-      click: () => {
-        openModal();
-      }
-    }
-  }, 'Login'));
-}
-
-function LoginModal(getUsername: () => string, setUsername: (value: string) => void, getPassword: () => string, setPassword: (value: string) => void, onSubmit: () => Promise<void>, setInstance: (modal: Modal | null) => void): VNode {
-  return h('div.modal.fade', {
-    attrs: {
-      id: LOGIN_MODAL_ID,
-      tabindex: '-1',
-      'aria-hidden': 'true'
-    },
-    hook: {
-      insert: (vnode) => {
-        setInstance(Modal.getOrCreateInstance(vnode.elm as Element));
-      },
-      update: (_oldVnode, vnode) => {
-        setInstance(Modal.getOrCreateInstance(vnode.elm as Element));
-      },
-      destroy: (vnode) => {
-        const modal = Modal.getInstance(vnode.elm as Element);
-        modal?.dispose();
-        setInstance(null);
-      }
-    }
-  }, [
-    h('div.modal-dialog', [
-      h('div.modal-content', [
-        h('div.modal-header', [
-          h('h5.modal-title', 'Login'),
-          h('button.btn-close', {
-            attrs: {
-              type: 'button',
-              'data-bs-dismiss': 'modal',
-              'aria-label': 'Close'
+      coco.get_access_token() ?
+        h('li', h('button.dropdown-item', {
+          on: {
+            click: () => {
+              coco.logout();
+              flick.redraw();
             }
-          })
-        ]),
-        h('div.modal-body', [
-          h('div.mb-3', [
-            h('label.form-label', {
-              attrs: { for: 'coco-login-username' }
-            }, 'Username'),
-            h('input.form-control', {
+          }
+        }, 'Logout')) : h('li', h('button.dropdown-item', {
+          on: {
+            click: () => {
+              loginModal!.show();
+            }
+          }
+        }, 'Login'))
+    ]),
+    h('div.modal.fade', {
+      hook: {
+        insert: (vnode) => { loginModal = new Modal(vnode.elm as Element); },
+        update: (_old, vnode) => { loginModal = new Modal(vnode.elm as Element); },
+        destroy: (_vnode) => {
+          loginModal?.dispose();
+          loginModal = null;
+        }
+      }
+    }, [
+      h('div.modal-dialog', [
+        h('div.modal-content', [
+          h('div.modal-header', [
+            h('h5.modal-title', 'Login'),
+            h('button.btn-close', {
               attrs: {
-                id: 'coco-login-username',
-                type: 'text',
-                autocomplete: 'username'
-              },
-              props: { value: getUsername() },
-              on: {
-                input: (event: Event) => {
-                  setUsername((event.target as HTMLInputElement).value);
-                }
+                type: 'button',
+                'data-bs-dismiss': 'modal',
+                'aria-label': 'Close'
               }
             })
           ]),
-          h('div.mb-3', [
-            h('label.form-label', {
-              attrs: { for: 'coco-login-password' }
-            }, 'Password'),
-            h('input.form-control', {
+          h('div.modal-body', [
+            h('div.mb-3', [
+              h('label.form-label', {
+                attrs: { for: 'coco-login-username' }
+              }, 'Username'),
+              h('input.form-control', {
+                attrs: {
+                  id: 'coco-login-username',
+                  type: 'text',
+                  autocomplete: 'username'
+                },
+                on: {
+                  input: (event: Event) => {
+                    username = (event.target as HTMLInputElement).value;
+                  }
+                }
+              })
+            ]),
+            h('div.mb-3', [
+              h('label.form-label', {
+                attrs: { for: 'coco-login-password' }
+              }, 'Password'),
+              h('input.form-control', {
+                attrs: {
+                  id: 'coco-login-password',
+                  type: 'password',
+                  autocomplete: 'current-password'
+                },
+                on: {
+                  input: (event: Event) => {
+                    password = (event.target as HTMLInputElement).value;
+                  }
+                }
+              })
+            ])
+          ]),
+          h('div.modal-footer', [
+            h('button.btn.btn-secondary', {
               attrs: {
-                id: 'coco-login-password',
-                type: 'password',
-                autocomplete: 'current-password'
-              },
-              props: { value: getPassword() },
+                type: 'button',
+                'data-bs-dismiss': 'modal'
+              }
+            }, 'Cancel'),
+            h('button.btn.btn-primary', {
+              attrs: { type: 'button' },
               on: {
-                input: (event: Event) => {
-                  setPassword((event.target as HTMLInputElement).value);
+                click: () => {
+                  coco.login(username, password).then(() => {
+                    loginModal!.hide();
+                    flick.redraw();
+                  }).catch((error) => alert(`Login failed: ${error}`));
                 }
               }
-            })
+            }, 'Login')
           ])
-        ]),
-        h('div.modal-footer', [
-          h('button.btn.btn-secondary', {
-            attrs: {
-              type: 'button',
-              'data-bs-dismiss': 'modal'
-            }
-          }, 'Cancel'),
-          h('button.btn.btn-primary', {
-            attrs: { type: 'button' },
-            on: {
-              click: () => {
-                void onSubmit();
-              }
-            }
-          }, 'Login')
         ])
-      ])
-    ])
+      ])])
   ]);
-}
-
-function LogoutItem(coco: coco.CoCo): VNode {
-  return h('li', h('button.dropdown-item', {
-    on: {
-      click: () => {
-        coco.logout();
-      }
-    }
-  }, 'Logout'));
 }
