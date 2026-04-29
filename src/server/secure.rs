@@ -23,6 +23,7 @@ use jsonwebtoken::{DecodingKey, EncodingKey, Header, Validation, errors::Error};
 use serde::{Deserialize, Serialize};
 use serde_json::Value as JsonValue;
 use std::collections::{HashMap, HashSet};
+use tokio::sync::broadcast::error::RecvError;
 use tracing::{error, trace};
 use utoipa::{
     Modify, OpenApi, ToSchema,
@@ -777,79 +778,103 @@ async fn handle_socket(mut socket: WebSocket, state: AppState, user: CurrentUser
     socket.send(Message::Text(serde_json::to_string(&init_msg).unwrap().into())).await.ok();
 
     let mut rx = state.coco.event_tx.subscribe();
-    while let Ok(msg) = rx.recv().await {
-        let send_result = match msg {
-            CoCoEvent::ClassCreated(class_name) => match state.coco.get_class(class_name).await {
-                Ok(Some(class)) => {
-                    let mut update_msg = serde_json::to_value(class).unwrap();
-                    update_msg["msg_type"] = serde_json::json!("class-created");
-                    socket.send(Message::Text(serde_json::to_string(&update_msg).unwrap().into())).await
+    loop {
+        tokio::select! {
+            incoming = socket.recv() => {
+                match incoming {
+                    Some(Ok(Message::Close(_))) | None => break,
+                    Some(Ok(Message::Ping(payload))) => {
+                        if socket.send(Message::Pong(payload)).await.is_err() {
+                            break;
+                        }
+                    }
+                    Some(Ok(_)) => {}
+                    Some(Err(_)) => break,
                 }
-                Ok(None) => Ok(()),
-                Err(_) => Ok(()),
-            },
-            CoCoEvent::RuleCreated(rule) => match state.coco.get_rule(rule).await {
-                Ok(Some(rule)) => {
-                    let mut update_msg = serde_json::to_value(rule).unwrap();
-                    update_msg["msg_type"] = serde_json::json!("rule-created");
-                    socket.send(Message::Text(serde_json::to_string(&update_msg).unwrap().into())).await
-                }
-                Ok(None) => Ok(()),
-                Err(_) => Ok(()),
-            },
-            CoCoEvent::ObjectCreated(object_id) => {
-                if user.has_read_access(&object_id) {
-                    match state.coco.get_object(object_id).await {
-                        Ok(Some(object)) => {
-                            let mut update_msg = serde_json::to_value(object).unwrap();
-                            update_msg["msg_type"] = serde_json::json!("object-created");
+            }
+            recv = rx.recv() => {
+                let event = match recv {
+                    Ok(event) => event,
+                    Err(RecvError::Lagged(skipped)) => {
+                        trace!("WebSocket client lagging behind, skipped {} events", skipped);
+                        continue;
+                    }
+                    Err(RecvError::Closed) => break,
+                };
+                let send_result = match event {
+                    CoCoEvent::ClassCreated(class_name) => match state.coco.get_class(class_name).await {
+                        Ok(Some(class)) => {
+                            let mut update_msg = serde_json::to_value(class).unwrap();
+                            update_msg["msg_type"] = serde_json::json!("class-created");
                             socket.send(Message::Text(serde_json::to_string(&update_msg).unwrap().into())).await
                         }
                         Ok(None) => Ok(()),
                         Err(_) => Ok(()),
+                    },
+                    CoCoEvent::RuleCreated(rule) => match state.coco.get_rule(rule).await {
+                        Ok(Some(rule)) => {
+                            let mut update_msg = serde_json::to_value(rule).unwrap();
+                            update_msg["msg_type"] = serde_json::json!("rule-created");
+                            socket.send(Message::Text(serde_json::to_string(&update_msg).unwrap().into())).await
+                        }
+                        Ok(None) => Ok(()),
+                        Err(_) => Ok(()),
+                    },
+                    CoCoEvent::ObjectCreated(object_id) => {
+                        if user.has_read_access(&object_id) {
+                            match state.coco.get_object(object_id).await {
+                                Ok(Some(object)) => {
+                                    let mut update_msg = serde_json::to_value(object).unwrap();
+                                    update_msg["msg_type"] = serde_json::json!("object-created");
+                                    socket.send(Message::Text(serde_json::to_string(&update_msg).unwrap().into())).await
+                                }
+                                Ok(None) => Ok(()),
+                                Err(_) => Ok(()),
+                            }
+                        } else {
+                            Ok(())
+                        }
                     }
-                } else {
-                    Ok(())
-                }
-            }
-            CoCoEvent::AddedClass(object_id, class_name) => {
-                let update_msg = serde_json::json!({
-                    "msg_type": "added-class",
-                    "object_id": object_id,
-                    "class_name": class_name
-                });
-                socket.send(Message::Text(serde_json::to_string(&update_msg).unwrap().into())).await
-            }
-            CoCoEvent::UpdatedProperties(object_id, properties) => {
-                if user.has_read_access(&object_id) {
-                    let update_msg = serde_json::json!({
-                        "msg_type": "updated-properties",
-                        "object_id": object_id,
-                        "properties": properties
-                    });
-                    socket.send(Message::Text(serde_json::to_string(&update_msg).unwrap().into())).await
-                } else {
-                    Ok(())
-                }
-            }
-            CoCoEvent::AddedValues(object_id, values, date_time) => {
-                if user.has_read_access(&object_id) {
-                    let update_msg = serde_json::json!({
-                        "msg_type": "added-values",
-                        "object_id": object_id,
-                        "values": values,
-                        "date_time": date_time
-                    });
-                    socket.send(Message::Text(serde_json::to_string(&update_msg).unwrap().into())).await
-                } else {
-                    Ok(())
-                }
-            }
-        };
+                    CoCoEvent::AddedClass(object_id, class_name) => {
+                        let update_msg = serde_json::json!({
+                            "msg_type": "added-class",
+                            "object_id": object_id,
+                            "class_name": class_name
+                        });
+                        socket.send(Message::Text(serde_json::to_string(&update_msg).unwrap().into())).await
+                    }
+                    CoCoEvent::UpdatedProperties(object_id, properties) => {
+                        if user.has_read_access(&object_id) {
+                            let update_msg = serde_json::json!({
+                                "msg_type": "updated-properties",
+                                "object_id": object_id,
+                                "properties": properties
+                            });
+                            socket.send(Message::Text(serde_json::to_string(&update_msg).unwrap().into())).await
+                        } else {
+                            Ok(())
+                        }
+                    }
+                    CoCoEvent::AddedValues(object_id, values, date_time) => {
+                        if user.has_read_access(&object_id) {
+                            let update_msg = serde_json::json!({
+                                "msg_type": "added-values",
+                                "object_id": object_id,
+                                "values": values,
+                                "date_time": date_time
+                            });
+                            socket.send(Message::Text(serde_json::to_string(&update_msg).unwrap().into())).await
+                        } else {
+                            Ok(())
+                        }
+                    }
+                };
 
-        // If sending fails (e.g., client disconnected), break out of the loop
-        if send_result.is_err() {
-            break;
+                // If sending fails (e.g., client disconnected), break out of the loop
+                if send_result.is_err() {
+                    break;
+                }
+            }
         }
     }
 }
