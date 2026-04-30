@@ -44,6 +44,7 @@ pub async fn secure_coco_router(coco: CoCo, users_db: UsersDB) -> Router {
 
     let auth_router = Router::new()
         .route("/users", get(get_users).patch(update_user).post(create_user))
+        .route("/users/{name}", get(get_user))
         .route("/classes", get(get_classes).post(create_class))
         .route("/classes/{name}", get(get_class))
         .route("/rules", get(get_rules).post(create_rule))
@@ -69,6 +70,7 @@ enum TokenType {
 
 #[derive(Debug, Clone)]
 struct CurrentUser {
+    username: String,
     role: Role,
     read_access: Option<HashSet<String>>,
     write_access: Option<HashSet<String>>,
@@ -91,7 +93,12 @@ async fn auth_middleware(State(state): State<AppState>, mut req: Request, next: 
         && claims.token_type == TokenType::Access
     {
         let user = state.users_db.get_user_by_username(&claims.sub).await.map_err(|_| StatusCode::UNAUTHORIZED)?;
-        req.extensions_mut().insert(CurrentUser { role: user.role, read_access: user.read_access, write_access: user.write_access });
+        req.extensions_mut().insert(CurrentUser {
+            username: user.username,
+            role: user.role,
+            read_access: user.read_access,
+            write_access: user.write_access,
+        });
         return Ok(next.run(req).await);
     }
     Err(StatusCode::UNAUTHORIZED)
@@ -228,6 +235,36 @@ async fn refresh_token(State(state): State<AppState>, Json(req): Json<RefreshTok
     match verify_jwt(&req.refresh_token, &state.users_db.secret()) {
         Ok(claims) if claims.token_type == TokenType::Refresh => issue_tokens(&claims.sub, &claims.role, &state.users_db.secret()).map(Json).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR),
         _ => Err(StatusCode::UNAUTHORIZED),
+    }
+}
+
+#[utoipa::path(
+        get,
+        path = "/users/{name}",
+        tag = "Authentication",
+        summary = "Get a user",
+        description = "Retrieve a user's profile. Accessible only by admin users or by the user themselves.",
+        params(
+            ("name" = String, Path, description = "Username to retrieve")
+        ),
+        security(("bearerAuth" = [])),
+        responses(
+            (status = 200, description = "User profile", body = UserResponse),
+            (status = 401, description = "Missing or invalid JWT token"),
+            (status = 403, description = "Forbidden - only admin users or the user themselves can view this profile"),
+            (status = 404, description = "User not found"),
+            (status = 500, description = "Failed to retrieve user profile")
+        )
+    )]
+async fn get_user(State(state): State<AppState>, Extension(user): Extension<CurrentUser>, Path(name): Path<String>) -> impl IntoResponse {
+    if user.role != Role::Admin && user.username != name {
+        return (StatusCode::FORBIDDEN, "Only admin users or the user themselves can view this profile").into_response();
+    }
+
+    match state.users_db.get_user_by_username(&name).await {
+        Ok(user) => (StatusCode::OK, axum::Json(user)).into_response(),
+        Err(DatabaseError::NotFound(_)) => (StatusCode::NOT_FOUND, "User not found").into_response(),
+        Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, "Failed to retrieve user profile").into_response(),
     }
 }
 
@@ -716,7 +753,12 @@ async fn ws_handler(ws: WebSocketUpgrade, State(state): State<AppState>, Query(q
         return Err(StatusCode::UNAUTHORIZED);
     }
     let user = state.users_db.get_user_by_username(&claims.sub).await.map_err(|_| StatusCode::UNAUTHORIZED)?;
-    let current_user = CurrentUser { role: user.role, read_access: user.read_access, write_access: user.write_access };
+    let current_user = CurrentUser {
+        username: user.username,
+        role: user.role,
+        read_access: user.read_access,
+        write_access: user.write_access,
+    };
     Ok(ws.on_upgrade(move |socket| async move { handle_socket(socket, state, current_user).await }))
 }
 
@@ -911,7 +953,7 @@ impl Modify for SecurityAddon {
     servers(
         (url = "/", description = "Base URL for CoCo API")
     ),
-    paths(get_classes, get_class, create_class, get_rules, get_rule, create_rule, get_objects, get_object, create_object, set_properties, add_data, get_data, ws_handler, openapi),
+    paths(register, login, refresh_token, get_users, get_user, create_user, update_user, get_classes, get_class, create_class, get_rules, get_rule, create_rule, get_objects, get_object, create_object, set_properties, add_data, get_data, ws_handler, openapi),
     components(
         schemas(Class, Rule, Property, OpenApiObject, OpenApiValue)
     ),
