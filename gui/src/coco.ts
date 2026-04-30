@@ -2,7 +2,6 @@ export namespace coco {
   export class CoCo {
 
     private access_token: string | null = null;
-    private current_user: User | null = null;
     private readonly classes: Map<string, CoCoClass> = new Map();
     private readonly objects: Map<string, CoCoObject> = new Map();
     private readonly rules: Map<string, CoCoRule> = new Map();
@@ -84,11 +83,11 @@ export namespace coco {
     }
 
     async login(username: string, password: string): Promise<void> {
-      const login_res = await fetch('/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username, password }) });
-      if (!login_res.ok) {
-        throw new Error(`Login failed: ${login_res.status} ${login_res.statusText}`.trim());
+      const res = await fetch('/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username, password }) });
+      if (!res.ok) {
+        throw new Error(`Login failed: ${res.status} ${res.statusText}`.trim());
       }
-      const data = await login_res.json() as Token;
+      const data = await res.json() as Token;
       if (!data.access_token) {
         throw new Error('Login failed: missing access token in response');
       }
@@ -96,18 +95,31 @@ export namespace coco {
       this.access_token = data.access_token;
       localStorage.setItem('coco_access_token', this.access_token);
       this.connect();
-
-      const user_res = await fetch('/me', { headers: { 'Authorization': 'Bearer ' + this.access_token } });
-      if (!user_res.ok) {
-        console.warn('Failed to fetch user info after login:', user_res.status, user_res.statusText);
-        return;
-      }
-      const user_data = await user_res.json() as User;
-      this.current_user = user_data;
-      for (const listener of this.connection_listeners) listener.user_updated();
     }
 
-    get_user(): User | null { return this.current_user; }
+    async set_user() {
+      if (!this.access_token) {
+        for (const listener of this.connection_listeners) listener.user_updated(null);
+        return;
+      }
+      const res = await fetch('/me', { headers: { 'Authorization': 'Bearer ' + this.access_token } });
+      if (!res.ok) {
+        console.warn('Failed to fetch user info:', res.status, res.statusText);
+        return;
+      }
+      const user = await res.json() as User;
+      const coco_user = new CoCoUser(this, user);
+      for (const listener of this.connection_listeners) listener.user_updated(coco_user);
+    }
+
+    async get_users(): Promise<User[]> {
+      const res = await fetch('/users', { headers: { 'Authorization': 'Bearer ' + this.access_token } });
+      if (!res.ok) {
+        throw new Error(`Failed to fetch users: ${res.status} ${res.statusText}`);
+      }
+      const users = await res.json() as User[];
+      return users;
+    }
 
     logout() {
       console.log('Logging out');
@@ -137,6 +149,29 @@ export namespace coco {
 
     add_listener(listener: CoCoListener) { this.listeners.add(listener); }
     remove_listener(listener: CoCoListener) { this.listeners.delete(listener); }
+  }
+
+  export class CoCoUser {
+
+    private readonly coco: CoCo;
+    private readonly username: string;
+    private readonly role: 'User' | 'Admin';
+    private readonly read_access: Set<string>;
+    private readonly write_access: Set<string>;
+
+    constructor(coco: CoCo, user: User) {
+      this.coco = coco;
+      this.username = user.username;
+      this.role = user.role;
+      this.read_access = new Set(user.read_access);
+      this.write_access = new Set(user.write_access);
+    }
+
+    get_coco(): CoCo { return this.coco; }
+    get_username(): string { return this.username; }
+    get_role(): 'User' | 'Admin' { return this.role; }
+    get_read_access(): ReadonlySet<string> { return this.read_access; }
+    get_write_access(): ReadonlySet<string> { return this.write_access; }
   }
 
   export class CoCoClass {
@@ -260,7 +295,7 @@ export namespace coco {
 
   export interface ConnectionListener {
     connected(): void;
-    user_updated(): void;
+    user_updated(user: CoCoUser | null): void;
     disconnected(): void;
     connection_error(error: Event): void;
   }

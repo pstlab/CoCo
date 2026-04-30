@@ -35,17 +35,18 @@ const landing_page = () => h('div.container.mt-5', [
   ])
 ]);
 
-const connection_listener = {
+const connection_listener: coco.ConnectionListener = {
   connected: () => { },
-  user_updated: () => { },
+  user_updated: (_user: coco.CoCoUser | null) => { },
   disconnected: () => {
     flick.ctx.current_page = landing_page;
     flick.ctx.page_title = 'Home';
+    flick.redraw();
   },
   connection_error: (_error: Event) => { },
 };
 
-const coco_listener = {
+const coco_listener: coco.CoCoListener = {
   initialized: () => flick.redraw(),
   created_class: (_cls: coco.CoCoClass) => flick.redraw(),
   created_object: (_obj: coco.CoCoObject) => flick.redraw(),

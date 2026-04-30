@@ -11,13 +11,13 @@ export function ClassesList(coco: coco.CoCo): VNode {
   }, flick.ctx.page_title === `Class: ${cls.get_name()}`))));
 }
 
-const cls_listener = {
+const cls_listener: coco.CoCoClassListener = {
   instance_added: (_obj: coco.CoCoObject) => {
     flick.redraw();
   }
 };
 
-const obj_item_listener = {
+const obj_item_listener: coco.CoCoObjectListener = {
   class_added: (_cls: coco.CoCoClass) => { },
   properties_updated: (_properties: Record<string, coco.Value>) => { flick.redraw(); },
   values_added: (_values: Record<string, coco.Value>, _date_time: string) => { flick.redraw(); },

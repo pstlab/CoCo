@@ -13,7 +13,7 @@ echarts.use([LineChart, CustomChart, LegendComponent, TooltipComponent, GridComp
 const PIXELS_PER_ROW = 150;
 const BOTTOM_UI_HEIGHT = 50;
 
-const obj_item_listener = {
+const obj_item_listener: coco.CoCoObjectListener = {
   class_added: (_cls: coco.CoCoClass) => { },
   properties_updated: (properties: Record<string, coco.Value>) => { if (properties.name) flick.redraw(); },
   values_added: (_values: Record<string, coco.Value>, _date_time: string) => { },

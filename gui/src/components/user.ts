@@ -5,12 +5,12 @@ import { flick } from "@ratiosolver/flick";
 
 let username = "";
 let password = "";
-let connected = false;
+let current_user: coco.CoCoUser | null = null;
 
-const connection_listener = {
-  connected: () => { connected = true; },
-  user_updated: () => flick.redraw(),
-  disconnected: () => { connected = false; },
+const connection_listener: coco.ConnectionListener = {
+  connected: () => { },
+  user_updated: (user: coco.CoCoUser | null) => { current_user = user; flick.redraw(); },
+  disconnected: () => { },
   connection_error: (_error: Event) => { },
 };
 
@@ -39,9 +39,9 @@ export function UserButton(coco: coco.CoCo): VNode {
         }
       },
       on: { click: () => dropdown?.toggle() }
-    }, [h('i.fas.fa-user-circle'), ...(coco.get_user() ? [h('span.ms-1', coco.get_user()!.username)] : [])]),
+    }, [h('i.fas.fa-user-circle'), ...(current_user ? [h('span.ms-1', current_user.get_username())] : [])]),
     h('ul.dropdown-menu.dropdown-menu-end', [
-      connected ?
+      current_user ?
         h('li', h('button.dropdown-item', {
           on: {
             click: () => {

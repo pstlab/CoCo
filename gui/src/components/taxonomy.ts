@@ -45,14 +45,14 @@ export function taxonomy(coco: coco.CoCo): VNode {
     };
   };
 
-  const connection_listener = {
+  const connection_listener: coco.ConnectionListener = {
     connected: () => { },
-    user_updated: () => { },
+    user_updated: (_user: coco.CoCoUser | null) => { },
     disconnected: () => { if (chart) chart.setOption(get_option()); },
     connection_error: (_error: Event) => { },
   };
 
-  const coco_listener = {
+  const coco_listener: coco.CoCoListener = {
     initialized: () => { if (chart) chart.setOption(get_option()); },
     created_class: (_cls: coco.CoCoClass) => { if (chart) chart.setOption(get_option()); },
     created_object: (_obj: coco.CoCoObject) => { },
