@@ -80,7 +80,7 @@ impl UsersDB {
         &self.secret
     }
 
-    pub async fn get_users(&self) -> Result<Vec<UserResponse>, DatabaseError> {
+    pub(crate) async fn get_users(&self) -> Result<Vec<UserResponse>, DatabaseError> {
         let db = self.client.database(&self.name);
         let collection = db.collection::<User>("users");
         let cursor = collection.find(doc! {}).await.map_err(|e| DatabaseError::ConnectionError(e.to_string()))?;
@@ -97,7 +97,7 @@ impl UsersDB {
         Ok(users)
     }
 
-    pub async fn get_user(&self, username: &str, password: &str) -> Result<UserResponse, DatabaseError> {
+    pub(crate) async fn get_user(&self, username: &str, password: &str) -> Result<UserResponse, DatabaseError> {
         let db = self.client.database(&self.name);
         let users_collection = db.collection::<User>("users");
         let filter = doc! { "username": username };
@@ -115,7 +115,7 @@ impl UsersDB {
         }
     }
 
-    pub async fn get_user_by_username(&self, username: &str) -> Result<UserResponse, DatabaseError> {
+    pub(crate) async fn get_user_by_username(&self, username: &str) -> Result<UserResponse, DatabaseError> {
         let db = self.client.database(&self.name);
         let users_collection = db.collection::<User>("users");
         let filter = doc! { "username": username };
