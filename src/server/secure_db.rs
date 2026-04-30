@@ -20,22 +20,24 @@ pub enum Role {
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug, ToSchema)]
-pub struct User {
+struct User {
     username: String,
     password: String,
     role: Role,
-    #[serde(default)]
-    read_access: HashSet<String>,
-    #[serde(default)]
-    write_access: HashSet<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    read_access: Option<HashSet<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    write_access: Option<HashSet<String>>,
 }
 
 #[derive(Serialize, ToSchema)]
-pub struct UserResponse {
-    pub username: String,
-    pub role: Role,
-    pub read_access: HashSet<String>,
-    pub write_access: HashSet<String>,
+pub(crate) struct UserResponse {
+    pub(crate) username: String,
+    pub(crate) role: Role,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) read_access: Option<HashSet<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) write_access: Option<HashSet<String>>,
 }
 
 #[derive(Clone)]
@@ -127,7 +129,7 @@ impl UsersDB {
         })
     }
 
-    pub async fn create_user(&self, username: &str, password: &str, role: Role, read_access: HashSet<String>, write_access: HashSet<String>) -> Result<(), DatabaseError> {
+    pub async fn create_user(&self, username: &str, password: &str, role: Role, read_access: Option<HashSet<String>>, write_access: Option<HashSet<String>>) -> Result<(), DatabaseError> {
         let db = self.client.database(&self.name);
         let collection = db.collection::<User>("users");
         let new_user = User {
@@ -141,12 +143,40 @@ impl UsersDB {
         Ok(())
     }
 
-    pub async fn update_user(&self, username: &str, role: Role, read_access: HashSet<String>, write_access: HashSet<String>) -> Result<(), DatabaseError> {
+    pub async fn update_user(&self, username: &str, role: Role, read_access: Option<HashSet<String>>, write_access: Option<HashSet<String>>) -> Result<(), DatabaseError> {
         let db = self.client.database(&self.name);
         let collection = db.collection::<User>("users");
         let filter = doc! { "username": username };
         let role_bson = mongodb::bson::to_bson(&role).map_err(|e| DatabaseError::ConnectionError(e.to_string()))?;
-        let update = doc! { "$set": { "role": role_bson, "read_access": read_access.into_iter().collect::<Vec<String>>(), "write_access": write_access.into_iter().collect::<Vec<String>>() } };
+
+        let mut set_doc = doc! { "role": role_bson };
+        let mut unset_doc = Document::new();
+
+        match read_access {
+            Some(read_access) => {
+                let read_access_bson = mongodb::bson::to_bson(&read_access).map_err(|e| DatabaseError::ConnectionError(e.to_string()))?;
+                set_doc.insert("read_access", read_access_bson);
+            }
+            None => {
+                unset_doc.insert("read_access", "");
+            }
+        }
+
+        match write_access {
+            Some(write_access) => {
+                let write_access_bson = mongodb::bson::to_bson(&write_access).map_err(|e| DatabaseError::ConnectionError(e.to_string()))?;
+                set_doc.insert("write_access", write_access_bson);
+            }
+            None => {
+                unset_doc.insert("write_access", "");
+            }
+        }
+
+        let mut update = doc! { "$set": set_doc };
+        if !unset_doc.is_empty() {
+            update.insert("$unset", unset_doc);
+        }
+
         collection.update_one(filter, update).await.map_err(|e| DatabaseError::ConnectionError(e.to_string()))?;
         Ok(())
     }

@@ -13,7 +13,7 @@ RUN wget -O clips_642.zip https://sourceforge.net/projects/clipsrules/files/CLIP
     mv clips_temp/clips_core_source_642/core/* clips_source/ && \
     rm -rf clips_temp clips_642.zip
 
-RUN cargo build --release --features "server ollama"
+RUN cargo build --release --features "secure ollama"
 
 # --- Stage 2: Frontend Builder ---
 FROM node:20-slim AS frontend-builder

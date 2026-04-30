@@ -70,17 +70,17 @@ enum TokenType {
 #[derive(Debug, Clone)]
 struct CurrentUser {
     role: Role,
-    read_access: HashSet<String>,
-    write_access: HashSet<String>,
+    read_access: Option<HashSet<String>>,
+    write_access: Option<HashSet<String>>,
 }
 
 impl CurrentUser {
     fn has_read_access(&self, object_id: &str) -> bool {
-        self.role == Role::Admin || self.read_access.contains(object_id)
+        self.role == Role::Admin || self.read_access.as_ref().is_some_and(|access| access.contains(object_id))
     }
 
     fn has_write_access(&self, object_id: &str) -> bool {
-        self.role == Role::Admin || self.write_access.contains(object_id)
+        self.role == Role::Admin || self.write_access.as_ref().is_some_and(|access| access.contains(object_id))
     }
 }
 
@@ -196,7 +196,7 @@ async fn login(State(state): State<AppState>, Json(req): Json<Credentials>) -> i
         )
     )]
 async fn register(State(state): State<AppState>, Json(req): Json<Credentials>) -> impl IntoResponse {
-    match state.users_db.create_user(&req.username, &req.password, Role::User, HashSet::new(), HashSet::new()).await {
+    match state.users_db.create_user(&req.username, &req.password, Role::User, None, None).await {
         Ok(_) => match state.users_db.get_user(&req.username, &req.password).await {
             Ok(user) => issue_tokens(&user.username, &user.role, &state.users_db.secret()).map(Json),
             Err(_) => Err(StatusCode::INTERNAL_SERVER_ERROR),
@@ -261,8 +261,10 @@ struct CreateUserRequest {
     password: String,
     #[serde(default)]
     role: Role,
-    read_access: HashSet<String>,
-    write_access: HashSet<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    read_access: Option<HashSet<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    write_access: Option<HashSet<String>>,
 }
 
 #[utoipa::path(
@@ -298,8 +300,10 @@ struct UpdateUserRequest {
     username: String,
     #[serde(default)]
     role: Role,
-    read_access: HashSet<String>,
-    write_access: HashSet<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    read_access: Option<HashSet<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    write_access: Option<HashSet<String>>,
 }
 
 #[utoipa::path(
