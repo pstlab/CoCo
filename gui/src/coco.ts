@@ -2,6 +2,7 @@ export namespace coco {
   export class CoCo {
 
     private access_token: string | null = null;
+    private current_user: User | null = null;
     private readonly classes: Map<string, CoCoClass> = new Map();
     private readonly objects: Map<string, CoCoObject> = new Map();
     private readonly rules: Map<string, CoCoRule> = new Map();
@@ -83,17 +84,11 @@ export namespace coco {
     }
 
     async login(username: string, password: string): Promise<void> {
-      const res = await fetch('/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ username, password })
-      });
-
-      if (!res.ok) {
-        throw new Error(`Login failed: ${res.status} ${res.statusText}`.trim());
+      const login_res = await fetch('/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username, password }) });
+      if (!login_res.ok) {
+        throw new Error(`Login failed: ${login_res.status} ${login_res.statusText}`.trim());
       }
-
-      const data = await res.json() as { access_token?: string };
+      const data = await login_res.json() as Token;
       if (!data.access_token) {
         throw new Error('Login failed: missing access token in response');
       }
@@ -101,7 +96,18 @@ export namespace coco {
       this.access_token = data.access_token;
       localStorage.setItem('coco_access_token', this.access_token);
       this.connect();
+
+      const user_res = await fetch('/me', { headers: { 'Authorization': 'Bearer ' + this.access_token } });
+      if (!user_res.ok) {
+        console.warn('Failed to fetch user info after login:', user_res.status, user_res.statusText);
+        return;
+      }
+      const user_data = await user_res.json() as User;
+      this.current_user = user_data;
+      for (const listener of this.connection_listeners) listener.user_updated();
     }
+
+    get_user(): User | null { return this.current_user; }
 
     logout() {
       console.log('Logging out');
@@ -254,6 +260,7 @@ export namespace coco {
 
   export interface ConnectionListener {
     connected(): void;
+    user_updated(): void;
     disconnected(): void;
     connection_error(error: Event): void;
   }
@@ -295,6 +302,9 @@ export namespace coco {
     | { type: 'string', default?: string }
     | { type: 'symbol', default?: string, allowed_values?: string[] }
     | { type: 'object', default?: string, class: string };
+
+  type Token = { access_token: string, refresh_token: string, token_type: string };
+  type User = { username: string, role: 'User' | 'Admin', read_access: string[], write_access: string[] };
 
   type PartialClassMessage = {
     parents?: string[];

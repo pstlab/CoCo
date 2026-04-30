@@ -8,9 +8,10 @@ let password = "";
 let connected = false;
 
 const connection_listener = {
-  connection_error: (_error: Event) => { },
   connected: () => { connected = true; },
+  user_updated: () => flick.redraw(),
   disconnected: () => { connected = false; },
+  connection_error: (_error: Event) => { },
 };
 
 export function UserButton(coco: coco.CoCo): VNode {
@@ -38,7 +39,7 @@ export function UserButton(coco: coco.CoCo): VNode {
         }
       },
       on: { click: () => dropdown?.toggle() }
-    }, h('i.fas.fa-user-circle')),
+    }, [h('i.fas.fa-user-circle'), ...(coco.get_user() ? [h('span.ms-1', coco.get_user()!.username)] : [])]),
     h('ul.dropdown-menu.dropdown-menu-end', [
       connected ?
         h('li', h('button.dropdown-item', {

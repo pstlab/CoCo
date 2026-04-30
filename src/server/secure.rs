@@ -43,6 +43,7 @@ pub async fn secure_coco_router(coco: CoCo, users_db: UsersDB) -> Router {
     let state = AppState { coco, users_db };
 
     let auth_router = Router::new()
+        .route("/me", get(get_me))
         .route("/users", get(get_users).patch(update_user).post(create_user))
         .route("/users/{name}", get(get_user))
         .route("/classes", get(get_classes).post(create_class))
@@ -235,6 +236,28 @@ async fn refresh_token(State(state): State<AppState>, Json(req): Json<RefreshTok
     match verify_jwt(&req.refresh_token, &state.users_db.secret()) {
         Ok(claims) if claims.token_type == TokenType::Refresh => issue_tokens(&claims.sub, &claims.role, &state.users_db.secret()).map(Json).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR),
         _ => Err(StatusCode::UNAUTHORIZED),
+    }
+}
+
+#[utoipa::path(
+        get,
+        path = "/me",
+        tag = "Authentication",
+        summary = "Get current user",
+        description = "Retrieve the authenticated user's profile.",
+        security(("bearerAuth" = [])),
+        responses(
+            (status = 200, description = "Current user profile", body = UserResponse),
+            (status = 401, description = "Missing or invalid JWT token"),
+            (status = 404, description = "User not found"),
+            (status = 500, description = "Failed to retrieve current user profile")
+        )
+    )]
+async fn get_me(State(state): State<AppState>, Extension(user): Extension<CurrentUser>) -> impl IntoResponse {
+    match state.users_db.get_user_by_username(&user.username).await {
+        Ok(user) => (StatusCode::OK, axum::Json(user)).into_response(),
+        Err(DatabaseError::NotFound(_)) => (StatusCode::NOT_FOUND, "User not found").into_response(),
+        Err(_) => (StatusCode::INTERNAL_SERVER_ERROR, "Failed to retrieve current user profile").into_response(),
     }
 }
 
@@ -953,7 +976,7 @@ impl Modify for SecurityAddon {
     servers(
         (url = "/", description = "Base URL for CoCo API")
     ),
-    paths(register, login, refresh_token, get_users, get_user, create_user, update_user, get_classes, get_class, create_class, get_rules, get_rule, create_rule, get_objects, get_object, create_object, set_properties, add_data, get_data, ws_handler, openapi),
+    paths(register, login, refresh_token, get_me, get_users, get_user, create_user, update_user, get_classes, get_class, create_class, get_rules, get_rule, create_rule, get_objects, get_object, create_object, set_properties, add_data, get_data, ws_handler, openapi),
     components(
         schemas(Class, Rule, Property, OpenApiObject, OpenApiValue)
     ),

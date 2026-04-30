@@ -36,12 +36,13 @@ const landing_page = () => h('div.container.mt-5', [
 ]);
 
 const connection_listener = {
-  connection_error: (_error: Event) => { },
   connected: () => { },
+  user_updated: () => { },
   disconnected: () => {
     flick.ctx.current_page = landing_page;
     flick.ctx.page_title = 'Home';
   },
+  connection_error: (_error: Event) => { },
 };
 
 const coco_listener = {

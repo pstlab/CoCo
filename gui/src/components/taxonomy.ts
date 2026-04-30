@@ -46,9 +46,10 @@ export function taxonomy(coco: coco.CoCo): VNode {
   };
 
   const connection_listener = {
-    connection_error: (_error: Event) => { },
     connected: () => { },
+    user_updated: () => { },
     disconnected: () => { if (chart) chart.setOption(get_option()); },
+    connection_error: (_error: Event) => { },
   };
 
   const coco_listener = {
