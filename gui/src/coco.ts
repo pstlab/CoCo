@@ -83,11 +83,11 @@ export namespace coco {
     }
 
     async login(username: string, password: string): Promise<void> {
-      const res = await fetch('/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username, password }) });
-      if (!res.ok) {
-        throw new Error(`Login failed: ${res.status} ${res.statusText}`.trim());
+      const login_res = await fetch('/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username, password }) });
+      if (!login_res.ok) {
+        throw new Error(`Login failed: ${login_res.status} ${login_res.statusText}`.trim());
       }
-      const data = await res.json() as Token;
+      const data = await login_res.json() as Token;
       if (!data.access_token) {
         throw new Error('Login failed: missing access token in response');
       }
@@ -95,19 +95,13 @@ export namespace coco {
       this.access_token = data.access_token;
       localStorage.setItem('coco_access_token', this.access_token);
       this.connect();
-    }
 
-    async set_user() {
-      if (!this.access_token) {
-        for (const listener of this.connection_listeners) listener.user_updated(null);
+      const user_res = await fetch('/me', { headers: { 'Authorization': 'Bearer ' + this.access_token } });
+      if (!user_res.ok) {
+        console.warn('Failed to fetch user info:', user_res.status, user_res.statusText);
         return;
       }
-      const res = await fetch('/me', { headers: { 'Authorization': 'Bearer ' + this.access_token } });
-      if (!res.ok) {
-        console.warn('Failed to fetch user info:', res.status, res.statusText);
-        return;
-      }
-      const user = await res.json() as User;
+      const user = await user_res.json() as User;
       const coco_user = new CoCoUser(this, user);
       for (const listener of this.connection_listeners) listener.user_updated(coco_user);
     }

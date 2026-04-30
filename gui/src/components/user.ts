@@ -10,7 +10,7 @@ let current_user: coco.CoCoUser | null = null;
 const connection_listener: coco.ConnectionListener = {
   connected: () => { },
   user_updated: (user: coco.CoCoUser | null) => { current_user = user; flick.redraw(); },
-  disconnected: () => { },
+  disconnected: () => { current_user = null; flick.redraw(); },
   connection_error: (_error: Event) => { },
 };
 
