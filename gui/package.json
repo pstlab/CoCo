@@ -1,13 +1,13 @@
 {
   "name": "@ratiosolver/coco",
-  "version": "0.1.5",
+  "version": "0.1.6",
   "type": "module",
   "description": "A frontend library for facilitating interaction with the CoCo (Combined deduCtiOn and abduCtiOn) cognitive architecture",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/ratioSolver/COCO.git"
+    "url": "git+https://github.com/pstlab/COCO.git"
   },
   "keywords": [
     "reasoner",
@@ -15,12 +15,12 @@
     "abduction",
     "deduction"
   ],
-  "author": "ratioSolver",
+  "author": "pstlab",
   "license": "Apache-2.0",
   "bugs": {
-    "url": "https://github.com/ratioSolver/COCO/issues"
+    "url": "https://github.com/pstlab/COCO/issues"
   },
-  "homepage": "https://github.com/ratioSolver/COCO#readme",
+  "homepage": "https://github.com/pstlab/COCO#readme",
   "files": [
     "/dist"
   ],
@@ -33,7 +33,7 @@
     "@fortawesome/fontawesome-free": "^7.2.0",
     "@types/bootstrap": "^5.2.10",
     "@types/node": "^25.6.0",
-    "jsdom": "^29.1.0",
+    "jsdom": "^29.1.1",
     "typescript": "^6.0.3",
     "vite": "^8.0.10"
   },
