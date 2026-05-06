@@ -27,8 +27,8 @@ struct MongoObject {
     pub values: Option<HashMap<String, MongoTimedValue>>,
 }
 
-#[derive(Serialize, Deserialize, Debug)]
-#[serde(tag = "type")]
+#[derive(Serialize, Deserialize, Debug, Clone)]
+#[serde(tag = "type", content = "value")]
 enum MongoValue {
     #[serde(rename = "null")]
     Null,
@@ -58,7 +58,7 @@ enum MongoValue {
     ObjectArray(Vec<String>),
 }
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 struct MongoTimedValue {
     value: MongoValue,
     timestamp: DateTime<Utc>,
@@ -156,15 +156,7 @@ impl Database for MongoDB {
         let collection = db.collection::<MongoObject>("objects");
         let cursor = collection.find(doc! {}).await.map_err(|e| DatabaseError::ConnectionError(e.to_string()))?;
         let mongo_objects: Vec<MongoObject> = cursor.try_collect().await.map_err(|e| DatabaseError::ConnectionError(e.to_string()))?;
-        let objects = mongo_objects
-            .into_iter()
-            .map(|mongo_object| Object {
-                id: mongo_object.id.map(|oid| oid.to_hex()),
-                classes: mongo_object.classes,
-                properties: mongo_object.properties.map(|props| props.into_iter().map(|(k, v)| (k, value_from_mongo_value(&v))).collect()),
-                values: mongo_object.values.map(|vals| vals.into_iter().map(|(k, v)| (k, TimedValue { value: value_from_mongo_value(&v.value), timestamp: v.timestamp })).collect()),
-            })
-            .collect();
+        let objects = mongo_objects.into_iter().map(Object::from).collect();
         Ok(objects)
     }
 
@@ -173,16 +165,7 @@ impl Database for MongoDB {
         let collection = db.collection::<MongoObject>("objects");
         let oid = ObjectId::parse_str(object_id).map_err(|e| DatabaseError::ConnectionError(e.to_string()))?;
         let mongo_object = collection.find_one(doc! { "_id": oid }).await.map_err(|e| DatabaseError::ConnectionError(e.to_string()))?;
-        if let Some(mongo_object) = mongo_object {
-            Ok(Some(Object {
-                id: mongo_object.id.map(|oid| oid.to_hex()),
-                classes: mongo_object.classes,
-                properties: mongo_object.properties.map(|props| props.into_iter().map(|(k, v)| (k, value_from_mongo_value(&v))).collect()),
-                values: mongo_object.values.map(|vals| vals.into_iter().map(|(k, v)| (k, TimedValue { value: value_from_mongo_value(&v.value), timestamp: v.timestamp })).collect()),
-            }))
-        } else {
-            Ok(None)
-        }
+        Ok(mongo_object.map(Object::from))
     }
 
     async fn create_object(&self, object: Object) -> Result<String, DatabaseError> {
@@ -191,8 +174,8 @@ impl Database for MongoDB {
         let mongo_object = MongoObject {
             id: None,
             classes: object.classes.clone(),
-            properties: object.properties.as_ref().map(|props| props.iter().map(|(k, v)| (k.clone(), mongo_value_from_value(v))).collect()),
-            values: object.values.as_ref().map(|vals| vals.iter().map(|(k, v)| (k.clone(), MongoTimedValue { value: mongo_value_from_value(&v.value), timestamp: v.timestamp })).collect()),
+            properties: object.properties.as_ref().map(|p| p.iter().map(|(k, v)| (k.clone(), MongoValue::from(v))).collect()),
+            values: object.values.as_ref().map(|v| v.iter().map(|(k, tv)| (k.clone(), MongoTimedValue::from(tv))).collect()),
         };
         let result = collection.insert_one(mongo_object).await.map_err(|e| DatabaseError::ConnectionError(e.to_string()))?;
         Ok(result.inserted_id.as_object_id().unwrap().to_hex())
@@ -211,8 +194,7 @@ impl Database for MongoDB {
         let collection = db.collection::<MongoObject>("objects");
         let mut update_doc = doc! {};
         for (prop, value) in properties {
-            let mongo_value = mongo_value_from_value(value);
-            update_doc.insert(format!("properties.{}", prop), bson::to_bson(&mongo_value).map_err(|e| DatabaseError::ConnectionError(e.to_string()))?);
+            update_doc.insert(format!("properties.{}", prop), bson::to_bson(&MongoValue::from(value)).map_err(|e| DatabaseError::ConnectionError(e.to_string()))?);
         }
         let oid = ObjectId::parse_str(object_id).map_err(|e| DatabaseError::ConnectionError(e.to_string()))?;
         collection.update_one(doc! { "_id": oid }, doc! { "$set": update_doc }).await.map_err(|e| DatabaseError::ConnectionError(e.to_string()))?;
@@ -224,11 +206,10 @@ impl Database for MongoDB {
         let collection = db.collection::<MongoObject>("objects");
         let oid = ObjectId::parse_str(object_id.clone()).map_err(|e| DatabaseError::ConnectionError(e.to_string()))?;
         let mut update_doc = doc! {};
-        let mut mongo_values: HashMap<String, MongoValue> = HashMap::new();
-        for (prop, value) in &values {
-            let timed = MongoTimedValue { value: mongo_value_from_value(value), timestamp: date_time };
+        let mongo_values: HashMap<String, MongoValue> = values.iter().map(|(k, v)| (k.clone(), MongoValue::from(v))).collect();
+        for (prop, mongo_value) in &mongo_values {
+            let timed = MongoTimedValue { value: mongo_value.clone(), timestamp: date_time };
             update_doc.insert(format!("values.{}", prop), bson::to_bson(&timed).map_err(|e| DatabaseError::ConnectionError(e.to_string()))?);
-            mongo_values.insert(prop.clone(), mongo_value_from_value(value));
         }
         collection.update_one(doc! { "_id": oid }, doc! { "$set": update_doc }).await.map_err(|e| DatabaseError::ConnectionError(e.to_string()))?;
 
@@ -254,7 +235,7 @@ impl Database for MongoDB {
         }
         let cursor = collection.find(filter).await.map_err(|e| DatabaseError::ConnectionError(e.to_string()))?;
         let data: Vec<ObjectData> = cursor.try_collect().await.map_err(|e| DatabaseError::ConnectionError(e.to_string()))?;
-        let data = data.into_iter().map(|d| (d.values.into_iter().map(|(k, v)| (k, value_from_mongo_value(&v))).collect(), d.timestamp)).collect();
+        let data = data.into_iter().map(|d| (d.values.into_iter().map(|(k, v)| (k, Value::from(v))).collect(), d.timestamp)).collect();
         Ok(data)
     }
 
@@ -264,39 +245,66 @@ impl Database for MongoDB {
     }
 }
 
-fn mongo_value_from_value(value: &Value) -> MongoValue {
-    match value {
-        Value::Null => MongoValue::Null,
-        Value::Bool(b) => MongoValue::Bool(*b),
-        Value::Int(i) => MongoValue::Int(*i),
-        Value::Float(f) => MongoValue::Float(*f),
-        Value::String(s) => MongoValue::String(s.clone()),
-        Value::Symbol(s) => MongoValue::Symbol(s.clone()),
-        Value::Object(o) => MongoValue::Object(o.clone()),
-        Value::BoolArray(arr) => MongoValue::BoolArray(arr.clone()),
-        Value::IntArray(arr) => MongoValue::IntArray(arr.clone()),
-        Value::FloatArray(arr) => MongoValue::FloatArray(arr.clone()),
-        Value::StringArray(arr) => MongoValue::StringArray(arr.clone()),
-        Value::SymbolArray(arr) => MongoValue::SymbolArray(arr.clone()),
-        Value::ObjectArray(arr) => MongoValue::ObjectArray(arr.clone()),
+impl From<&Value> for MongoValue {
+    fn from(v: &Value) -> Self {
+        match v {
+            Value::Null => MongoValue::Null,
+            Value::Bool(b) => MongoValue::Bool(*b),
+            Value::Int(i) => MongoValue::Int(*i),
+            Value::Float(f) => MongoValue::Float(*f),
+            Value::String(s) => MongoValue::String(s.clone()),
+            Value::Symbol(s) => MongoValue::Symbol(s.clone()),
+            Value::Object(o) => MongoValue::Object(o.clone()),
+            Value::BoolArray(a) => MongoValue::BoolArray(a.clone()),
+            Value::IntArray(a) => MongoValue::IntArray(a.clone()),
+            Value::FloatArray(a) => MongoValue::FloatArray(a.clone()),
+            Value::StringArray(a) => MongoValue::StringArray(a.clone()),
+            Value::SymbolArray(a) => MongoValue::SymbolArray(a.clone()),
+            Value::ObjectArray(a) => MongoValue::ObjectArray(a.clone()),
+        }
     }
 }
 
-fn value_from_mongo_value(mongo_value: &MongoValue) -> Value {
-    match mongo_value {
-        MongoValue::Null => Value::Null,
-        MongoValue::Bool(b) => Value::Bool(*b),
-        MongoValue::Int(i) => Value::Int(*i),
-        MongoValue::Float(f) => Value::Float(*f),
-        MongoValue::String(s) => Value::String(s.clone()),
-        MongoValue::Symbol(s) => Value::Symbol(s.clone()),
-        MongoValue::Object(o) => Value::Object(o.clone()),
-        MongoValue::BoolArray(arr) => Value::BoolArray(arr.clone()),
-        MongoValue::IntArray(arr) => Value::IntArray(arr.clone()),
-        MongoValue::FloatArray(arr) => Value::FloatArray(arr.clone()),
-        MongoValue::StringArray(arr) => Value::StringArray(arr.clone()),
-        MongoValue::SymbolArray(arr) => Value::SymbolArray(arr.clone()),
-        MongoValue::ObjectArray(arr) => Value::ObjectArray(arr.clone()),
+impl From<MongoValue> for Value {
+    fn from(v: MongoValue) -> Self {
+        match v {
+            MongoValue::Null => Value::Null,
+            MongoValue::Bool(b) => Value::Bool(b),
+            MongoValue::Int(i) => Value::Int(i),
+            MongoValue::Float(f) => Value::Float(f),
+            MongoValue::String(s) => Value::String(s),
+            MongoValue::Symbol(s) => Value::Symbol(s),
+            MongoValue::Object(o) => Value::Object(o),
+            MongoValue::BoolArray(a) => Value::BoolArray(a),
+            MongoValue::IntArray(a) => Value::IntArray(a),
+            MongoValue::FloatArray(a) => Value::FloatArray(a),
+            MongoValue::StringArray(a) => Value::StringArray(a),
+            MongoValue::SymbolArray(a) => Value::SymbolArray(a),
+            MongoValue::ObjectArray(a) => Value::ObjectArray(a),
+        }
+    }
+}
+
+impl From<&TimedValue> for MongoTimedValue {
+    fn from(tv: &TimedValue) -> Self {
+        MongoTimedValue { value: MongoValue::from(&tv.value), timestamp: tv.timestamp }
+    }
+}
+
+impl From<MongoTimedValue> for TimedValue {
+    fn from(tv: MongoTimedValue) -> Self {
+        TimedValue { value: Value::from(tv.value), timestamp: tv.timestamp }
+    }
+}
+
+impl From<MongoObject> for Object {
+    fn from(o: MongoObject) -> Self {
+        Object {
+            id: o.id.map(|oid| oid.to_hex()),
+            classes: o.classes,
+            properties: o.properties.map(|p| p.into_iter().map(|(k, v)| (k, Value::from(v))).collect()),
+            values: o.values.map(|v| v.into_iter().map(|(k, tv)| (k, TimedValue::from(tv))).collect()),
+        }
     }
 }
 
