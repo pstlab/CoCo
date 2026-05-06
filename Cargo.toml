@@ -28,8 +28,8 @@ chronoxide = ["dep:chronoxide"]
 
 [dependencies]
 axum = { version = "0.8.9", features = ["ws"], optional = true }
-tower-http = { version = "0.6.8", features = ["fs"], optional = true }
-tokio = { version = "1.52.1", features = ["full"] }
+tower-http = { version = "0.6.9", features = ["fs"], optional = true }
+tokio = { version = "1.52.2", features = ["full"] }
 jsonwebtoken = { version = "10.3.0", optional = true, features = [
     "rust_crypto",
 ] }
@@ -41,7 +41,7 @@ async-trait = "0.1.89"
 chrono = { version = "0.4.44", features = ["serde"] }
 tracing = "0.1.44"
 tracing-subscriber = "0.3.22"
-utoipa = { version = "5.4.0", features = ["chrono"], optional = true }
+utoipa = { version = "5.5.0", features = ["chrono"], optional = true }
 serde_json = "1.0.149"
 reqwest = { version = "0.13.3", features = ["json", "stream"], optional = true }
 futures-util = { version = "0.3.32", optional = true }
