@@ -352,22 +352,23 @@ impl CLIPSKnowledgeBase {
             let event_tx_set_properties = event_tx.clone();
             env.add_udf("set-properties", None, 3, 3, vec![Type(Type::SYMBOL), Type(Type::MULTIFIELD), Type(Type::MULTIFIELD)], move |env, ctx| {
                 let state = &mut *state_set_properties.borrow_mut();
-                let object_id = ctx.get_next_argument(Type(Type::SYMBOL)).expect("Failed to get object ID argument for set-properties UDF");
-                let object_id = if let ClipsValue::Symbol(s) = object_id { s } else { panic!("Expected symbol for object ID argument in set-properties UDF") };
-                let props = ctx.get_next_argument(Type(Type::MULTIFIELD)).expect("Failed to get properties argument for set-properties UDF");
-                let props: Vec<String> = if let ClipsValue::Multifield(mf) = props {
-                    mf.into_iter()
+                let object_id = match ctx.get_next_argument(Type(Type::SYMBOL)).expect("Failed to get object ID argument for prompt UDF") {
+                    ClipsValue::Symbol(s) => s.to_string(),
+                    _ => panic!("Expected symbol for object ID argument in prompt UDF"),
+                };
+                let props: Vec<String> = match ctx.get_next_argument(Type(Type::MULTIFIELD)).expect("Failed to get properties argument for set-properties UDF") {
+                    ClipsValue::Multifield(mf) => mf
+                        .into_iter()
                         .map(|v| match v {
                             ClipsValue::Symbol(s) => s,
                             _ => panic!("Expected symbol in properties multifield for set-properties UDF"),
                         })
-                        .collect()
-                } else {
-                    panic!("Expected multifield for properties argument in set-properties UDF");
+                        .collect(),
+                    _ => panic!("Expected multifield for properties argument in set-properties UDF"),
                 };
-                let vals = ctx.get_next_argument(Type(Type::MULTIFIELD)).expect("Failed to get values argument for set-properties UDF");
-                let vals: Vec<Value> = if let ClipsValue::Multifield(mf) = vals {
-                    mf.into_iter()
+                let vals: Vec<Value> = match ctx.get_next_argument(Type(Type::MULTIFIELD)).expect("Failed to get values argument for set-properties UDF") {
+                    ClipsValue::Multifield(mf) => mf
+                        .into_iter()
                         .map(|v| match v {
                             ClipsValue::Integer(i) => Value::Int(i),
                             ClipsValue::Float(f) => Value::Float(f),
@@ -380,9 +381,8 @@ impl CLIPSKnowledgeBase {
                             ClipsValue::String(s) => Value::String(s),
                             _ => panic!("Expected symbol, integer, or float in values multifield for set-properties UDF"),
                         })
-                        .collect()
-                } else {
-                    panic!("Expected multifield for values argument in set-properties UDF");
+                        .collect(),
+                    _ => panic!("Expected multifield for values argument in set-properties UDF"),
                 };
 
                 let properties: HashMap<String, Value> = props.into_iter().zip(vals).collect();
@@ -405,22 +405,23 @@ impl CLIPSKnowledgeBase {
             let event_tx_add_data = event_tx.clone();
             env.add_udf("add-data", None, 3, 4, vec![Type(Type::SYMBOL), Type(Type::MULTIFIELD), Type(Type::MULTIFIELD), Type(Type::INTEGER)], move |env, ctx| {
                 let state = &mut *state_add_data.borrow_mut();
-                let object_id = ctx.get_next_argument(Type(Type::SYMBOL)).expect("Failed to get object ID argument for add-data UDF");
-                let object_id = if let ClipsValue::Symbol(s) = object_id { s } else { panic!("Expected symbol for object ID argument in add-data UDF") };
-                let args = ctx.get_next_argument(Type(Type::MULTIFIELD)).expect("Failed to get args argument for add-data UDF");
-                let args: Vec<String> = if let ClipsValue::Multifield(mf) = args {
-                    mf.into_iter()
+                let object_id = match ctx.get_next_argument(Type(Type::SYMBOL)).expect("Failed to get object ID argument for prompt UDF") {
+                    ClipsValue::Symbol(s) => s.to_string(),
+                    _ => panic!("Expected symbol for object ID argument in prompt UDF"),
+                };
+                let args: Vec<String> = match ctx.get_next_argument(Type(Type::MULTIFIELD)).expect("Failed to get args argument for add-data UDF") {
+                    ClipsValue::Multifield(mf) => mf
+                        .into_iter()
                         .map(|v| match v {
                             ClipsValue::Symbol(s) => s,
                             _ => panic!("Expected symbol, integer, or float in args multifield for add-data UDF"),
                         })
-                        .collect()
-                } else {
-                    panic!("Expected multifield for args argument in add-data UDF");
+                        .collect(),
+                    _ => panic!("Expected multifield for args argument in add-data UDF"),
                 };
-                let vals = ctx.get_next_argument(Type(Type::MULTIFIELD)).expect("Failed to get values argument for add-data UDF");
-                let vals: Vec<Value> = if let ClipsValue::Multifield(mf) = vals {
-                    mf.into_iter()
+                let vals: Vec<Value> = match ctx.get_next_argument(Type(Type::MULTIFIELD)).expect("Failed to get values argument for add-data UDF") {
+                    ClipsValue::Multifield(mf) => mf
+                        .into_iter()
                         .map(|v| match v {
                             ClipsValue::Integer(i) => Value::Int(i),
                             ClipsValue::Float(f) => Value::Float(f),
@@ -433,17 +434,18 @@ impl CLIPSKnowledgeBase {
                             ClipsValue::String(s) => Value::String(s),
                             _ => panic!("Expected symbol, integer, or float in values multifield for add-data UDF"),
                         })
-                        .collect()
-                } else {
-                    panic!("Expected multifield for values argument in add-data UDF");
+                        .collect(),
+                    _ => panic!("Expected multifield for values argument in add-data UDF"),
                 };
-                let date_time = if ctx.has_next_argument() { Some(ctx.get_next_argument(Type(Type::INTEGER)).expect("Failed to get date_time argument for add-data UDF")) } else { None };
-                let date_time = date_time
-                    .map(|dt| {
-                        let dt = if let ClipsValue::Integer(i) = dt { i } else { panic!("Expected integer for date_time argument in add-data UDF") };
-                        DateTime::<Utc>::from_timestamp(dt, 0).expect("Failed to convert date_time argument in add-data UDF")
-                    })
-                    .unwrap_or(Utc::now());
+                let date_time = if let Some(arg) = ctx.has_next_argument().then(|| ctx.get_next_argument(Type(Type::INTEGER)).expect("Failed to get date_time argument for add-data UDF")) {
+                    if let ClipsValue::Integer(i) = arg {
+                        DateTime::<Utc>::from_timestamp(i, 0).expect("Failed to convert date_time argument in add-data UDF")
+                    } else {
+                        panic!("Expected integer for date_time argument in add-data UDF");
+                    }
+                } else {
+                    Utc::now()
+                };
 
                 let values: HashMap<String, Value> = args.into_iter().zip(vals).collect();
                 trace!("CLIPS UDF 'add-data' called with object_id='{}', values={:?}, and date_time={}", object_id, values, date_time);
@@ -673,8 +675,6 @@ fn prop_deftemplate(class: &Class, name: &str, property: &Property, is_static: b
                     def.push_str(&format!(" {}", v));
                 }
                 def.push(')');
-            } else {
-                def.push_str(" (allowed-symbols nil)");
             }
 
             if let Some(def_val) = default {
@@ -790,8 +790,6 @@ fn prop_deftemplate(class: &Class, name: &str, property: &Property, is_static: b
                     def.push_str(&format!(" {}", v));
                 }
                 def.push(')');
-            } else {
-                def.push_str(" (allowed-symbols nil)");
             }
             if let Some(def_val) = default {
                 let def_str = def_val.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(" ");

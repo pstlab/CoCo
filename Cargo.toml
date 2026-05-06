@@ -16,7 +16,7 @@ name = "coco-reasoner"
 required-features = ["server"]
 
 [features]
-default = ["mongodb", "clips"]
+default = ["mongodb", "clips", "server", "chronoxide"]
 mongodb = ["dep:mongodb"]
 clips = ["dep:clips"]
 ollama = ["clips", "dep:reqwest", "dep:futures-util"]
@@ -24,7 +24,7 @@ server = ["dep:axum", "dep:tower-http", "dep:utoipa"]
 secure = ["server", "dep:jsonwebtoken", "dep:argon2"]
 fcm = ["clips", "mongodb", "server", "dep:reqwest", "dep:yup-oauth2"]
 mqtt = ["dep:rumqttc"]
-chronoxide = ["dep:chronoxide"]
+chronoxide = ["clips", "dep:chronoxide"]
 
 [dependencies]
 axum = { version = "0.8.9", features = ["ws"], optional = true }

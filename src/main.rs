@@ -4,6 +4,8 @@ use coco::db::mongodb::MongoDB;
 #[cfg(feature = "fcm")]
 use coco::fcm::{FCMModule, fcm_router};
 use coco::kb::clips::CLIPSKnowledgeBase;
+#[cfg(feature = "chronoxide")]
+use coco::kb::clips::chronoxide::ChronoxideModule;
 #[cfg(feature = "ollama")]
 use coco::kb::clips::ollama::OllamaModule;
 #[cfg(feature = "mqtt")]
@@ -34,6 +36,8 @@ async fn main() {
         Box::new(FCMModule::default()),
         #[cfg(feature = "mqtt")]
         Box::new(MQTTModule::default()),
+        #[cfg(feature = "chronoxide")]
+        Box::new(ChronoxideModule::default()),
     ];
 
     let coco = CoCo::new(db.clone(), kb, event, modules).await;
