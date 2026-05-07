@@ -2,6 +2,8 @@ export namespace coco {
   export class CoCo {
 
     private access_token: string | null = null;
+    private refresh_token: string | null = null;
+    private refreshing_tokens: Promise<boolean> | null = null;
     private readonly classes: Map<string, CoCoClass> = new Map();
     private readonly objects: Map<string, CoCoObject> = new Map();
     private readonly rules: Map<string, CoCoRule> = new Map();
@@ -10,24 +12,38 @@ export namespace coco {
     private readonly listeners: Set<CoCoListener> = new Set();
 
     constructor() {
-      this.access_token = this.access_token || localStorage.getItem('coco_access_token');
-      if (this.access_token) this.connect();
+      this.access_token = localStorage.getItem('coco_access_token');
+      this.refresh_token = localStorage.getItem('coco_refresh_token');
+
+      this.connect();
     }
 
     connect() {
       if (this.socket)
         this.socket.close();
 
+      let opened = false;
+      let auth_check_requested = false;
+      const check_auth_if_needed = () => {
+        if (opened || auth_check_requested) return;
+        auth_check_requested = true;
+        void this.handle_websocket_auth_failure();
+      };
+
       this.socket = new WebSocket((window.location.protocol === 'https:' ? 'wss' : 'ws') + '://' + window.location.host + '/ws?token=' + encodeURIComponent(this.access_token || ''));
       this.socket.onopen = () => {
+        opened = true;
         console.log('CoCo connected');
+        void this.sync_current_user();
         for (const listener of this.connection_listeners) listener.connected();
       };
       this.socket.onclose = () => {
+        check_auth_if_needed();
         console.log('CoCo disconnected');
         for (const listener of this.connection_listeners) listener.disconnected();
       };
       this.socket.onerror = (error) => {
+        check_auth_if_needed();
         console.error('CoCo connection error', error);
         for (const listener of this.connection_listeners) listener.connection_error(error);
       };
@@ -82,32 +98,139 @@ export namespace coco {
       }
     }
 
+    private store_tokens(tokens: Token) {
+      this.access_token = tokens.access_token;
+      this.refresh_token = tokens.refresh_token;
+      localStorage.setItem('coco_access_token', tokens.access_token);
+      localStorage.setItem('coco_refresh_token', tokens.refresh_token);
+    }
+
+    private clear_tokens() {
+      this.access_token = null;
+      this.refresh_token = null;
+      localStorage.removeItem('coco_access_token');
+      localStorage.removeItem('coco_refresh_token');
+    }
+
+    private notify_logged_out() {
+      for (const listener of this.connection_listeners) listener.user_updated(null);
+    }
+
+    private async refresh_access_token(): Promise<boolean> {
+      if (!this.refresh_token) return false;
+      if (this.refreshing_tokens) return this.refreshing_tokens;
+
+      this.refreshing_tokens = (async () => {
+        try {
+          const res = await fetch('/refresh_token', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ refresh_token: this.refresh_token })
+          });
+
+          if (!res.ok) {
+            if (res.status === 401 || res.status === 403) {
+              console.warn('CoCo refresh token is invalid or expired. Clearing local session.');
+              this.clear_tokens();
+              this.notify_logged_out();
+            }
+            return false;
+          }
+
+          const tokens = await res.json() as Token;
+          if (!tokens.access_token || !tokens.refresh_token) {
+            this.clear_tokens();
+            this.notify_logged_out();
+            return false;
+          }
+
+          this.store_tokens(tokens);
+          return true;
+        } catch (error) {
+          console.warn('Unable to refresh CoCo token:', error);
+          return false;
+        } finally {
+          this.refreshing_tokens = null;
+        }
+      })();
+
+      return this.refreshing_tokens;
+    }
+
+    async fetch_with_auth(input: string, init: RequestInit = {}): Promise<Response> {
+      const headers = new Headers(init.headers || {});
+      if (this.access_token)
+        headers.set('Authorization', 'Bearer ' + this.access_token);
+
+      let res = await fetch(input, { ...init, headers });
+      if (res.status !== 401 && res.status !== 403)
+        return res;
+
+      const refreshed = await this.refresh_access_token();
+      if (!refreshed)
+        return res;
+
+      const retry_headers = new Headers(init.headers || {});
+      if (this.access_token)
+        retry_headers.set('Authorization', 'Bearer ' + this.access_token);
+      res = await fetch(input, { ...init, headers: retry_headers });
+      return res;
+    }
+
+    private async handle_websocket_auth_failure() {
+      if (!this.access_token) {
+        const refreshed = await this.refresh_access_token();
+        if (refreshed) this.connect();
+        else this.notify_logged_out();
+        return;
+      }
+
+      try {
+        const res = await fetch('/me', { headers: { 'Authorization': 'Bearer ' + this.access_token } });
+        if (res.status !== 401 && res.status !== 403) return;
+
+        const refreshed = await this.refresh_access_token();
+        if (refreshed) {
+          this.connect();
+          return;
+        }
+
+        this.notify_logged_out();
+      } catch (error) {
+        console.warn('Unable to validate CoCo token after WebSocket error:', error);
+      }
+    }
+
+    private async sync_current_user() {
+      const user_res = await this.fetch_with_auth('/me');
+      if (!user_res.ok) {
+        if (user_res.status === 401 || user_res.status === 403)
+          this.notify_logged_out();
+        return;
+      }
+
+      const user = await user_res.json() as User;
+      const coco_user = new CoCoUser(this, user);
+      for (const listener of this.connection_listeners) listener.user_updated(coco_user);
+    }
+
     async login(username: string, password: string): Promise<void> {
       const login_res = await fetch('/login', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username, password }) });
       if (!login_res.ok) {
         throw new Error(`Login failed: ${login_res.status} ${login_res.statusText}`.trim());
       }
       const data = await login_res.json() as Token;
-      if (!data.access_token) {
-        throw new Error('Login failed: missing access token in response');
+      if (!data.access_token || !data.refresh_token) {
+        throw new Error('Login failed: missing token in response');
       }
 
-      this.access_token = data.access_token;
-      localStorage.setItem('coco_access_token', this.access_token);
+      this.store_tokens(data);
       this.connect();
-
-      const user_res = await fetch('/me', { headers: { 'Authorization': 'Bearer ' + this.access_token } });
-      if (!user_res.ok) {
-        console.warn('Failed to fetch user info:', user_res.status, user_res.statusText);
-        return;
-      }
-      const user = await user_res.json() as User;
-      const coco_user = new CoCoUser(this, user);
-      for (const listener of this.connection_listeners) listener.user_updated(coco_user);
+      await this.sync_current_user();
     }
 
     async get_users(): Promise<User[]> {
-      const res = await fetch('/users', { headers: { 'Authorization': 'Bearer ' + this.access_token } });
+      const res = await this.fetch_with_auth('/users');
       if (!res.ok) {
         throw new Error(`Failed to fetch users: ${res.status} ${res.statusText}`);
       }
@@ -117,8 +240,7 @@ export namespace coco {
 
     logout() {
       console.log('Logging out');
-      this.access_token = null;
-      localStorage.removeItem('coco_access_token');
+      this.clear_tokens();
       if (this.socket)
         this.socket.close();
       this.classes.clear();
@@ -251,7 +373,7 @@ export namespace coco {
         start: new Date(from).toISOString(),
         end: new Date(to).toISOString()
       });
-      fetch(`/objects/${this.id}/data?${params.toString()}`, { headers: { 'Authorization': 'Bearer ' + this.coco.get_access_token() } }).then(res => {
+      this.coco.fetch_with_auth(`/objects/${this.id}/data?${params.toString()}`).then(res => {
         if (!res.ok) throw new Error(`Failed to load object data: ${res.statusText}`);
         return res.json();
       }).then((data: Record<string, Array<TimeValue>>) => {
