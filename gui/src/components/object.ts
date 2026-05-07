@@ -92,16 +92,15 @@ export function CoCoObject(obj: coco.CoCoObject): VNode {
               name,
               xAxisIndex: index,
               yAxisIndex: index,
-              showSymbol: false,
+              showSymbol: true,
+              symbol: 'circle',
+              symbolSize: 5,
               data: data[name]?.map(d => [new Date(d.timestamp).getTime(), d.value as number]) || []
             }
           }];
         case 'int-array':
         case 'float-array': {
-          const snapshots = (data[name] ?? []).map(d => ({
-            t: new Date(d.timestamp).getTime(),
-            arr: Array.isArray(d.value) ? d.value : []
-          }));
+          const snapshots = (data[name] ?? []).map(d => ({ t: new Date(d.timestamp).getTime(), arr: Array.isArray(d.value) ? d.value : [] }));
           const maxLen = snapshots.reduce((m, s) => Math.max(m, s.arr.length), 0);
 
           return [{
@@ -118,10 +117,10 @@ export function CoCoObject(obj: coco.CoCoObject): VNode {
               name: `${name}[${arrIdx}]`,
               xAxisIndex: index,
               yAxisIndex: index,
-              showSymbol: false,
-              data: snapshots
-                .filter(s => typeof s.arr[arrIdx] === 'number')
-                .map(s => [s.t, s.arr[arrIdx] as number])
+              showSymbol: true,
+              symbol: 'circle',
+              symbolSize: 5,
+              data: snapshots.filter(s => typeof s.arr[arrIdx] === 'number').map(s => [s.t, s.arr[arrIdx] as number])
             }))
           }];
         }
@@ -156,9 +155,17 @@ export function CoCoObject(obj: coco.CoCoObject): VNode {
           }
 
           const colorMap: Record<string, string> = {};
+          if (prop.type === 'bool') {
+            colorMap['true'] = '#22c55e';
+            colorMap['false'] = '#ef4444';
+          }
+
           const uniqueValues = [...new Set(c_data.map(d => d.value))];
           const colorPalette = ['#5470c6', '#91cc75', '#fac858', '#ee6666', '#73c0de', '#3ba272', '#fc8452', '#9a60b4', '#ea7ccc'];
-          uniqueValues.forEach((val, i) => { colorMap[val] = colorPalette[i % colorPalette.length]; });
+          uniqueValues.forEach((val, i) => {
+            if (!colorMap[val])
+              colorMap[val] = colorPalette[i % colorPalette.length];
+          });
 
           return [{
             yAxis: {
@@ -208,7 +215,35 @@ export function CoCoObject(obj: coco.CoCoObject): VNode {
     return {
       axisPointer: { link: [{ xAxisIndex: 'all' }] },
       tooltip: {
-        trigger: 'item'
+        trigger: 'item',
+        formatter: (params: any) => {
+          const p = Array.isArray(params) ? params[0] : params;
+          if (!p)
+            return '';
+
+          const seriesName = p.seriesName || p.name || 'Value';
+          const raw = Array.isArray(p.value) ? p.value : (Array.isArray(p.data) ? p.data : null);
+
+          if (p.seriesType === 'custom' && raw && raw.length >= 4) {
+            const start = Number(raw[0]);
+            const end = Number(raw[1]);
+            const value = raw[2];
+            const color = raw[3] || p.color || '#999999';
+            const marker = `<span style="display:inline-block;margin-right:6px;border-radius:50%;width:10px;height:10px;background:${color};"></span>`;
+            const from = Number.isFinite(start) ? new Date(start).toLocaleString() : '-';
+            const to = Number.isFinite(end) ? new Date(end).toLocaleString() : '-';
+            return `${marker}${seriesName}<br/>Value: <b>${value}</b><br/>From: ${from}<br/>To: ${to}`;
+          }
+
+          if (p.seriesType === 'line' && raw && raw.length >= 2) {
+            const ts = Number(raw[0]);
+            const value = raw[1];
+            const timeText = Number.isFinite(ts) ? new Date(ts).toLocaleString() : '-';
+            return `${p.marker || ''}${seriesName}<br/>Value: <b>${value}</b><br/>Time: ${timeText}`;
+          }
+
+          return `${p.marker || ''}${seriesName}`;
+        }
       },
       dataZoom: [
         {
