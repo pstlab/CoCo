@@ -67,11 +67,18 @@ export function CoCoObject(obj: coco.CoCoObject): VNode {
     const global_min = all_timestamps.length ? Math.min(...all_timestamps) : undefined;
     const global_max = all_timestamps.length ? Math.max(...all_timestamps) : new Date().getTime();
 
-    const series = Array.from(all_props.entries()).map(([name, prop], index) => {
+    const toArrayLabel = (v: coco.Value): string => Array.isArray(v) ? `[${v.map(x => coco.value_to_string(x)).join(', ')}]` : coco.value_to_string(v);
+
+    type ChartSeriesRow = {
+      yAxis: Record<string, unknown>;
+      series: Record<string, unknown> | Record<string, unknown>[];
+    };
+
+    const series: ChartSeriesRow[] = Array.from(all_props.entries()).flatMap(([name, prop], index): ChartSeriesRow[] => {
       switch (prop.type) {
         case 'int':
         case 'float':
-          return {
+          return [{
             yAxis: {
               type: 'value',
               gridIndex: index,
@@ -82,43 +89,77 @@ export function CoCoObject(obj: coco.CoCoObject): VNode {
             },
             series: {
               type: 'line',
+              name,
               xAxisIndex: index,
               yAxisIndex: index,
+              showSymbol: false,
               data: data[name]?.map(d => [d.timestamp, d.value as number]) || []
             }
-          };
+          }];
+        case 'int-array':
+        case 'float-array': {
+          const snapshots = (data[name] ?? []).map(d => ({
+            t: d.timestamp,
+            arr: Array.isArray(d.value) ? d.value : []
+          }));
+          const maxLen = snapshots.reduce((m, s) => Math.max(m, s.arr.length), 0);
+
+          return [{
+            yAxis: {
+              type: 'value',
+              gridIndex: index,
+              name,
+              min: prop.min ? prop.min as number : undefined,
+              max: prop.max ? prop.max as number : undefined,
+              splitLine: { show: true }
+            },
+            series: Array.from({ length: maxLen }, (_, arrIdx) => ({
+              type: 'line',
+              name: `${name}[${arrIdx}]`,
+              xAxisIndex: index,
+              yAxisIndex: index,
+              showSymbol: false,
+              data: snapshots
+                .filter(s => typeof s.arr[arrIdx] === 'number')
+                .map(s => [s.t, s.arr[arrIdx] as number])
+            }))
+          }];
+        }
         case 'bool':
         case 'string':
         case 'symbol':
         case 'object':
-          const c_data: { start: string, end: string, value: string }[] = [];
+        case 'bool-array':
+        case 'string-array':
+        case 'symbol-array':
+        case 'object-array':
+          const c_data: { start: string; end: string; value: string }[] = [];
           let current_value: string | null = null;
           let current_start: string | null = null;
 
           for (const d of data[name] || []) {
-            const value_str = coco.value_to_string(d.value);
-            if (current_value !== null && current_start !== null)
+            const value_str = toArrayLabel(d.value);
+            if (current_value !== null && current_start !== null) {
               c_data.push({ start: current_start, end: d.timestamp, value: current_value });
+            }
             current_value = value_str;
             current_start = d.timestamp;
           }
-          if (current_value !== null && current_start !== null)
-            c_data.push({ start: current_start, end: new Date(new Date(global_max || new Date().getTime()).getTime() + 1).toISOString(), value: current_value });
 
-          // Create color map for unique values
-          const colorMap: Record<string, string> = {};
-          if (prop.type === 'bool') {
-            colorMap['true'] = '#91cc75';  // green for true
-            colorMap['false'] = '#ee6666'; // red for false
-          } else {
-            const uniqueValues = [...new Set(c_data.map(d => d.value))];
-            const colorPalette = ['#5470c6', '#91cc75', '#fac858', '#ee6666', '#73c0de', '#3ba272', '#fc8452', '#9a60b4', '#ea7ccc'];
-            uniqueValues.forEach((val, i) => {
-              colorMap[val] = colorPalette[i % colorPalette.length];
+          if (current_value !== null && current_start !== null) {
+            c_data.push({
+              start: current_start,
+              end: new Date((global_max ?? Date.now()) + 1).toISOString(),
+              value: current_value
             });
           }
 
-          return {
+          const colorMap: Record<string, string> = {};
+          const uniqueValues = [...new Set(c_data.map(d => d.value))];
+          const colorPalette = ['#5470c6', '#91cc75', '#fac858', '#ee6666', '#73c0de', '#3ba272', '#fc8452', '#9a60b4', '#ea7ccc'];
+          uniqueValues.forEach((val, i) => { colorMap[val] = colorPalette[i % colorPalette.length]; });
+
+          return [{
             yAxis: {
               type: 'value',
               gridIndex: index,
@@ -159,7 +200,7 @@ export function CoCoObject(obj: coco.CoCoObject): VNode {
               encode: { x: [0, 1], y: 2 },
               data: c_data.map(d => [new Date(d.start).getTime(), new Date(d.end).getTime(), d.value, colorMap[d.value]])
             }
-          };
+          }];
       }
     });
 
@@ -192,7 +233,7 @@ export function CoCoObject(obj: coco.CoCoObject): VNode {
         show: i === all_props.size - 1,
       })),
       yAxis: series.map(serie => serie.yAxis),
-      series: series.map(serie => serie.series),
+      series: series.flatMap(serie => Array.isArray(serie.series) ? serie.series : [serie.series]),
     };
   }
 

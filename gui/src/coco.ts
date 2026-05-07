@@ -439,15 +439,19 @@ export namespace coco {
     data_updated(data: Record<string, Array<TimeValue>>): void;
   }
 
-  export type Value = null | boolean | number | string;
+  export type Value = null | boolean | number | string | Array<boolean> | Array<number> | Array<string>;
   export type TimeValue = { value: Value, timestamp: string };
 
   export function value_to_string(value: Value): string {
     switch (typeof value) {
-      case 'string': return value;
-      case 'number': return value.toString();
       case 'boolean': return value ? 'true' : 'false';
-      default: return '';
+      case 'number': return value.toString();
+      case 'string': return value;
+      case 'object':
+        if (value === null) return 'null';
+        if (Array.isArray(value)) return '[' + value.map(v => value_to_string(v)).join(', ') + ']';
+        return JSON.stringify(value);
+      default: return String(value);
     }
   }
 
@@ -457,7 +461,13 @@ export namespace coco {
     | { type: 'float', default?: number, min?: number, max?: number }
     | { type: 'string', default?: string }
     | { type: 'symbol', default?: string, allowed_values?: string[] }
-    | { type: 'object', default?: string, class: string };
+    | { type: 'object', default?: string, class: string }
+    | { type: 'bool-array', default?: boolean[] }
+    | { type: 'int-array', default?: number[], min?: number, max?: number }
+    | { type: 'float-array', default?: number[], min?: number, max?: number }
+    | { type: 'string-array', default?: string[] }
+    | { type: 'symbol-array', default?: string[], allowed_values?: string[] }
+    | { type: 'object-array', default?: string[], class: string };
 
   type Token = { access_token: string, refresh_token: string, token_type: string };
   type User = { username: string, role: 'User' | 'Admin', read_access: string[], write_access: string[] };
