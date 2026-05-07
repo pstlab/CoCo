@@ -1,6 +1,6 @@
 use crate::{CoCo, CoCoModule, db::Database, kb::clips::CLIPSKnowledgeBase, model::CoCoError};
 use async_trait::async_trait;
-use clips::{ClipsValue, Type};
+use clips::{ClipsValue, Type, UDFContext};
 use futures_util::StreamExt;
 use reqwest::{Client, Response};
 use serde::Deserialize;
