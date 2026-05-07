@@ -93,13 +93,13 @@ export function CoCoObject(obj: coco.CoCoObject): VNode {
               xAxisIndex: index,
               yAxisIndex: index,
               showSymbol: false,
-              data: data[name]?.map(d => [d.timestamp, d.value as number]) || []
+              data: data[name]?.map(d => [new Date(d.timestamp).getTime(), d.value as number]) || []
             }
           }];
         case 'int-array':
         case 'float-array': {
           const snapshots = (data[name] ?? []).map(d => ({
-            t: d.timestamp,
+            t: new Date(d.timestamp).getTime(),
             arr: Array.isArray(d.value) ? d.value : []
           }));
           const maxLen = snapshots.reduce((m, s) => Math.max(m, s.arr.length), 0);
@@ -133,23 +133,24 @@ export function CoCoObject(obj: coco.CoCoObject): VNode {
         case 'string-array':
         case 'symbol-array':
         case 'object-array':
-          const c_data: { start: string; end: string; value: string }[] = [];
+          const c_data: { start: number; end: number; value: string }[] = [];
           let current_value: string | null = null;
-          let current_start: string | null = null;
+          let current_start: number | null = null;
 
           for (const d of data[name] || []) {
+            const timestamp = new Date(d.timestamp).getTime();
             const value_str = toArrayLabel(d.value);
             if (current_value !== null && current_start !== null) {
-              c_data.push({ start: current_start, end: d.timestamp, value: current_value });
+              c_data.push({ start: current_start, end: timestamp, value: current_value });
             }
             current_value = value_str;
-            current_start = d.timestamp;
+            current_start = timestamp;
           }
 
           if (current_value !== null && current_start !== null) {
             c_data.push({
               start: current_start,
-              end: new Date((global_max ?? Date.now()) + 1).toISOString(),
+              end: (global_max ?? Date.now()) + 1,
               value: current_value
             });
           }
@@ -198,7 +199,7 @@ export function CoCoObject(obj: coco.CoCoObject): VNode {
                 };
               },
               encode: { x: [0, 1], y: 2 },
-              data: c_data.map(d => [new Date(d.start).getTime(), new Date(d.end).getTime(), d.value, colorMap[d.value]])
+              data: c_data.map(d => [d.start, d.end, d.value, colorMap[d.value]])
             }
           }];
       }
