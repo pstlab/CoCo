@@ -4,11 +4,12 @@ import { flick, Header, ListGroup, ListGroupItem, Row, Table } from "@ratiosolve
 import { CoCoObject } from "./object";
 
 export function ClassesList(coco: coco.CoCo): VNode {
-  return ListGroup(Array.from(coco.get_classes().values().map(cls => ListGroupItem(cls.get_name(), () => {
+  const classes = coco.get_classes().values().toArray().sort((a, b) => a.get_name().localeCompare(b.get_name()));
+  return ListGroup(classes.map(cls => ListGroupItem(cls.get_name(), () => {
     flick.ctx.current_page = () => CoCoClass(cls);
     flick.ctx.page_title = `Class: ${cls.get_name()}`;
     flick.redraw();
-  }, flick.ctx.page_title === `Class: ${cls.get_name()}`))));
+  }, flick.ctx.page_title === `Class: ${cls.get_name()}`)));
 }
 
 const cls_listener: coco.CoCoClassListener = {
@@ -65,8 +66,8 @@ export function CoCoClass(cls: coco.CoCoClass): VNode {
   const rows = cls.get_instances().values().map(obj => ObjectRow(cls, obj)).toArray();
 
   const props_header = ["Name", "Type"];
-  const static_props_rows = cls.get_static_properties().entries().map(([name, type]) => Row([name, type.type])).toArray();
-  const dynamic_props_rows = cls.get_dynamic_properties().entries().map(([name, type]) => Row([name, type.type])).toArray();
+  const static_props_rows = cls.get_static_properties().entries().toArray().sort(([nameA], [nameB]) => nameA.localeCompare(nameB)).map(([name, type]) => Row([name, type.type]));
+  const dynamic_props_rows = cls.get_dynamic_properties().entries().toArray().sort(([nameA], [nameB]) => nameA.localeCompare(nameB)).map(([name, type]) => Row([name, type.type]));
 
   return h('div.container.mt-2',
     {

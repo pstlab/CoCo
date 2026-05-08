@@ -43,8 +43,28 @@ export function ObjectGroupItem(obj: coco.CoCoObject): VNode {
   }, object_to_string(obj));
 }
 
-export function ObjectsList(coco: coco.CoCo): VNode {
-  return ListGroup(Array.from(coco.get_objects().values().map(obj => ObjectGroupItem(obj))));
+export function ObjectsList(coco_instance: coco.CoCo): VNode {
+  const objects = coco_instance.get_objects().values().toArray().sort((a, b) => {
+    const aProps = a.get_properties();
+    const bProps = b.get_properties();
+
+    const aHasName = !!aProps && 'name' in aProps;
+    const bHasName = !!bProps && 'name' in bProps;
+    if (aHasName !== bHasName)
+      return aHasName ? -1 : 1;
+
+    if (aHasName && bHasName) {
+      const aName = coco.value_to_string(aProps!.name);
+      const bName = coco.value_to_string(bProps!.name);
+      const byName = aName.localeCompare(bName);
+      if (byName !== 0)
+        return byName;
+    }
+
+    return a.get_id().localeCompare(b.get_id());
+  });
+
+  return ListGroup(objects.map(obj => ObjectGroupItem(obj)));
 }
 
 export function CoCoObject(obj: coco.CoCoObject): VNode {
@@ -55,6 +75,7 @@ export function CoCoObject(obj: coco.CoCoObject): VNode {
       all_props.set(name, prop);
     });
   });
+  const sorted_all_props = new Map(Array.from(all_props.entries()).sort(([nameA], [nameB]) => nameA.localeCompare(nameB)));
 
   const get_option = (): echarts.EChartsCoreOption => {
     if (!obj.is_data_loaded())
@@ -74,7 +95,7 @@ export function CoCoObject(obj: coco.CoCoObject): VNode {
       series: Record<string, unknown> | Record<string, unknown>[];
     };
 
-    const series: ChartSeriesRow[] = Array.from(all_props.entries()).flatMap(([name, prop], index): ChartSeriesRow[] => {
+    const series: ChartSeriesRow[] = Array.from(sorted_all_props.entries()).flatMap(([name, prop], index): ChartSeriesRow[] => {
       switch (prop.type) {
         case 'int':
         case 'float':
@@ -266,7 +287,7 @@ export function CoCoObject(obj: coco.CoCoObject): VNode {
         gridIndex: i,
         min: global_min,
         max: global_max,
-        show: i === all_props.size - 1,
+        show: i === sorted_all_props.size - 1,
       })),
       yAxis: series.map(serie => serie.yAxis),
       series: series.flatMap(serie => Array.isArray(serie.series) ? serie.series : [serie.series]),
@@ -284,7 +305,9 @@ export function CoCoObject(obj: coco.CoCoObject): VNode {
 
   const props_header = ["Property", "Value"];
   const props = obj.get_properties();
-  const props_rows = props ? Object.entries(props).map(([name, value]) => Row([name, coco.value_to_string(value)])) : [];
+  const props_rows = props ? Object.entries(props)
+    .sort(([nameA], [nameB]) => nameA.localeCompare(nameB))
+    .map(([name, value]) => Row([name, coco.value_to_string(value)])) : [];
 
   const content = h('div.container.mt-2', [
     h('div.input-group', [
@@ -309,7 +332,7 @@ export function CoCoObject(obj: coco.CoCoObject): VNode {
     props_rows.length > 0 ? Table(Header(props_header), props_rows, 'Properties') : h('p.mt-2', 'No properties.'),
     h('div.mt-2', {
       key: obj.get_id(),
-      style: { minHeight: `${(all_props.size * PIXELS_PER_ROW) + BOTTOM_UI_HEIGHT}px` },
+      style: { minHeight: `${(sorted_all_props.size * PIXELS_PER_ROW) + BOTTOM_UI_HEIGHT}px` },
       hook: {
         insert: (vnode) => {
           chart = echarts.init(vnode.elm as HTMLDivElement);
