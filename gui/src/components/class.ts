@@ -19,7 +19,7 @@ const cls_listener: coco.CoCoClassListener = {
 };
 
 const obj_item_listener: coco.CoCoObjectListener = {
-  class_added: (_cls: coco.CoCoClass) => { },
+  classes_updated: (_classes: Set<coco.CoCoClass>) => { },
   properties_updated: (_properties: Record<string, coco.Value>) => { flick.redraw(); },
   values_added: (_values: Record<string, coco.Value>, _date_time: string) => { flick.redraw(); },
   data_updated: (_data: Record<string, Array<coco.TimeValue>>) => { }

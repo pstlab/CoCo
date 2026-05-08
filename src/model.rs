@@ -421,9 +421,9 @@ impl fmt::Display for Rule {
 pub enum CoCoEvent {
     ClassCreated(String),                                       // class_name
     ObjectCreated(String),                                      // object_id
-    AddedClass(String, String),                                 // (object_id, class_name)
-    UpdatedProperties(String, HashMap<String, Value>),          // (object_id, properties)
-    AddedValues(String, HashMap<String, Value>, DateTime<Utc>), // (object_id, value, date_time)
+    ClassesUpdated(String, HashSet<String>),                    // (object_id, classes)
+    PropertiesUpdated(String, HashMap<String, Value>),          // (object_id, properties)
+    ValuesAdded(String, HashMap<String, Value>, DateTime<Utc>), // (object_id, value, date_time)
     RuleCreated(String),                                        // rule_name
 }
 
@@ -432,9 +432,9 @@ impl fmt::Display for CoCoEvent {
         match self {
             CoCoEvent::ClassCreated(class) => write!(f, "ClassCreated: {}", class),
             CoCoEvent::ObjectCreated(object) => write!(f, "ObjectCreated: {}", object),
-            CoCoEvent::AddedClass(object, class) => write!(f, "AddedClass: {} to {}", class, object),
-            CoCoEvent::UpdatedProperties(object, properties) => write!(f, "UpdatedProperties for {}: {:?}", object, properties),
-            CoCoEvent::AddedValues(object, values, date_time) => write!(f, "AddedValues to {}: {:?} at {}", object, values, date_time),
+            CoCoEvent::ClassesUpdated(object, classes) => write!(f, "ClassesUpdated for {}: {:?}", object, classes),
+            CoCoEvent::PropertiesUpdated(object, properties) => write!(f, "UpdatedProperties for {}: {:?}", object, properties),
+            CoCoEvent::ValuesAdded(object, values, date_time) => write!(f, "AddedValues to {}: {:?} at {}", object, values, date_time),
             CoCoEvent::RuleCreated(rule) => write!(f, "RuleCreated: {}", rule),
         }
     }

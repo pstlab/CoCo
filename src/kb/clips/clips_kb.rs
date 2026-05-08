@@ -243,7 +243,9 @@ impl ActorState {
         let single_class = HashSet::from([class_name.to_owned()]);
         let static_props = self.get_static_properties(&single_class)?;
         let dynamic_props = self.get_dynamic_properties(&single_class)?;
-        let classes = self.get_class_hierarchy(&self.objects.get(object_id).ok_or_else(|| KnowledgeBaseError::ObjectNotFound(object_id.to_owned()))?.classes)?;
+        let mut object_classes = self.objects.get(object_id).ok_or_else(|| KnowledgeBaseError::ObjectNotFound(object_id.to_owned()))?.classes.clone();
+        object_classes.insert(class_name.to_owned());
+        let classes = self.get_class_hierarchy(&object_classes)?;
         let object_id_owned = object_id.to_owned();
 
         let object = self.objects.get_mut(object_id).ok_or_else(|| KnowledgeBaseError::ObjectNotFound(object_id.to_owned()))?;

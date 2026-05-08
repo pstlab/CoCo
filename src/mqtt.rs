@@ -80,11 +80,11 @@ impl<DB: Database, KB: KnowledgeBase> CoCoModule<DB, KB> for MQTTModule {
                         Ok(None) => trace!("Object '{}' not found after creation event", object_id),
                         Err(e) => trace!("Error loading object '{}' after creation event: {}", object_id, e),
                     },
-                    CoCoEvent::AddedClass(object_id, class_name) => {
+                    CoCoEvent::ClassesUpdated(object_id, classes) => {
                         let update_msg = serde_json::json!({
-                            "msg_type": "added_class",
+                            "msg_type": "classes-updated",
                             "object_id": object_id,
-                            "class_name": class_name
+                            "classes": classes
                         });
                         let payload = serde_json::to_string(&update_msg).unwrap();
                         client.publish("coco/events", QoS::AtLeastOnce, false, payload).await.unwrap();
@@ -104,7 +104,7 @@ impl<DB: Database, KB: KnowledgeBase> CoCoModule<DB, KB> for MQTTModule {
                     }
                     CoCoEvent::RuleCreated(rule) => {
                         let mut update_msg = serde_json::to_value(coco_clone.get_rule(rule).await.unwrap()).unwrap();
-                        update_msg["msg_type"] = serde_json::json!("rule_created");
+                        update_msg["msg_type"] = serde_json::json!("rule-created");
                         let payload = serde_json::to_string(&update_msg).unwrap();
                         client.publish("coco/events", QoS::AtLeastOnce, false, payload).await.unwrap();
                     }

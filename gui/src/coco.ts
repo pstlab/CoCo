@@ -91,18 +91,18 @@ export namespace coco {
             for (const listener of this.listeners) listener.created_object(obj);
             break;
           }
-          case 'added-class': {
+          case 'classes-updated': {
             const obj = this.get_object(msg.object_id);
-            const cls = this.get_class(msg.class_name);
-            obj._add_class(cls);
+            const classes = new Set(msg.classes.map(cls_name => this.get_class(cls_name)));
+            obj._set_classes(classes);
             break;
           }
-          case 'updated-properties': {
+          case 'properties-updated': {
             const obj = this.get_object(msg.object_id);
             obj._set_properties(msg.properties);
             break;
           }
-          case 'added-values': {
+          case 'values-added': {
             const obj = this.get_object(msg.object_id);
             obj._set_values(msg.values, msg.date_time);
             break;
@@ -354,9 +354,14 @@ export namespace coco {
     get_coco(): CoCo { return this.coco; }
     get_id(): string { return this.id; }
     get_classes(): ReadonlySet<CoCoClass> { return this.classes; }
-    _add_class(cls: CoCoClass) {
-      this.classes.add(cls); cls._add_instance(this);
-      for (const listener of this.listeners) listener.class_added(cls);
+    _set_classes(classes: Set<CoCoClass>) {
+      for (const cls of classes) {
+        if (!this.classes.has(cls)) {
+          this.classes.add(cls);
+          cls._add_instance(this);
+        }
+      }
+      for (const listener of this.listeners) listener.classes_updated(this.classes);
     }
     get_properties(): Record<string, Value> | undefined { return this.properties; }
     _set_properties(properties: Record<string, Value>) {
@@ -436,7 +441,7 @@ export namespace coco {
   }
 
   export interface CoCoObjectListener {
-    class_added(cls: CoCoClass): void;
+    classes_updated(classes: Set<CoCoClass>): void;
     properties_updated(properties: Record<string, Value>): void;
     values_added(values: Record<string, Value>, date_time: string): void;
     data_updated(data: Record<string, Array<TimeValue>>): void;
@@ -495,7 +500,7 @@ export namespace coco {
     | ({ msg_type: 'class-created' } & ClassMessage)
     | ({ msg_type: 'rule-created' } & RuleMessage)
     | ({ msg_type: 'object-created' } & ObjectMessage)
-    | ({ msg_type: 'added-class', object_id: string, class_name: string })
-    | ({ msg_type: 'updated-properties', object_id: string, properties: Record<string, Value> })
-    | ({ msg_type: 'added-values', object_id: string, values: Record<string, Value>, date_time: string });
+    | ({ msg_type: 'classes-updated', object_id: string, classes: string[] })
+    | ({ msg_type: 'properties-updated', object_id: string, properties: Record<string, Value> })
+    | ({ msg_type: 'values-added', object_id: string, values: Record<string, Value>, date_time: string });
 }

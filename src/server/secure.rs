@@ -552,21 +552,29 @@ async fn get_objects(State(state): State<AppState>, Extension(user): Extension<C
     trace!("Handling request to list all objects with filter: {:?}", filter);
     match state.coco.get_objects().await {
         Ok(objects) => {
-            let filtered_objects: Vec<Object> = objects
-                .into_iter()
-                .filter(|o| {
-                    if !filter.class.as_ref().is_none_or(|class_name| o.classes.contains(class_name)) {
-                        return false;
-                    }
-                    if !filter.extra.as_ref().is_none_or(|extra| extra.iter().all(|(k, v)| o.properties.as_ref().and_then(|props| props.get(k)).is_none_or(|prop| prop == v))) {
-                        return false;
-                    }
-                    if !user.has_read_access(o.id.as_ref().map(|id| id.as_str()).unwrap_or("")) {
-                        return false;
-                    }
-                    true
-                })
-                .collect();
+            let mut filtered_objects = Vec::new();
+            for mut object in objects {
+                let Some(object_id) = object.id.clone() else {
+                    continue;
+                };
+                if !user.has_read_access(&object_id) {
+                    continue;
+                }
+
+                object.classes = match state.coco.get_object_classes(object_id.clone()).await {
+                    Ok(classes) => classes,
+                    Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to get classes for object '{}': {}", object_id, e)).into_response(),
+                };
+
+                if !filter.class.as_ref().is_none_or(|class_name| object.classes.contains(class_name)) {
+                    continue;
+                }
+                if !filter.extra.as_ref().is_none_or(|extra| extra.iter().all(|(k, v)| object.properties.as_ref().and_then(|props| props.get(k)).is_none_or(|prop| prop == v))) {
+                    continue;
+                }
+
+                filtered_objects.push(object);
+            }
             Json(filtered_objects).into_response()
         }
         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to get objects: {}", e)).into_response(),
@@ -595,7 +603,13 @@ async fn get_object(State(state): State<AppState>, Extension(user): Extension<Cu
         return (StatusCode::FORBIDDEN, "You do not have permission to access this object").into_response();
     }
     match state.coco.get_object(id.clone()).await {
-        Ok(Some(object)) => Json(object).into_response(),
+        Ok(Some(mut object)) => match state.coco.get_object_classes(id.clone()).await {
+            Ok(classes) => {
+                object.classes = classes;
+                Json(object).into_response()
+            }
+            Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to get classes for object with ID '{}': {}", id, e)).into_response(),
+        },
         Ok(None) => (StatusCode::NOT_FOUND, format!("Object with ID '{}' not found", id)).into_response(),
         Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to get object with ID '{}': {}", id, e)).into_response(),
     }
@@ -815,19 +829,21 @@ async fn handle_socket(mut socket: WebSocket, state: AppState, user: CurrentUser
             })
             .collect();
 
-        let objects_map: HashMap<String, serde_json::Value> = state
-            .coco
-            .get_objects()
-            .await?
-            .into_iter()
-            .filter(|o| user.has_read_access(o.id.as_ref().map(|id| id.as_str()).unwrap_or("")))
-            .map(|mut o| {
-                let id = o.id.take().unwrap();
-                let mut v = serde_json::to_value(&o).unwrap();
-                v.as_object_mut().unwrap().remove("id");
-                (id, v)
-            })
-            .collect();
+        let mut objects_map = HashMap::new();
+        for mut object in state.coco.get_objects().await? {
+            let Some(object_id) = object.id.clone() else {
+                continue;
+            };
+            if !user.has_read_access(&object_id) {
+                continue;
+            }
+
+            object.classes = state.coco.get_object_classes(object_id.clone()).await?;
+            let id = object.id.take().unwrap();
+            let mut value = serde_json::to_value(&object).unwrap();
+            value.as_object_mut().unwrap().remove("id");
+            objects_map.insert(id, value);
+        }
 
         Ok::<serde_json::Value, CoCoError>(serde_json::json!({
             "msg_type": "coco",
@@ -892,7 +908,11 @@ async fn handle_socket(mut socket: WebSocket, state: AppState, user: CurrentUser
                     CoCoEvent::ObjectCreated(object_id) => {
                         if user.has_read_access(&object_id) {
                             match state.coco.get_object(object_id).await {
-                                Ok(Some(object)) => {
+                                Ok(Some(mut object)) => {
+                                    match state.coco.get_object_classes(object.id.clone().unwrap_or_default()).await {
+                                        Ok(classes) => object.classes = classes,
+                                        Err(_) => return,
+                                    }
                                     let mut update_msg = serde_json::to_value(object).unwrap();
                                     update_msg["msg_type"] = serde_json::json!("object-created");
                                     socket.send(Message::Text(serde_json::to_string(&update_msg).unwrap().into())).await
@@ -904,18 +924,18 @@ async fn handle_socket(mut socket: WebSocket, state: AppState, user: CurrentUser
                             Ok(())
                         }
                     }
-                    CoCoEvent::AddedClass(object_id, class_name) => {
+                    CoCoEvent::ClassesUpdated(object_id, classes) => {
                         let update_msg = serde_json::json!({
-                            "msg_type": "added-class",
+                            "msg_type": "classes-updated",
                             "object_id": object_id,
-                            "class_name": class_name
+                            "classes": classes
                         });
                         socket.send(Message::Text(serde_json::to_string(&update_msg).unwrap().into())).await
                     }
-                    CoCoEvent::UpdatedProperties(object_id, properties) => {
+                    CoCoEvent::PropertiesUpdated(object_id, properties) => {
                         if user.has_read_access(&object_id) {
                             let update_msg = serde_json::json!({
-                                "msg_type": "updated-properties",
+                                "msg_type": "properties-updated",
                                 "object_id": object_id,
                                 "properties": properties
                             });
@@ -924,10 +944,10 @@ async fn handle_socket(mut socket: WebSocket, state: AppState, user: CurrentUser
                             Ok(())
                         }
                     }
-                    CoCoEvent::AddedValues(object_id, values, date_time) => {
+                    CoCoEvent::ValuesAdded(object_id, values, date_time) => {
                         if user.has_read_access(&object_id) {
                             let update_msg = serde_json::json!({
-                                "msg_type": "added-values",
+                                "msg_type": "values-added",
                                 "object_id": object_id,
                                 "values": values,
                                 "date_time": date_time
