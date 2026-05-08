@@ -1,13 +1,13 @@
-use std::collections::{HashMap, HashSet};
-
 use crate::{
     CoCo, CoCoModule,
     db::Database,
+    kb::KnowledgeBase,
     kb::clips::CLIPSKnowledgeBase,
     model::{Class, CoCoError, Object, Property, Value},
 };
 use async_trait::async_trait;
 use clips::{ClipsValue, Type, UDFContext};
+use std::collections::{HashMap, HashSet};
 use tracing::{info, trace};
 
 pub struct ChronoxideModule {}
@@ -26,8 +26,8 @@ impl Default for ChronoxideModule {
 
 #[async_trait]
 impl<DB: Database> CoCoModule<DB, CLIPSKnowledgeBase> for ChronoxideModule {
-    async fn init(&self, db: DB, kb: CLIPSKnowledgeBase, coco: CoCo) -> Result<(), CoCoError> {
-        if db.get_class("Class").await.map_err(|_| CoCoError::DatabaseError("Failed to retrieve 'Class' class from database".to_string()))?.is_none() {
+    async fn init(&self, _db: DB, kb: CLIPSKnowledgeBase, coco: CoCo) -> Result<(), CoCoError> {
+        if kb.get_class("Class").await.map_err(|_| CoCoError::DatabaseError("Failed to retrieve 'Class' class from database".to_string()))?.is_none() {
             coco.create_class(Class {
                 name: "Class".to_string(),
                 static_properties: Some(HashMap::from([("name".to_string(), Property::Symbol { default: None, allowed_values: None }), ("content".to_string(), Property::String { default: None })])),
@@ -38,7 +38,7 @@ impl<DB: Database> CoCoModule<DB, CLIPSKnowledgeBase> for ChronoxideModule {
 
             info!("Successfully created 'Class' class in database");
         }
-        if db.get_class("Predicate").await.map_err(|_| CoCoError::DatabaseError("Failed to retrieve 'Predicate' class from database".to_string()))?.is_none() {
+        if kb.get_class("Predicate").await.map_err(|_| CoCoError::DatabaseError("Failed to retrieve 'Predicate' class from database".to_string()))?.is_none() {
             coco.create_class(Class {
                 name: "Predicate".to_string(),
                 static_properties: Some(HashMap::from([
@@ -54,7 +54,7 @@ impl<DB: Database> CoCoModule<DB, CLIPSKnowledgeBase> for ChronoxideModule {
 
             info!("Successfully created 'Predicate' class in database");
         }
-        if db.get_class("Impulse").await.map_err(|_| CoCoError::DatabaseError("Failed to retrieve 'Impulse' class from database".to_string()))?.is_none() {
+        if kb.get_class("Impulse").await.map_err(|_| CoCoError::DatabaseError("Failed to retrieve 'Impulse' class from database".to_string()))?.is_none() {
             coco.create_class(Class {
                 name: "Impulse".to_string(),
                 static_properties: Some(HashMap::from([("at".to_string(), Property::Float { default: None, min: Some(0.0), max: None })])),
@@ -65,7 +65,7 @@ impl<DB: Database> CoCoModule<DB, CLIPSKnowledgeBase> for ChronoxideModule {
 
             info!("Successfully created 'Impulse' class in database");
         }
-        if db.get_class("Interval").await.map_err(|_| CoCoError::DatabaseError("Failed to retrieve 'Interval' class from database".to_string()))?.is_none() {
+        if kb.get_class("Interval").await.map_err(|_| CoCoError::DatabaseError("Failed to retrieve 'Interval' class from database".to_string()))?.is_none() {
             coco.create_class(Class {
                 name: "Interval".to_string(),
                 static_properties: Some(HashMap::from([("start".to_string(), Property::Float { default: None, min: Some(0.0), max: None }), ("end".to_string(), Property::Float { default: None, min: Some(0.0), max: None })])),
@@ -77,7 +77,7 @@ impl<DB: Database> CoCoModule<DB, CLIPSKnowledgeBase> for ChronoxideModule {
             info!("Successfully created 'Interval' class in database");
         }
 
-        if db.get_class("StateVariable").await.map_err(|_| CoCoError::DatabaseError("Failed to retrieve 'StateVariable' class from database".to_string()))?.is_none() {
+        if kb.get_class("StateVariable").await.map_err(|_| CoCoError::DatabaseError("Failed to retrieve 'StateVariable' class from database".to_string()))?.is_none() {
             coco.create_class(Class {
                 name: "StateVariable".to_string(),
                 static_properties: None,
@@ -88,7 +88,7 @@ impl<DB: Database> CoCoModule<DB, CLIPSKnowledgeBase> for ChronoxideModule {
 
             info!("Successfully created 'StateVariable' class in database");
         }
-        if db.get_class("ReusableResource").await.map_err(|_| CoCoError::DatabaseError("Failed to retrieve 'ReusableResource' class from database".to_string()))?.is_none() {
+        if kb.get_class("ReusableResource").await.map_err(|_| CoCoError::DatabaseError("Failed to retrieve 'ReusableResource' class from database".to_string()))?.is_none() {
             coco.create_class(Class {
                 name: "ReusableResource".to_string(),
                 static_properties: Some(HashMap::from([("capacity".to_string(), Property::Float { default: None, min: Some(0.0), max: None })])),
@@ -106,7 +106,7 @@ impl<DB: Database> CoCoModule<DB, CLIPSKnowledgeBase> for ChronoxideModule {
 
             info!("Successfully created 'ReusableResource' class in database");
         }
-        if db.get_class("ConsumableResource").await.map_err(|_| CoCoError::DatabaseError("Failed to retrieve 'ConsumableResource' class from database".to_string()))?.is_none() {
+        if kb.get_class("ConsumableResource").await.map_err(|_| CoCoError::DatabaseError("Failed to retrieve 'ConsumableResource' class from database".to_string()))?.is_none() {
             coco.create_class(Class {
                 name: "ConsumableResource".to_string(),
                 static_properties: Some(HashMap::from([("capacity".to_string(), Property::Float { default: None, min: Some(0.0), max: None }), ("initial_amount".to_string(), Property::Float { default: Some(0.0), min: Some(0.0), max: None })])),
