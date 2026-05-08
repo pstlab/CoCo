@@ -89,12 +89,12 @@ impl<DB: Database, KB: KnowledgeBase> CoCoModule<DB, KB> for MQTTModule {
                         let payload = serde_json::to_string(&update_msg).unwrap();
                         client.publish("coco/events", QoS::AtLeastOnce, false, payload).await.unwrap();
                     }
-                    CoCoEvent::UpdatedProperties(object_id, properties) => {
+                    CoCoEvent::PropertiesUpdated(object_id, properties) => {
                         let update_msg = serde_json::json!(properties);
                         let payload = serde_json::to_string(&update_msg).unwrap();
                         client.publish(format!("coco/{}/static", object_id), QoS::AtLeastOnce, false, payload).await.unwrap();
                     }
-                    CoCoEvent::AddedValues(object_id, values, date_time) => {
+                    CoCoEvent::ValuesAdded(object_id, values, date_time) => {
                         let update_msg = serde_json::json!({
                             "values": values,
                             "date_time": date_time
