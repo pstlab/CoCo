@@ -29,15 +29,12 @@ pub trait Database: Clone + Send + Sync + 'static {
     fn name(&self) -> &str;
 
     async fn get_classes(&self) -> Result<Vec<Class>, DatabaseError>;
-    async fn get_class(&self, name: &str) -> Result<Option<Class>, DatabaseError>;
     async fn create_class(&self, class: Class) -> Result<(), DatabaseError>;
 
     async fn get_rules(&self) -> Result<Vec<Rule>, DatabaseError>;
-    async fn get_rule(&self, name: &str) -> Result<Option<Rule>, DatabaseError>;
     async fn create_rule(&self, rule: Rule) -> Result<(), DatabaseError>;
 
     async fn get_objects(&self) -> Result<Vec<Object>, DatabaseError>;
-    async fn get_object(&self, object_id: String) -> Result<Option<Object>, DatabaseError>;
     async fn create_object(&self, object: Object) -> Result<String, DatabaseError>;
     async fn add_class(&self, object_id: String, class_name: String) -> Result<(), DatabaseError>;
     async fn set_properties(&self, object_id: String, properties: &HashMap<String, Value>) -> Result<(), DatabaseError>;

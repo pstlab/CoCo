@@ -123,11 +123,11 @@ impl CoCo {
                         let _ = response_tx.send(Ok(()));
                     }
                     CoCoCommand::GetClasses(response_tx) => {
-                        let classes = command_db.get_classes().await.map_err(|e| CoCoError::DatabaseError(e.to_string()));
+                        let classes = command_kb.get_classes().await.map_err(|e| CoCoError::DatabaseError(e.to_string()));
                         let _ = response_tx.send(classes);
                     }
                     CoCoCommand::GetClass(class_name, response_tx) => {
-                        let class = command_db.get_class(&class_name).await.map_err(|e| CoCoError::DatabaseError(e.to_string()));
+                        let class = command_kb.get_class(&class_name).await.map_err(|e| CoCoError::DatabaseError(e.to_string()));
                         let _ = response_tx.send(class);
                     }
                     CoCoCommand::GetStaticProperties(classe_names, response_tx) => {
@@ -153,11 +153,11 @@ impl CoCo {
                         let _ = response_tx.send(result);
                     }
                     CoCoCommand::GetRules(response_tx) => {
-                        let rules = command_db.get_rules().await.map_err(|e| CoCoError::DatabaseError(e.to_string()));
+                        let rules = command_kb.get_rules().await.map_err(|e| CoCoError::DatabaseError(e.to_string()));
                         let _ = response_tx.send(rules);
                     }
                     CoCoCommand::GetRule(rule_name, response_tx) => {
-                        let rule = command_db.get_rule(&rule_name).await.map_err(|e| CoCoError::DatabaseError(e.to_string()));
+                        let rule = command_kb.get_rule(&rule_name).await.map_err(|e| CoCoError::DatabaseError(e.to_string()));
                         let _ = response_tx.send(rule);
                     }
                     CoCoCommand::CreateRule(rule, response_tx) => {
@@ -174,11 +174,11 @@ impl CoCo {
                         let _ = response_tx.send(result);
                     }
                     CoCoCommand::GetObjects(response_tx) => {
-                        let objects = command_db.get_objects().await.map_err(|e| CoCoError::DatabaseError(e.to_string()));
+                        let objects = command_kb.get_objects().await.map_err(|e| CoCoError::DatabaseError(e.to_string()));
                         let _ = response_tx.send(objects);
                     }
                     CoCoCommand::GetObject(object_id, response_tx) => {
-                        let object = command_db.get_object(object_id).await.map_err(|e| CoCoError::DatabaseError(e.to_string()));
+                        let object = command_kb.get_object(object_id).await.map_err(|e| CoCoError::DatabaseError(e.to_string()));
                         let _ = response_tx.send(object);
                     }
                     CoCoCommand::GetObjectClasses(object_id, response_tx) => {

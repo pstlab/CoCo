@@ -115,13 +115,6 @@ impl Database for MongoDB {
         Ok(classes)
     }
 
-    async fn get_class(&self, name: &str) -> Result<Option<Class>, DatabaseError> {
-        let db = self.client.database(&self.name);
-        let collection = db.collection::<Class>("classes");
-        let class = collection.find_one(doc! { "name": name }).await.map_err(|e| DatabaseError::ConnectionError(e.to_string()))?;
-        Ok(class)
-    }
-
     async fn create_class(&self, class: Class) -> Result<(), DatabaseError> {
         let db = self.client.database(&self.name);
         let collection = db.collection::<Class>("classes");
@@ -135,13 +128,6 @@ impl Database for MongoDB {
         let cursor = collection.find(doc! {}).await.map_err(|e| DatabaseError::ConnectionError(e.to_string()))?;
         let rules: Vec<Rule> = cursor.try_collect().await.map_err(|e| DatabaseError::ConnectionError(e.to_string()))?;
         Ok(rules)
-    }
-
-    async fn get_rule(&self, name: &str) -> Result<Option<Rule>, DatabaseError> {
-        let db = self.client.database(&self.name);
-        let collection = db.collection::<Rule>("rules");
-        let rule = collection.find_one(doc! { "name": name }).await.map_err(|e| DatabaseError::ConnectionError(e.to_string()))?;
-        Ok(rule)
     }
 
     async fn create_rule(&self, rule: Rule) -> Result<(), DatabaseError> {
@@ -158,14 +144,6 @@ impl Database for MongoDB {
         let mongo_objects: Vec<MongoObject> = cursor.try_collect().await.map_err(|e| DatabaseError::ConnectionError(e.to_string()))?;
         let objects = mongo_objects.into_iter().map(Object::from).collect();
         Ok(objects)
-    }
-
-    async fn get_object(&self, object_id: String) -> Result<Option<Object>, DatabaseError> {
-        let db = self.client.database(&self.name);
-        let collection = db.collection::<MongoObject>("objects");
-        let oid = ObjectId::parse_str(object_id).map_err(|e| DatabaseError::ConnectionError(e.to_string()))?;
-        let mongo_object = collection.find_one(doc! { "_id": oid }).await.map_err(|e| DatabaseError::ConnectionError(e.to_string()))?;
-        Ok(mongo_object.map(Object::from))
     }
 
     async fn create_object(&self, object: Object) -> Result<String, DatabaseError> {
@@ -349,7 +327,8 @@ mod tests {
 
         Database::create_class(&db, class).await.expect("class creation should succeed");
 
-        let stored = Database::get_class(&db, "sensor").await.expect("class retrieval should succeed");
+        let classes = Database::get_classes(&db).await.expect("classes retrieval should succeed");
+        let stored = classes.into_iter().find(|c| c.name == "sensor");
         assert!(stored.is_some(), "created class should be found in database");
 
         Database::drop_database(&db).await.expect("drop_database should succeed");
@@ -366,7 +345,8 @@ mod tests {
 
         Database::create_rule(&db, rule).await.expect("rule creation should succeed");
 
-        let stored = Database::get_rule(&db, "temperature_alert").await.expect("rule retrieval should succeed");
+        let rules = Database::get_rules(&db).await.expect("rules retrieval should succeed");
+        let stored = rules.into_iter().find(|r| r.name == "temperature_alert");
         assert!(stored.is_some(), "created rule should be found in database");
 
         Database::drop_database(&db).await.expect("drop_database should succeed");
@@ -380,7 +360,8 @@ mod tests {
 
         let object_id = Database::create_object(&db, object).await.expect("object creation should succeed");
 
-        let stored = Database::get_object(&db, object_id).await.expect("object retrieval should succeed");
+        let objects = Database::get_objects(&db).await.expect("objects retrieval should succeed");
+        let stored = objects.into_iter().find(|o| o.id.as_ref() == Some(&object_id));
         assert!(stored.is_some(), "created object should be found in database");
 
         Database::drop_database(&db).await.expect("drop_database should succeed");

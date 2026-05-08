@@ -59,12 +59,18 @@ impl fmt::Display for KnowledgeBaseEvent {
 
 #[async_trait]
 pub trait KnowledgeBase: Clone + Send + Sync + 'static {
+    async fn get_classes(&self) -> Result<Vec<Class>, KnowledgeBaseError>;
+    async fn get_class(&self, name: &str) -> Result<Option<Class>, KnowledgeBaseError>;
     async fn create_class(&self, class: Class) -> Result<(), KnowledgeBaseError>;
     async fn get_static_properties(&self, classe_names: HashSet<String>) -> Result<HashMap<String, HashMap<String, Property>>, KnowledgeBaseError>;
     async fn get_dynamic_properties(&self, classe_names: HashSet<String>) -> Result<HashMap<String, HashMap<String, Property>>, KnowledgeBaseError>;
 
+    async fn get_rules(&self) -> Result<Vec<Rule>, KnowledgeBaseError>;
+    async fn get_rule(&self, name: &str) -> Result<Option<Rule>, KnowledgeBaseError>;
     async fn create_rule(&self, rule: Rule) -> Result<(), KnowledgeBaseError>;
 
+    async fn get_objects(&self) -> Result<Vec<Object>, KnowledgeBaseError>;
+    async fn get_object(&self, object_id: String) -> Result<Option<Object>, KnowledgeBaseError>;
     async fn create_object(&self, object: Object) -> Result<(), KnowledgeBaseError>;
     async fn add_class(&self, object_id: String, class_name: String) -> Result<(), KnowledgeBaseError>;
     async fn get_object_classes(&self, object_id: String) -> Result<HashSet<String>, KnowledgeBaseError>;

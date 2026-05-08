@@ -17,8 +17,14 @@ type Udf = Box<dyn FnMut(&mut Environment, &mut UDFContext) -> ClipsValue + Send
 type ClassPropertyMap = HashMap<String, HashMap<String, Property>>;
 
 enum KBCommand {
+    GetClasses(oneshot::Sender<Result<Vec<Class>, KnowledgeBaseError>>),
+    GetClass(String, oneshot::Sender<Result<Option<Class>, KnowledgeBaseError>>),
     CreateClass(Class, oneshot::Sender<Result<(), KnowledgeBaseError>>),
+    GetRules(oneshot::Sender<Result<Vec<Rule>, KnowledgeBaseError>>),
+    GetRule(String, oneshot::Sender<Result<Option<Rule>, KnowledgeBaseError>>),
     CreateRule(Rule, oneshot::Sender<Result<(), KnowledgeBaseError>>),
+    GetObjects(oneshot::Sender<Result<Vec<Object>, KnowledgeBaseError>>),
+    GetObject(String, oneshot::Sender<Result<Option<Object>, KnowledgeBaseError>>),
     CreateObject(Object, oneshot::Sender<Result<(), KnowledgeBaseError>>),
     GetStaticProperties(HashSet<String>, oneshot::Sender<Result<ClassPropertyMap, KnowledgeBaseError>>),
     GetDynamicProperties(HashSet<String>, oneshot::Sender<Result<ClassPropertyMap, KnowledgeBaseError>>),
@@ -142,6 +148,14 @@ impl ActorState {
         Ok(visited)
     }
 
+    fn get_classes(&self) -> Vec<Class> {
+        self.classes.values().cloned().collect()
+    }
+
+    fn get_class(&self, name: &str) -> Option<Class> {
+        self.classes.get(name).cloned()
+    }
+
     fn create_class(&mut self, env: &mut Environment, class: Class) -> Result<(), KnowledgeBaseError> {
         if self.classes.contains_key(&class.name) {
             return Err(KnowledgeBaseError::ClassAlreadyExists(class.name));
@@ -161,6 +175,14 @@ impl ActorState {
         Ok(())
     }
 
+    fn get_rules(&self) -> Vec<Rule> {
+        self.rules.values().cloned().collect()
+    }
+
+    fn get_rule(&self, name: &str) -> Option<Rule> {
+        self.rules.get(name).cloned()
+    }
+
     fn create_rule(&mut self, env: &mut Environment, rule: Rule) -> Result<(), KnowledgeBaseError> {
         if self.rules.contains_key(&rule.name) {
             return Err(KnowledgeBaseError::RuleAlreadyExists(rule.name.clone()));
@@ -170,6 +192,14 @@ impl ActorState {
         self.rules.insert(rule.name.clone(), rule);
 
         Ok(())
+    }
+
+    fn get_objects(&self) -> Vec<Object> {
+        self.objects.values().cloned().collect()
+    }
+
+    fn get_object(&self, object_id: String) -> Option<Object> {
+        self.objects.get(&object_id).cloned()
     }
 
     fn create_object(&mut self, env: &mut Environment, object: Object) -> Result<(), KnowledgeBaseError> {
@@ -466,6 +496,12 @@ impl CLIPSKnowledgeBase {
             let state_build = Rc::clone(&state);
             while let Some(cmd) = rx.blocking_recv() {
                 match cmd {
+                    KBCommand::GetClasses(reply) => {
+                        let _ = reply.send(Ok(state_build.borrow().get_classes()));
+                    }
+                    KBCommand::GetClass(name, reply) => {
+                        let _ = reply.send(Ok(state_build.borrow().get_class(&name)));
+                    }
                     KBCommand::CreateClass(class, resp_tx) => {
                         let result = state_build.borrow_mut().create_class(&mut env, class);
                         if result.is_ok() {
@@ -473,12 +509,24 @@ impl CLIPSKnowledgeBase {
                         }
                         let _ = resp_tx.send(result);
                     }
+                    KBCommand::GetRules(reply) => {
+                        let _ = reply.send(Ok(state_build.borrow().get_rules()));
+                    }
+                    KBCommand::GetRule(name, reply) => {
+                        let _ = reply.send(Ok(state_build.borrow().get_rule(&name)));
+                    }
                     KBCommand::CreateRule(rule, reply) => {
                         let result = state_build.borrow_mut().create_rule(&mut env, rule);
                         if result.is_ok() {
                             env.run(-1);
                         }
                         let _ = reply.send(result);
+                    }
+                    KBCommand::GetObjects(reply) => {
+                        let _ = reply.send(Ok(state_build.borrow().get_objects()));
+                    }
+                    KBCommand::GetObject(object_id, reply) => {
+                        let _ = reply.send(Ok(state_build.borrow().get_object(object_id)));
                     }
                     KBCommand::CreateObject(object, reply) => {
                         let result = state_build.borrow_mut().create_object(&mut env, object);
@@ -537,6 +585,16 @@ impl CLIPSKnowledgeBase {
 
 #[async_trait]
 impl KnowledgeBase for CLIPSKnowledgeBase {
+    async fn get_classes(&self) -> Result<Vec<Class>, KnowledgeBaseError> {
+        let (resp_tx, resp_rx) = oneshot::channel();
+        self.command_tx.send(KBCommand::GetClasses(resp_tx)).map_err(|_| KnowledgeBaseError::KBError("Failed to send GetClasses command to CLIPS knowledge base actor".to_owned()))?;
+        resp_rx.await.map_err(|_| KnowledgeBaseError::KBError("Failed to receive response for GetClasses command from CLIPS knowledge base actor".to_owned()))?
+    }
+    async fn get_class(&self, name: &str) -> Result<Option<Class>, KnowledgeBaseError> {
+        let (resp_tx, resp_rx) = oneshot::channel();
+        self.command_tx.send(KBCommand::GetClass(name.to_owned(), resp_tx)).map_err(|_| KnowledgeBaseError::KBError("Failed to send GetClass command to CLIPS knowledge base actor".to_owned()))?;
+        resp_rx.await.map_err(|_| KnowledgeBaseError::KBError("Failed to receive response for GetClass command from CLIPS knowledge base actor".to_owned()))?
+    }
     async fn create_class(&self, class: Class) -> Result<(), KnowledgeBaseError> {
         let (resp_tx, resp_rx) = oneshot::channel();
         self.command_tx.send(KBCommand::CreateClass(class, resp_tx)).map_err(|_| KnowledgeBaseError::KBError("Failed to send CreateClass command to CLIPS knowledge base actor".to_owned()))?;
@@ -553,12 +611,32 @@ impl KnowledgeBase for CLIPSKnowledgeBase {
         resp_rx.await.map_err(|_| KnowledgeBaseError::KBError("Failed to receive response for GetDynamicProperties command from CLIPS knowledge base actor".to_owned()))?
     }
 
+    async fn get_rules(&self) -> Result<Vec<Rule>, KnowledgeBaseError> {
+        let (resp_tx, resp_rx) = oneshot::channel();
+        self.command_tx.send(KBCommand::GetRules(resp_tx)).map_err(|_| KnowledgeBaseError::KBError("Failed to send GetRules command to CLIPS knowledge base actor".to_owned()))?;
+        resp_rx.await.map_err(|_| KnowledgeBaseError::KBError("Failed to receive response for GetRules command from CLIPS knowledge base actor".to_owned()))?
+    }
+    async fn get_rule(&self, name: &str) -> Result<Option<Rule>, KnowledgeBaseError> {
+        let (resp_tx, resp_rx) = oneshot::channel();
+        self.command_tx.send(KBCommand::GetRule(name.to_owned(), resp_tx)).map_err(|_| KnowledgeBaseError::KBError("Failed to send GetRule command to CLIPS knowledge base actor".to_owned()))?;
+        resp_rx.await.map_err(|_| KnowledgeBaseError::KBError("Failed to receive response for GetRule command from CLIPS knowledge base actor".to_owned()))?
+    }
     async fn create_rule(&self, rule: Rule) -> Result<(), KnowledgeBaseError> {
         let (resp_tx, resp_rx) = oneshot::channel();
         self.command_tx.send(KBCommand::CreateRule(rule, resp_tx)).map_err(|_| KnowledgeBaseError::KBError("Failed to send CreateRule command to CLIPS knowledge base actor".to_owned()))?;
         resp_rx.await.map_err(|_| KnowledgeBaseError::KBError("Failed to receive response for CreateRule command from CLIPS knowledge base actor".to_owned()))?
     }
 
+    async fn get_objects(&self) -> Result<Vec<Object>, KnowledgeBaseError> {
+        let (resp_tx, resp_rx) = oneshot::channel();
+        self.command_tx.send(KBCommand::GetObjects(resp_tx)).map_err(|_| KnowledgeBaseError::KBError("Failed to send GetObjects command to CLIPS knowledge base actor".to_owned()))?;
+        resp_rx.await.map_err(|_| KnowledgeBaseError::KBError("Failed to receive response for GetObjects command from CLIPS knowledge base actor".to_owned()))?
+    }
+    async fn get_object(&self, object_id: String) -> Result<Option<Object>, KnowledgeBaseError> {
+        let (resp_tx, resp_rx) = oneshot::channel();
+        self.command_tx.send(KBCommand::GetObject(object_id, resp_tx)).map_err(|_| KnowledgeBaseError::KBError("Failed to send GetObject command to CLIPS knowledge base actor".to_owned()))?;
+        resp_rx.await.map_err(|_| KnowledgeBaseError::KBError("Failed to receive response for GetObject command from CLIPS knowledge base actor".to_owned()))?
+    }
     async fn create_object(&self, object: Object) -> Result<(), KnowledgeBaseError> {
         let (resp_tx, resp_rx) = oneshot::channel();
         self.command_tx.send(KBCommand::CreateObject(object, resp_tx)).map_err(|_| KnowledgeBaseError::KBError("Failed to send CreateObject command to CLIPS knowledge base actor".to_owned()))?;
