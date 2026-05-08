@@ -64,6 +64,9 @@ export namespace coco {
           case 'coco': {
             for (const [name, cls] of Object.entries(msg.classes))
               this.classes.set(name, new CoCoClass(this, name, new Set(cls.parents || []), new Map(Object.entries(cls.static_properties || {})), new Map(Object.entries(cls.dynamic_properties || {}))));
+            if (msg.rules)
+              for (const [name, rule] of Object.entries(msg.rules))
+                this.rules.set(name, new CoCoRule(this, name, rule.content));
             if (msg.objects)
               for (const [id, obj] of Object.entries(msg.objects))
                 this.objects.set(id, new CoCoObject(this, id, new Set(obj.classes.map(cls_name => this.get_class(cls_name))), obj.properties, obj.values));
@@ -482,12 +485,15 @@ export namespace coco {
   type PartialObjectMessage = { classes: string[], properties?: Record<string, Value>, values?: Record<string, TimeValue> };
   type ObjectMessage = ({ id: string } & PartialObjectMessage);
 
-  type CoCoMessage = { classes: Record<string, PartialClassMessage>, objects?: Record<string, PartialObjectMessage> };
+  type PartialRuleMessage = { content: string };
+  type RuleMessage = ({ name: string } & PartialRuleMessage);
+
+  type CoCoMessage = { classes: Record<string, PartialClassMessage>, objects?: Record<string, PartialObjectMessage>, rules?: Record<string, PartialRuleMessage> };
 
   type ServerMessage =
     | ({ msg_type: 'coco' } & CoCoMessage)
     | ({ msg_type: 'class-created' } & ClassMessage)
-    | ({ msg_type: 'rule-created', name: string, content: string })
+    | ({ msg_type: 'rule-created' } & RuleMessage)
     | ({ msg_type: 'object-created' } & ObjectMessage)
     | ({ msg_type: 'added-class', object_id: string, class_name: string })
     | ({ msg_type: 'updated-properties', object_id: string, properties: Record<string, Value> })
