@@ -60,15 +60,35 @@ impl ActorState {
         }
     }
 
-    fn get_static_properties(&self, classes: HashSet<String>) -> Result<HashMap<String, HashMap<String, Property>>, KnowledgeBaseError> {
-        let mut queue: VecDeque<String> = classes.into_iter().collect();
+    fn get_class_hierarchy(&self, classes: &HashSet<String>) -> Result<HashSet<String>, KnowledgeBaseError> {
+        let mut queue: VecDeque<String> = classes.iter().cloned().collect();
         let mut visited: HashSet<String> = HashSet::new();
-        let mut class_properties = HashMap::new();
+
         while let Some(class_name) = queue.pop_front() {
-            if !visited.insert(class_name.clone()) {
+            if visited.contains(&class_name) {
                 continue;
             }
 
+            let class = self.classes.get(&class_name).ok_or_else(|| KnowledgeBaseError::ClassNotFound(format!("Class {} not found", class_name)))?;
+            if let Some(parents) = &class.parents {
+                for parent in parents {
+                    if !visited.contains(parent) {
+                        queue.push_back(parent.clone());
+                    }
+                }
+            }
+
+            visited.insert(class_name);
+        }
+
+        Ok(visited)
+    }
+
+    fn get_static_properties(&self, classes: &HashSet<String>) -> Result<HashMap<String, HashMap<String, Property>>, KnowledgeBaseError> {
+        let all_classes = self.get_class_hierarchy(classes)?;
+        let mut class_properties = HashMap::new();
+
+        for class_name in all_classes {
             let class = self.classes.get(&class_name).ok_or_else(|| KnowledgeBaseError::ClassNotFound(format!("Class {} not found", class_name)))?;
             let mut properties = HashMap::new();
             if let Some(static_props) = &class.static_properties {
@@ -77,31 +97,19 @@ impl ActorState {
                 }
             }
 
-            if let Some(parents) = &class.parents {
-                for parent in parents {
-                    if !visited.contains(parent) {
-                        queue.push_back(parent.clone());
-                    }
-                }
-            }
-
             if !properties.is_empty() {
-                class_properties.insert(class_name.clone(), properties);
+                class_properties.insert(class_name, properties);
             }
         }
 
         Ok(class_properties)
     }
 
-    fn get_dynamic_properties(&self, classes: HashSet<String>) -> Result<HashMap<String, HashMap<String, Property>>, KnowledgeBaseError> {
-        let mut queue: VecDeque<String> = classes.into_iter().collect();
-        let mut visited: HashSet<String> = HashSet::new();
+    fn get_dynamic_properties(&self, classes: &HashSet<String>) -> Result<HashMap<String, HashMap<String, Property>>, KnowledgeBaseError> {
+        let all_classes = self.get_class_hierarchy(classes)?;
         let mut class_properties = HashMap::new();
-        while let Some(class_name) = queue.pop_front() {
-            if !visited.insert(class_name.clone()) {
-                continue;
-            }
 
+        for class_name in all_classes {
             let class = self.classes.get(&class_name).ok_or_else(|| KnowledgeBaseError::ClassNotFound(format!("Class {} not found", class_name)))?;
             let mut properties = HashMap::new();
             if let Some(dynamic_props) = &class.dynamic_properties {
@@ -110,42 +118,12 @@ impl ActorState {
                 }
             }
 
-            if let Some(parents) = &class.parents {
-                for parent in parents {
-                    if !visited.contains(parent) {
-                        queue.push_back(parent.clone());
-                    }
-                }
-            }
-
             if !properties.is_empty() {
-                class_properties.insert(class_name.clone(), properties);
+                class_properties.insert(class_name, properties);
             }
         }
 
         Ok(class_properties)
-    }
-
-    fn get_object_classes(&self, object: &Object) -> Result<HashSet<String>, KnowledgeBaseError> {
-        let mut queue: VecDeque<String> = object.classes.iter().cloned().collect();
-        let mut visited: HashSet<String> = HashSet::new();
-
-        while let Some(class_name) = queue.pop_front() {
-            if !visited.insert(class_name.clone()) {
-                continue;
-            }
-
-            let class = self.classes.get(&class_name).ok_or_else(|| KnowledgeBaseError::ClassNotFound(format!("Class {} not found for object {}", class_name, object.id.clone().unwrap_or_default())))?;
-            if let Some(parents) = &class.parents {
-                for parent in parents {
-                    if !visited.contains(parent) {
-                        queue.push_back(parent.clone());
-                    }
-                }
-            }
-        }
-
-        Ok(visited)
     }
 
     fn get_classes(&self) -> Vec<Class> {
@@ -208,21 +186,19 @@ impl ActorState {
             return Err(KnowledgeBaseError::ObjectAlreadyExists(object_id));
         }
 
-        let classes = self.get_object_classes(&object)?;
+        let classes = self.get_class_hierarchy(&object.classes)?;
         if classes.is_empty() {
             return Err(KnowledgeBaseError::ObjectClassesRequired(object_id));
         }
         for class_name in classes {
-            if !self.classes.contains_key(&class_name) {
-                return Err(KnowledgeBaseError::ClassNotFound(format!("Class {} not found for object {}", class_name, object_id)));
-            }
+            assert!(self.classes.contains_key(&class_name), "Class {} not found for object {}", class_name, object_id);
             let fb = env.fact_builder(&class_name).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to create fact builder for class {}: {}", class_name, e)))?;
             let fb = fb.put_symbol("id", object_id.as_str()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set id slot for object {}: {}", object_id, e)))?;
             let fact = env.assert_fact(fb).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to assert fact for object {}: {}", object_id, e)))?;
             self.instances.entry(class_name).or_default().insert(object_id.clone(), fact);
         }
 
-        for (class_name, props) in self.get_static_properties(object.classes.iter().cloned().collect())? {
+        for (class_name, props) in self.get_static_properties(&object.classes)? {
             for (name, prop) in props {
                 let template_name = format!("{}_{}", class_name, name);
                 let fb = env.fact_builder(&template_name).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to create fact builder for property {} of object {}: {}", name, object_id, e)))?;
@@ -233,14 +209,14 @@ impl ActorState {
                     self.values.entry(class_name.clone()).or_default().entry(object_id.clone()).or_default().insert(name.clone(), fact);
                 } else {
                     let def = get_default(&prop);
-                    let fb = set_prop(env, fb, &prop, def.clone(), None).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set default value for property {} of object {}: {:#?}", name, object_id, e)))?;
+                    let fb = set_prop(env, fb, &prop, def, None).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set default value for property {} of object {}: {:#?}", name, object_id, e)))?;
                     let fact = env.assert_fact(fb).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to assert fact for default value of property {} of object {}: {}", name, object_id, e)))?;
                     self.values.entry(class_name.clone()).or_default().entry(object_id.clone()).or_default().insert(name.clone(), fact);
                 }
             }
         }
 
-        for (class_name, props) in self.get_dynamic_properties(object.classes.iter().cloned().collect())? {
+        for (class_name, props) in self.get_dynamic_properties(&object.classes)? {
             for (name, prop) in props {
                 let template_name = format!("{}_{}", class_name, name);
                 let fb = env.fact_builder(&template_name).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to create fact builder for dynamic property {} of object {}: {}", name, object_id, e)))?;
@@ -251,55 +227,67 @@ impl ActorState {
                     self.values.entry(class_name.clone()).or_default().entry(object_id.clone()).or_default().insert(name.clone(), fact);
                 } else {
                     let def = get_default(&prop);
-                    let fb = set_prop(env, fb, &prop, def.clone(), Some(Utc::now())).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set default value for dynamic property {} of object {}: {:#?}", name, object_id, e)))?;
+                    let fb = set_prop(env, fb, &prop, def, Some(Utc::now())).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set default value for dynamic property {} of object {}: {:#?}", name, object_id, e)))?;
                     let fact = env.assert_fact(fb).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to assert fact for default value of dynamic property {} of object {}: {}", name, object_id, e)))?;
                     self.values.entry(class_name.clone()).or_default().entry(object_id.clone()).or_default().insert(name.clone(), fact);
                 }
             }
         }
 
-        self.objects.insert(object_id.clone(), object);
+        self.objects.insert(object_id, object);
 
         Ok(())
     }
 
     fn add_class(&mut self, env: &mut Environment, object_id: &str, class_name: &str) -> Result<(), KnowledgeBaseError> {
-        let static_props = self.get_static_properties(HashSet::from([class_name.to_owned()]))?;
-        let dynamic_props = self.get_dynamic_properties(HashSet::from([class_name.to_owned()]))?;
+        let single_class = HashSet::from([class_name.to_owned()]);
+        let static_props = self.get_static_properties(&single_class)?;
+        let dynamic_props = self.get_dynamic_properties(&single_class)?;
+        let classes = self.get_class_hierarchy(&self.objects.get(object_id).ok_or_else(|| KnowledgeBaseError::ObjectNotFound(object_id.to_owned()))?.classes)?;
+        let object_id_owned = object_id.to_owned();
 
         let object = self.objects.get_mut(object_id).ok_or_else(|| KnowledgeBaseError::ObjectNotFound(object_id.to_owned()))?;
         object.classes.insert(class_name.to_owned());
 
+        for class_name in classes {
+            assert!(self.classes.contains_key(&class_name), "Class {} not found for object {}", class_name, object_id);
+            let fb = env.fact_builder(&class_name).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to create fact builder for class {}: {}", class_name, e)))?;
+            let fb = fb.put_symbol("id", object_id).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set id slot for object {}: {}", object_id, e)))?;
+            let fact = env.assert_fact(fb).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to assert fact for object {}: {}", object_id, e)))?;
+            self.instances.entry(class_name).or_default().insert(object_id_owned.clone(), fact);
+        }
+
         for (class_name, props) in static_props {
+            let class_values = self.values.entry(class_name.clone()).or_default().entry(object_id_owned.clone()).or_default();
             for (name, prop) in props {
                 let fb = env.fact_builder(&format!("{}_{}", class_name, name)).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to create fact builder for property {} of object {}: {}", name, object_id, e)))?;
                 let fb = fb.put_symbol("id", object_id).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set id slot for property {} of object {}: {}", name, object_id, e)))?;
                 if let Some(v) = object.properties.as_ref().and_then(|props| props.get(&name)) {
                     let fb: FactBuilder = set_prop(env, fb, &prop, v.clone(), None).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set property {} for object {}: {:#?}", name, object_id, e)))?;
                     let fact = env.assert_fact(fb).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to assert fact for property {} of object {}: {}", name, object_id, e)))?;
-                    self.values.entry(class_name.clone()).or_default().entry(object_id.to_owned()).or_default().insert(name.clone(), fact);
+                    class_values.insert(name.clone(), fact);
                 } else {
                     let def = get_default(&prop);
-                    let fb = set_prop(env, fb, &prop, def.clone(), None).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set default value for property {} of object {}: {:#?}", name, object_id, e)))?;
+                    let fb = set_prop(env, fb, &prop, def, None).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set default value for property {} of object {}: {:#?}", name, object_id, e)))?;
                     let fact = env.assert_fact(fb).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to assert fact for default value of property {} of object {}: {}", name, object_id, e)))?;
-                    self.values.entry(class_name.clone()).or_default().entry(object_id.to_owned()).or_default().insert(name.clone(), fact);
+                    class_values.insert(name.clone(), fact);
                 }
             }
         }
 
         for (class_name, props) in dynamic_props {
+            let class_values = self.values.entry(class_name.clone()).or_default().entry(object_id_owned.clone()).or_default();
             for (name, prop) in props {
+                let fb = env.fact_builder(&format!("{}_{}", class_name, name)).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to create fact builder for dynamic property {} of object {}: {}", name, object_id, e)))?;
                 if let Some(v) = object.values.as_ref().and_then(|vals| vals.get(&name)) {
-                    let fb = env.fact_builder(&format!("{}_{}", class_name, name)).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to create fact builder for dynamic property {} of object {}: {}", name, object_id, e)))?;
                     let fb = set_prop(env, fb, &prop, v.value.clone(), Some(v.timestamp)).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set dynamic property {} for object {}: {:#?}", name, object_id, e)))?;
                     let fact = env.assert_fact(fb).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to assert fact for dynamic property {} of object {}: {}", name, object_id, e)))?;
-                    self.values.entry(class_name.clone()).or_default().entry(object_id.to_owned()).or_default().insert(name.clone(), fact);
+                    class_values.insert(name.clone(), fact);
                 } else {
                     let def = get_default(&prop);
-                    let fb = env.fact_builder(&format!("{}_{}", class_name, name)).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to create fact builder for dynamic property {} of object {}: {}", name, object_id, e)))?;
-                    let fb = set_prop(env, fb, &prop, def.clone(), Some(Utc::now()))?;
+                    let fb = set_prop(env, fb, &prop, def, Some(Utc::now()))?;
                     let fact = env.assert_fact(fb).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to assert fact for default value of dynamic property {} of object {}: {}", name, object_id, e)))?;
-                    self.values.entry(class_name.clone()).or_default().entry(object_id.to_owned()).or_default().insert(name.clone(), fact);
+                    class_values.insert(name.clone(), fact);
                 }
             }
         }
@@ -308,7 +296,7 @@ impl ActorState {
     }
 
     fn set_properties(&mut self, env: &mut Environment, object_id: &str, properties: &HashMap<String, Value>) -> Result<(), KnowledgeBaseError> {
-        let static_props = self.get_static_properties(self.objects.get(object_id).ok_or_else(|| KnowledgeBaseError::ObjectNotFound(object_id.to_owned()))?.classes.iter().cloned().collect())?;
+        let static_props = self.get_static_properties(&self.objects.get(object_id).ok_or_else(|| KnowledgeBaseError::ObjectNotFound(object_id.to_owned()))?.classes)?;
         let object = self.objects.get_mut(object_id).ok_or_else(|| KnowledgeBaseError::ObjectNotFound(object_id.to_owned()))?;
         for (class_name, props) in static_props {
             for (name, prop) in props {
@@ -326,7 +314,7 @@ impl ActorState {
     }
 
     fn add_values(&mut self, env: &mut Environment, object_id: &str, values: &HashMap<String, Value>, timestamp: DateTime<Utc>) -> Result<(), KnowledgeBaseError> {
-        let dynamic_props = self.get_dynamic_properties(self.objects.get(object_id).ok_or_else(|| KnowledgeBaseError::ObjectNotFound(object_id.to_owned()))?.classes.iter().cloned().collect())?;
+        let dynamic_props = self.get_dynamic_properties(&self.objects.get(object_id).ok_or_else(|| KnowledgeBaseError::ObjectNotFound(object_id.to_owned()))?.classes)?;
         let object = self.objects.get_mut(object_id).ok_or_else(|| KnowledgeBaseError::ObjectNotFound(object_id.to_owned()))?;
         for (class_name, props) in dynamic_props {
             for (name, prop) in props {
@@ -536,10 +524,10 @@ impl CLIPSKnowledgeBase {
                         let _ = reply.send(result);
                     }
                     KBCommand::GetStaticProperties(class_names, reply) => {
-                        let _ = reply.send(state_build.borrow().get_static_properties(class_names));
+                        let _ = reply.send(state_build.borrow().get_static_properties(&class_names));
                     }
                     KBCommand::GetDynamicProperties(class_names, reply) => {
-                        let _ = reply.send(state_build.borrow().get_dynamic_properties(class_names));
+                        let _ = reply.send(state_build.borrow().get_dynamic_properties(&class_names));
                     }
                     KBCommand::AddClass(object_id, class_name, reply) => {
                         let result = state_build.borrow_mut().add_class(&mut env, &object_id, &class_name);
@@ -550,7 +538,7 @@ impl CLIPSKnowledgeBase {
                     }
                     KBCommand::GetObjectClasses(object_id, reply) => {
                         let state = state_build.borrow();
-                        let _ = reply.send(state.objects.get(&object_id).ok_or(KnowledgeBaseError::ObjectNotFound(object_id)).and_then(|object| state.get_object_classes(object)));
+                        let _ = reply.send(state.objects.get(&object_id).ok_or(KnowledgeBaseError::ObjectNotFound(object_id)).and_then(|object| state.get_class_hierarchy(&object.classes)));
                     }
                     KBCommand::SetProperties(object_id, properties, reply) => {
                         let result = state_build.borrow_mut().set_properties(&mut env, &object_id, &properties);
