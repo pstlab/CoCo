@@ -212,10 +212,10 @@ impl CoCo {
                             Ok::<(), CoCoError>(())
                         }
                         .await;
-                        if result.is_ok() {
-                            if let Ok(classes) = command_kb.get_object_classes(object_id.clone()).await {
-                                let _ = event_tx_for_commands.send(CoCoEvent::ClassesUpdated(object_id, classes));
-                            }
+                        if result.is_ok()
+                            && let Ok(classes) = command_kb.get_object_classes(object_id.clone()).await
+                        {
+                            let _ = event_tx_for_commands.send(CoCoEvent::ClassesUpdated(object_id, classes));
                         }
                         let _ = response_tx.send(result);
                     }
