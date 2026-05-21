@@ -13,14 +13,11 @@ interface ApiService {
     suspend fun login(@Body request: Credentials): TokenResponse
 }
 
-object ApiClient {
+object CoCo {
     private const val BASE_URL = BuildConfig.API_BASE_URL
 
-    val apiService: ApiService by lazy {
+    val api: ApiService by lazy {
         Retrofit.Builder().baseUrl(BASE_URL).addConverterFactory(GsonConverterFactory.create()).build()
             .create(ApiService::class.java)
     }
-}
-
-class CoCo {
 }
