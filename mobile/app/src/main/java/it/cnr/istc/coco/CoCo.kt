@@ -14,7 +14,7 @@ interface ApiService {
 }
 
 object ApiClient {
-    private const val BASE_URL = "https://coco.cnr.it/api/"
+    private const val BASE_URL = BuildConfig.API_BASE_URL
 
     val apiService: ApiService by lazy {
         Retrofit.Builder().baseUrl(BASE_URL).addConverterFactory(GsonConverterFactory.create()).build()

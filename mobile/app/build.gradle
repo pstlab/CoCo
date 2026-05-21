@@ -3,9 +3,23 @@ plugins {
     id 'org.jetbrains.kotlin.android'
 }
 
+def localProperties = new Properties()
+def localPropertiesFile = rootProject.file("local.properties")
+if (localPropertiesFile.exists()) {
+    localPropertiesFile.withInputStream { localProperties.load(it) }
+}
+
+def apiBaseUrl = (
+    project.findProperty("API_BASE_URL") ?: System.getenv("API_BASE_URL") ?: localProperties.getProperty("API_BASE_URL") ?: "https://cocoserver/"
+).toString()
+
 android {
     namespace = 'it.cnr.istc.coco'
     compileSdk = 34
+
+    buildFeatures {
+        buildConfig = true
+    }
 
     defaultConfig {
         applicationId = "it.cnr.istc.coco"
@@ -13,6 +27,7 @@ android {
         targetSdk = 34
         versionCode = 1
         versionName = "1.0"
+        buildConfigField "String", "API_BASE_URL", "\"${apiBaseUrl}\""
     }
 
     buildTypes {
