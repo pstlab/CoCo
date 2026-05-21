@@ -1,0 +1,11 @@
+# Gradle files
+.gradle/
+build/
+
+# VS Code settings
+.vscode/
+
+# Android Studio settings
+.idea/
+
+google-services.json
