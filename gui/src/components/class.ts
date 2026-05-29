@@ -62,12 +62,14 @@ export function ObjectRow(cls: coco.CoCoClass, obj: coco.CoCoObject): VNode {
 }
 
 export function CoCoClass(cls: coco.CoCoClass): VNode {
-  const header = ["ID", ...cls.get_static_properties().keys().toArray().sort(), ...cls.get_dynamic_properties().keys().toArray().sort()];
-  const rows = cls.get_instances().values().map(obj => ObjectRow(cls, obj)).toArray();
+  const parents = cls.get_parents().values().toArray().sort();
 
   const props_header = ["Name", "Type"];
   const static_props_rows = cls.get_static_properties().entries().toArray().sort(([nameA], [nameB]) => nameA.localeCompare(nameB)).map(([name, type]) => Row([name, type.type]));
   const dynamic_props_rows = cls.get_dynamic_properties().entries().toArray().sort(([nameA], [nameB]) => nameA.localeCompare(nameB)).map(([name, type]) => Row([name, type.type]));
+
+  const header = ["ID", ...cls.get_static_properties().keys().toArray().sort(), ...cls.get_dynamic_properties().keys().toArray().sort()];
+  const rows = cls.get_instances().values().map(obj => ObjectRow(cls, obj)).toArray();
 
   return h('div.container.mt-2',
     {
@@ -87,6 +89,19 @@ export function CoCoClass(cls: coco.CoCoClass): VNode {
         on: { click: () => navigator.clipboard.writeText(cls.get_name()) }
       }, h('i.fa-solid.fa-copy')),
     ]),
+    parents.length > 0 ?
+      h('div.mt-2', parents.map(par_cls_name =>
+        h('span.badge.bg-primary.me-1', {
+          style: { cursor: 'pointer' },
+          on: {
+            click: () => {
+              flick.ctx.current_page = () => CoCoClass(cls.get_coco().get_class(par_cls_name)!);
+              flick.ctx.page_title = `Class: ${par_cls_name}`;
+              flick.redraw();
+            }
+          }
+        }, par_cls_name)
+      )) : h('p.mt-2', 'No parent classes.'),
     static_props_rows.length > 0 ? Table(Header(props_header), static_props_rows, 'Static Properties') : h('p.mt-2', 'No static properties.'),
     dynamic_props_rows.length > 0 ? Table(Header(props_header), dynamic_props_rows, 'Dynamic Properties') : h('p.mt-2', 'No dynamic properties.'),
     rows.length > 0 ? Table(Header(header), rows, 'Instances') : h('p.mt-2', 'No instances of this class yet.')
