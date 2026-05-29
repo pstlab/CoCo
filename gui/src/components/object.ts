@@ -43,6 +43,9 @@ export function ObjectGroupItem(obj: coco.CoCoObject): VNode {
   }, object_to_string(obj));
 }
 
+let from = Date.now() - 1000 * 60 * 60 * 24 * 14; // 2 weeks ago
+let to = Date.now();
+
 export function ObjectsList(coco_instance: coco.CoCo): VNode {
   const objects = coco_instance.get_objects().values().toArray().sort((a, b) => {
     const aProps = a.get_properties();
@@ -79,7 +82,7 @@ export function CoCoObject(obj: coco.CoCoObject): VNode {
 
   const get_option = (): echarts.EChartsCoreOption => {
     if (!obj.is_data_loaded())
-      obj.load_data();
+      obj.load_data(from, to);
 
     const data = obj.get_data();
     const all_timestamps: number[] = [];
@@ -104,6 +107,7 @@ export function CoCoObject(obj: coco.CoCoObject): VNode {
               type: 'value',
               gridIndex: index,
               name,
+              nameTextStyle: { align: 'left' },
               min: prop.min ? prop.min as number : undefined,
               max: prop.max ? prop.max as number : undefined,
               splitLine: { show: true }
@@ -330,6 +334,52 @@ export function CoCoObject(obj: coco.CoCoObject): VNode {
       }, cls.get_name())
     )),
     props_rows.length > 0 ? Table(Header(props_header), props_rows, 'Properties') : h('p.mt-2', 'No properties.'),
+    h('div.row.g-2', [
+      h('div.col-6', [
+        h('div.form-floating', [
+          h('input.form-control.form-control-sm', {
+            attrs: { type: 'date', id: 'floatingFrom', placeholder: 'From', value: new Date(from).toISOString().split('T')[0], max: new Date(to).toISOString().split('T')[0] },
+            on: {
+              change: (e: Event) => {
+                const target = e.target as HTMLInputElement;
+                const date = new Date(target.value);
+                if (!isNaN(date.getTime())) {
+                  from = date.getTime();
+                  if (chart) chart.setOption(get_option());
+                } else {
+                  from = Date.now() - 1000 * 60 * 60 * 24 * 14;
+                  if (chart) chart.setOption(get_option());
+                }
+                obj.load_data(from, to);
+              }
+            }
+          }),
+          h('label', { attrs: { for: 'floatingFrom' } }, 'From')
+        ])
+      ]),
+      h('div.col-6', [
+        h('div.form-floating', [
+          h('input.form-control.form-control-sm', {
+            attrs: { type: 'date', id: 'floatingTo', placeholder: 'To', value: new Date(to).toISOString().split('T')[0], min: new Date(from).toISOString().split('T')[0], max: new Date().toISOString().split('T')[0] },
+            on: {
+              change: (e: Event) => {
+                const target = e.target as HTMLInputElement;
+                const date = new Date(target.value);
+                if (!isNaN(date.getTime())) {
+                  to = date.getTime();
+                  if (chart) chart.setOption(get_option());
+                } else {
+                  to = Date.now();
+                  if (chart) chart.setOption(get_option());
+                }
+                obj.load_data(from, to);
+              }
+            }
+          }),
+          h('label', { attrs: { for: 'floatingTo' } }, 'To')
+        ])
+      ])
+    ]),
     h('div.mt-2', {
       key: obj.get_id(),
       style: { minHeight: `${(sorted_all_props.size * PIXELS_PER_ROW) + BOTTOM_UI_HEIGHT}px` },
