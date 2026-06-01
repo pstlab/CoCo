@@ -17,6 +17,7 @@ use chrono::Utc;
 use serde_json::Value as JsonValue;
 use std::collections::HashMap;
 use tokio::sync::broadcast::error::RecvError;
+use tokio::time::{MissedTickBehavior, interval};
 use tracing::{error, trace};
 use utoipa::OpenApi;
 
@@ -382,6 +383,10 @@ async fn ws_handler(ws: WebSocketUpgrade, State(state): State<CoCo>) -> impl Int
 async fn handle_socket(mut socket: WebSocket, coco: CoCo) {
     trace!("WebSocket connection established");
 
+    // Send periodic pings to keep idle connections alive through proxies/NAT.
+    let mut heartbeat = interval(std::time::Duration::from_secs(30));
+    heartbeat.set_missed_tick_behavior(MissedTickBehavior::Delay);
+
     let init_msg = match async {
         let classes_map: HashMap<String, serde_json::Value> = coco
             .get_classes()
@@ -440,6 +445,11 @@ async fn handle_socket(mut socket: WebSocket, coco: CoCo) {
     let mut rx = coco.event_tx.subscribe();
     loop {
         tokio::select! {
+            _ = heartbeat.tick() => {
+                if socket.send(Message::Ping(Default::default())).await.is_err() {
+                    break;
+                }
+            }
             incoming = socket.recv() => {
                 match incoming {
                     Some(Ok(Message::Close(_))) | None => break,
