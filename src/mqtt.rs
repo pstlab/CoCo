@@ -43,13 +43,6 @@ impl<DB: Database, KB: KnowledgeBase> CoCoModule<DB, KB> for MQTTModule {
         mqtt_options.set_keep_alive(Duration::from_secs(5));
         let (client, mut eventloop) = AsyncClient::new(mqtt_options, 10);
 
-        for obj in coco.get_objects().await? {
-            trace!("Subscribing to MQTT topic for existing object '{}'", obj.id.as_ref().unwrap());
-            let mut filter = Filter::new(format!("coco/{}/#", obj.id.as_ref().unwrap()), QoS::AtLeastOnce);
-            filter.nolocal = true;
-            client.subscribe_many(vec![filter]).await.unwrap();
-        }
-
         let mut rx = coco.event_tx.subscribe();
         let coco_clone = coco.clone();
         tokio::spawn(async move {

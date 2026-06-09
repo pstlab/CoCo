@@ -16,6 +16,8 @@ pub mod kb;
 pub mod model;
 #[cfg(feature = "mqtt")]
 pub mod mqtt;
+#[cfg(feature = "ros")]
+pub mod ros;
 #[cfg(feature = "server")]
 pub mod server;
 
@@ -110,21 +112,36 @@ impl CoCo {
                 match command {
                     CoCoCommand::Init(classes, rules, objects, response_tx) => {
                         for class in classes {
-                            if let Err(e) = command_kb.create_class(class.clone()).await {
-                                let _ = response_tx.send(Err(CoCoError::KnowledgeBaseError(e.to_string())));
-                                return;
+                            match command_kb.create_class(class.clone()).await {
+                                Ok(_) => {
+                                    let _ = event_tx_for_commands.send(CoCoEvent::ClassCreated(class.name.clone()));
+                                }
+                                Err(e) => {
+                                    let _ = response_tx.send(Err(CoCoError::KnowledgeBaseError(e.to_string())));
+                                    return;
+                                }
                             }
                         }
                         for rule in rules {
-                            if let Err(e) = command_kb.create_rule(rule.clone()).await {
-                                let _ = response_tx.send(Err(CoCoError::KnowledgeBaseError(e.to_string())));
-                                return;
+                            match command_kb.create_rule(rule.clone()).await {
+                                Ok(_) => {
+                                    let _ = event_tx_for_commands.send(CoCoEvent::RuleCreated(rule.name.clone()));
+                                }
+                                Err(e) => {
+                                    let _ = response_tx.send(Err(CoCoError::KnowledgeBaseError(e.to_string())));
+                                    return;
+                                }
                             }
                         }
                         for object in objects {
-                            if let Err(e) = command_kb.create_object(object.clone()).await {
-                                let _ = response_tx.send(Err(CoCoError::KnowledgeBaseError(e.to_string())));
-                                return;
+                            match command_kb.create_object(object.clone()).await {
+                                Ok(_) => {
+                                    let _ = event_tx_for_commands.send(CoCoEvent::ObjectCreated(object.id.clone().unwrap_or_default()));
+                                }
+                                Err(e) => {
+                                    let _ = response_tx.send(Err(CoCoError::KnowledgeBaseError(e.to_string())));
+                                    return;
+                                }
                             }
                         }
                         let _ = response_tx.send(Ok(()));
