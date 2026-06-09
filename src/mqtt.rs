@@ -55,31 +55,27 @@ impl<DB: Database, KB: KnowledgeBase> CoCoModule<DB, KB> for MQTTModule {
         tokio::spawn(async move {
             while let Ok(msg) = rx.recv().await {
                 match msg {
-                    CoCoEvent::ClassCreated(class_name) => match coco_clone.get_class(class_name.clone()).await {
-                        Ok(Some(class)) => {
-                            let mut update_msg = serde_json::to_value(class).unwrap();
-                            update_msg["msg_type"] = serde_json::json!("class-created");
-                            let payload = serde_json::to_string(&update_msg).unwrap();
-                            client.publish("coco/events", QoS::AtLeastOnce, false, payload).await.unwrap();
-                        }
-                        Ok(None) => trace!("Class '{}' not found after creation event", class_name),
-                        Err(e) => trace!("Error loading class '{}' after creation event: {}", class_name, e),
-                    },
-                    CoCoEvent::ObjectCreated(object_id) => match coco_clone.get_object(object_id.clone()).await {
-                        Ok(Some(object)) => {
-                            let mut update_msg = serde_json::to_value(object).unwrap();
-                            update_msg["msg_type"] = serde_json::json!("object-created");
-                            let payload = serde_json::to_string(&update_msg).unwrap();
-                            client.publish("coco/events", QoS::AtLeastOnce, false, payload).await.unwrap();
+                    CoCoEvent::ClassCreated(class_name) => {
+                        let class = coco_clone.get_class(class_name.clone()).await.expect("Failed to get class after creation event").expect("Class not found after creation event");
 
-                            trace!("Subscribing to MQTT topic for object '{}'", object_id);
-                            let mut filter = Filter::new(format!("coco/{}/#", object_id), QoS::AtLeastOnce);
-                            filter.nolocal = true;
-                            client.subscribe_many(vec![filter]).await.unwrap();
-                        }
-                        Ok(None) => trace!("Object '{}' not found after creation event", object_id),
-                        Err(e) => trace!("Error loading object '{}' after creation event: {}", object_id, e),
-                    },
+                        let mut update_msg = serde_json::to_value(class).unwrap();
+                        update_msg["msg_type"] = serde_json::json!("class-created");
+                        let payload = serde_json::to_string(&update_msg).unwrap();
+                        client.publish("coco/events", QoS::AtLeastOnce, false, payload).await.unwrap();
+                    }
+                    CoCoEvent::ObjectCreated(object_id) => {
+                        let object = coco_clone.get_object(object_id.clone()).await.expect("Failed to get object after creation event").expect("Object not found after creation event");
+
+                        let mut update_msg = serde_json::to_value(object).unwrap();
+                        update_msg["msg_type"] = serde_json::json!("object-created");
+                        let payload = serde_json::to_string(&update_msg).unwrap();
+                        client.publish("coco/events", QoS::AtLeastOnce, false, payload).await.unwrap();
+
+                        trace!("Subscribing to MQTT topic for object '{}'", object_id);
+                        let mut filter = Filter::new(format!("coco/{}/#", object_id), QoS::AtLeastOnce);
+                        filter.nolocal = true;
+                        client.subscribe_many(vec![filter]).await.unwrap();
+                    }
                     CoCoEvent::ClassesUpdated(object_id, classes) => {
                         let update_msg = serde_json::json!({
                             "msg_type": "classes-updated",
