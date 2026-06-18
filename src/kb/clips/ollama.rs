@@ -68,7 +68,7 @@ impl<DB: Database> CoCoModule<DB, CLIPSKnowledgeBase> for OllamaModule {
 
                     match client.post(&url).json(&body).send().await {
                         Ok(response) => {
-                            parse_response(parse_kb, response).await;
+                            parse_response(parse_kb, object_id, response).await;
                         }
                         Err(_) => {
                             error!("Failed to send request to Ollama for object_id {}: {}", object_id, url);
@@ -107,7 +107,7 @@ fn parse_ollama_line(line: &str, full_text: &mut String) {
     }
 }
 
-async fn parse_response(_kb: CLIPSKnowledgeBase, response: Response) {
+async fn parse_response(kb: CLIPSKnowledgeBase, object_id: String, response: Response) {
     let mut stream = response.bytes_stream();
     let mut full_text = String::new();
     let mut pending = Vec::new();
@@ -153,9 +153,13 @@ async fn parse_response(_kb: CLIPSKnowledgeBase, response: Response) {
 
 #[cfg(test)]
 mod tests {
-    use tracing::{Level, subscriber};
-
     use super::*;
+    use crate::{
+        kb::KnowledgeBase,
+        model::{Class, Object, Property},
+    };
+    use std::collections::{HashMap, HashSet};
+    use tracing::{Level, subscriber};
 
     #[tokio::test]
     async fn test_parse_response() {
@@ -173,9 +177,26 @@ mod tests {
         });
 
         let (kb, _) = CLIPSKnowledgeBase::new();
+        kb.create_class(Class {
+            name: "TestClass".to_string(),
+            static_properties: None,
+            dynamic_properties: Some(HashMap::from([("text".to_string(), Property::String { default: None })])),
+            parents: None,
+        })
+        .await
+        .unwrap();
+        kb.create_object(Object {
+            id: Some("test_object".to_string()),
+            classes: HashSet::from(["TestClass".to_string()]),
+            properties: None,
+            values: None,
+        })
+        .await
+        .unwrap();
+
         match client.post(&url).json(&body).send().await {
             Ok(response) => {
-                parse_response(kb, response).await;
+                parse_response(kb, "test_object".to_string(), response).await;
             }
             Err(_) => {
                 error!("Failed to send request to Ollama for test: {}", url);
