@@ -1,15 +1,27 @@
-use crate::{CoCo, CoCoModule, db::Database, kb::clips::CLIPSKnowledgeBase, model::CoCoError};
+use crate::{
+    CoCo, CoCoModule,
+    db::Database,
+    kb::{KnowledgeBase, clips::CLIPSKnowledgeBase},
+    model::{CoCoError, Value},
+};
 use async_trait::async_trait;
+use chrono::Utc;
 use clips::{ClipsValue, Type, UDFContext};
 use futures_util::StreamExt;
 use reqwest::{Client, Response};
 use serde::Deserialize;
+use std::collections::HashMap;
+use tokio::sync::mpsc;
 use tracing::{error, info, trace};
 
 pub struct OllamaModule {
     model: String,
     url: String,
     client: Client,
+}
+
+enum OllamaUpdate {
+    AddValues { object_id: String, values: HashMap<String, Value>, timestamp: chrono::DateTime<Utc> },
 }
 
 impl OllamaModule {
@@ -36,8 +48,18 @@ impl<DB: Database> CoCoModule<DB, CLIPSKnowledgeBase> for OllamaModule {
         let client = self.client.clone();
         let url = self.url.clone();
         let model = self.model.clone();
+        let (values_tx, mut values_rx) = mpsc::unbounded_channel::<OllamaUpdate>();
+        let values_kb = kb.clone();
 
-        let parse_kb = kb.clone();
+        tokio::spawn(async move {
+            while let Some(update) = values_rx.recv().await {
+                let OllamaUpdate::AddValues { object_id, values, timestamp } = update;
+                if let Err(e) = values_kb.add_values(object_id, values, timestamp).await {
+                    error!("Error adding values to object from Ollama worker: {}", e);
+                }
+            }
+        });
+
         kb.add_udf(
             "prompt",
             None,
@@ -58,7 +80,7 @@ impl<DB: Database> CoCoModule<DB, CLIPSKnowledgeBase> for OllamaModule {
                 let client = client.clone();
                 let url = url.clone();
                 let model = model.clone();
-                let parse_kb = parse_kb.clone();
+                let values_tx = values_tx.clone();
                 tokio::spawn(async move {
                     trace!("Sending prompt to Ollama for object_id {}: {}", object_id, prompt);
                     let body = serde_json::json!({
@@ -68,7 +90,7 @@ impl<DB: Database> CoCoModule<DB, CLIPSKnowledgeBase> for OllamaModule {
 
                     match client.post(&url).json(&body).send().await {
                         Ok(response) => {
-                            parse_response(parse_kb, object_id, response).await;
+                            parse_response(object_id, response, values_tx).await;
                         }
                         Err(_) => {
                             error!("Failed to send request to Ollama for object_id {}: {}", object_id, url);
@@ -92,22 +114,7 @@ struct OllamaResponse {
     done: bool,
 }
 
-fn parse_ollama_line(line: &str, full_text: &mut String) {
-    match serde_json::from_str::<OllamaResponse>(line) {
-        Ok(ollama_response) => {
-            trace!("{}", ollama_response.response);
-            full_text.push_str(&ollama_response.response);
-            if ollama_response.done {
-                trace!("Ollama response complete");
-            }
-        }
-        Err(e) => {
-            error!("Error parsing Ollama response: {}", e);
-        }
-    }
-}
-
-async fn parse_response(kb: CLIPSKnowledgeBase, object_id: String, response: Response) {
+async fn parse_response(object_id: String, response: Response, values_tx: mpsc::UnboundedSender<OllamaUpdate>) {
     let mut stream = response.bytes_stream();
     let mut full_text = String::new();
     let mut pending = Vec::new();
@@ -135,7 +142,10 @@ async fn parse_response(kb: CLIPSKnowledgeBase, object_id: String, response: Res
             }
 
             match std::str::from_utf8(&line_bytes) {
-                Ok(line_str) => parse_ollama_line(line_str, &mut full_text),
+                Ok(line_str) => {
+                    parse_ollama_line(line_str, &mut full_text);
+                    flush_values(&object_id, &mut full_text, &values_tx);
+                }
                 Err(e) => error!("Invalid UTF-8 sequence in line: {}", e),
             }
         }
@@ -146,6 +156,55 @@ async fn parse_response(kb: CLIPSKnowledgeBase, object_id: String, response: Res
             let trimmed = line_str.trim_end_matches(['\r', '\n']);
             if !trimmed.is_empty() {
                 parse_ollama_line(trimmed, &mut full_text);
+                flush_values(&object_id, &mut full_text, &values_tx);
+            }
+        }
+    }
+}
+
+fn parse_ollama_line(line: &str, full_text: &mut String) {
+    match serde_json::from_str::<OllamaResponse>(line) {
+        Ok(ollama_response) => {
+            full_text.push_str(&ollama_response.response);
+            if ollama_response.done {
+                trace!("Ollama response complete");
+            }
+        }
+        Err(e) => {
+            error!("Error parsing Ollama response: {}", e);
+        }
+    }
+}
+
+enum ParserState {
+    Text,
+    Command,
+}
+
+fn flush_values(object_id: &str, full_text: &mut String, values_tx: &mpsc::UnboundedSender<OllamaUpdate>) {
+    let mut state = ParserState::Text;
+    let mut buffer = String::new();
+    let mut values = HashMap::new();
+    for c in full_text.chars() {
+        match state {
+            ParserState::Text => {
+                if c == '<' {
+                    state = ParserState::Command;
+                    if !buffer.is_empty() {
+                        values.insert("text".to_string(), Value::String(buffer.clone()));
+                        buffer.clear();
+                        let _ = values_tx.send(OllamaUpdate::AddValues { object_id: object_id.to_string(), values: values.clone(), timestamp: Utc::now() });
+                    }
+                } else {
+                    buffer.push(c);
+                }
+            }
+            ParserState::Command => {
+                if c == '>' {
+                    state = ParserState::Text;
+                } else {
+                    buffer.push(c);
+                }
             }
         }
     }
@@ -159,6 +218,7 @@ mod tests {
         model::{Class, Object, Property},
     };
     use std::collections::{HashMap, HashSet};
+    use tokio::sync::mpsc;
     use tracing::{Level, subscriber};
 
     #[tokio::test]
@@ -196,7 +256,8 @@ mod tests {
 
         match client.post(&url).json(&body).send().await {
             Ok(response) => {
-                parse_response(kb, "test_object".to_string(), response).await;
+                let (values_tx, _values_rx) = mpsc::unbounded_channel();
+                parse_response("test_object".to_string(), response, values_tx).await;
             }
             Err(_) => {
                 error!("Failed to send request to Ollama for test: {}", url);
