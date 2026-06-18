@@ -76,7 +76,7 @@ async fn create_objects() {
         name: "PhysiologicalSensor".to_string(),
         parents: Some(HashSet::from(["Sensor".to_string()])),
         static_properties: None,
-        dynamic_properties: Some(HashMap::from([("patient".to_string(), Property::Object { default: None, class: "Patient".to_string() })])),
+        dynamic_properties: Some(HashMap::from([("patient".to_string(), Property::Object { default: None, classes: vec!["Patient".to_string()] })])),
     })
     .await
     .unwrap();

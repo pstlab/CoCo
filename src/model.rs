@@ -53,7 +53,7 @@ pub enum Property {
     Object {
         #[serde(skip_serializing_if = "Option::is_none")]
         default: Option<String>,
-        class: String,
+        classes: Vec<String>,
     },
     #[serde(rename = "bool-array")]
     BoolArray {
@@ -187,7 +187,7 @@ impl fmt::Display for Property {
             Property::Symbol { default, allowed_values } => {
                 write!(f, "symbol(default: {:?}, allowed_values: {:?})", default, allowed_values)
             }
-            Property::Object { default, class } => {
+            Property::Object { default, classes: class } => {
                 write!(f, "object(default: {:?}, class: {:?})", default, class)
             }
             Property::BoolArray { default } => {
