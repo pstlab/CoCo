@@ -43,7 +43,7 @@ impl<DB: Database> CoCoModule<DB, CLIPSKnowledgeBase> for ChronoxideModule {
                 name: "Predicate".to_string(),
                 static_properties: Some(HashMap::from([
                     ("name".to_string(), Property::Symbol { default: None, allowed_values: None }),
-                    ("class".to_string(), Property::Object { default: None, class: "Class".to_string() }),
+                    ("class".to_string(), Property::Object { default: None, classes: vec!["Class".to_string()] }),
                     ("parameters".to_string(), Property::StringArray { default: None }),
                     ("content".to_string(), Property::String { default: None }),
                 ])),
