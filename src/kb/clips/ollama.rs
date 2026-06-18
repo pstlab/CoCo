@@ -93,6 +93,7 @@ struct OllamaResponse {
 
 async fn parse_response(response: Response) {
     let mut stream = response.bytes_stream();
+    let mut full_text = String::new();
     while let Some(chunk) = stream.next().await {
         let chunk = match chunk {
             Ok(c) => c,
@@ -115,6 +116,7 @@ async fn parse_response(response: Response) {
             match serde_json::from_str::<OllamaResponse>(line) {
                 Ok(ollama_response) => {
                     trace!("{}", ollama_response.response);
+                    full_text.push_str(&ollama_response.response);
                     if ollama_response.done {
                         trace!("Ollama response complete");
                     }
