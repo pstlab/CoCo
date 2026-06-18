@@ -8,6 +8,8 @@ pub mod mongodb;
 
 #[derive(Debug)]
 pub enum DatabaseError {
+    InvalidInput(String),
+    SerializationError(String),
     ConnectionError(String),
     NotFound(String),
     Exists(String),
@@ -16,6 +18,8 @@ pub enum DatabaseError {
 impl fmt::Display for DatabaseError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            DatabaseError::InvalidInput(msg) => write!(f, "Invalid input: {}", msg),
+            DatabaseError::SerializationError(msg) => write!(f, "Serialization error: {}", msg),
             DatabaseError::ConnectionError(msg) => write!(f, "Connection error: {}", msg),
             DatabaseError::NotFound(msg) => write!(f, "Not found: {}", msg),
             DatabaseError::Exists(msg) => write!(f, "Already exists: {}", msg),

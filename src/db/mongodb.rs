@@ -149,20 +149,24 @@ impl Database for MongoDB {
     async fn create_object(&self, object: Object) -> Result<String, DatabaseError> {
         let db = self.client.database(&self.name);
         let collection = db.collection::<MongoObject>("objects");
+        let object_id = match object.id.as_deref() {
+            Some(id) => Some(ObjectId::parse_str(id).map_err(|e| DatabaseError::InvalidInput(format!("Invalid object id '{id}': {e}")))?),
+            None => None,
+        };
         let mongo_object = MongoObject {
-            id: None,
+            id: object_id,
             classes: object.classes.clone(),
             properties: object.properties.as_ref().map(|p| p.iter().map(|(k, v)| (k.clone(), MongoValue::from(v))).collect()),
             values: object.values.as_ref().map(|v| v.iter().map(|(k, tv)| (k.clone(), MongoTimedValue::from(tv))).collect()),
         };
-        let result = collection.insert_one(mongo_object).await.map_err(|e| DatabaseError::ConnectionError(e.to_string()))?;
-        Ok(result.inserted_id.as_object_id().unwrap().to_hex())
+        let result = collection.insert_one(mongo_object).await.map_err(|e| if e.to_string().contains("duplicate key error") { DatabaseError::Exists(object.id.clone().unwrap_or_else(|| "unknown".to_owned())) } else { DatabaseError::ConnectionError(e.to_string()) })?;
+        result.inserted_id.as_object_id().map(|id| id.to_hex()).ok_or_else(|| DatabaseError::ConnectionError("Inserted document has non-ObjectId _id".to_owned()))
     }
 
     async fn add_class(&self, object_id: String, class_name: String) -> Result<(), DatabaseError> {
         let db = self.client.database(&self.name);
         let collection = db.collection::<MongoObject>("objects");
-        let oid = ObjectId::parse_str(object_id).map_err(|e| DatabaseError::ConnectionError(e.to_string()))?;
+        let oid = ObjectId::parse_str(object_id).map_err(|e| DatabaseError::InvalidInput(format!("Invalid object id: {e}")))?;
         collection.update_one(doc! { "_id": oid }, doc! { "$addToSet": { "classes": class_name } }).await.map_err(|e| DatabaseError::ConnectionError(e.to_string()))?;
         Ok(())
     }
@@ -172,9 +176,9 @@ impl Database for MongoDB {
         let collection = db.collection::<MongoObject>("objects");
         let mut update_doc = doc! {};
         for (prop, value) in properties {
-            update_doc.insert(format!("properties.{}", prop), bson::to_bson(&MongoValue::from(value)).map_err(|e| DatabaseError::ConnectionError(e.to_string()))?);
+            update_doc.insert(format!("properties.{}", prop), bson::to_bson(&MongoValue::from(value)).map_err(|e| DatabaseError::SerializationError(e.to_string()))?);
         }
-        let oid = ObjectId::parse_str(object_id).map_err(|e| DatabaseError::ConnectionError(e.to_string()))?;
+        let oid = ObjectId::parse_str(object_id).map_err(|e| DatabaseError::InvalidInput(format!("Invalid object id: {e}")))?;
         collection.update_one(doc! { "_id": oid }, doc! { "$set": update_doc }).await.map_err(|e| DatabaseError::ConnectionError(e.to_string()))?;
         Ok(())
     }
@@ -182,12 +186,12 @@ impl Database for MongoDB {
     async fn add_values(&self, object_id: String, values: HashMap<String, Value>, date_time: DateTime<Utc>) -> Result<(), DatabaseError> {
         let db = self.client.database(&self.name);
         let collection = db.collection::<MongoObject>("objects");
-        let oid = ObjectId::parse_str(object_id.clone()).map_err(|e| DatabaseError::ConnectionError(e.to_string()))?;
+        let oid = ObjectId::parse_str(object_id.clone()).map_err(|e| DatabaseError::InvalidInput(format!("Invalid object id: {e}")))?;
         let mut update_doc = doc! {};
         let mongo_values: HashMap<String, MongoValue> = values.iter().map(|(k, v)| (k.clone(), MongoValue::from(v))).collect();
         for (prop, mongo_value) in &mongo_values {
             let timed = MongoTimedValue { value: mongo_value.clone(), timestamp: date_time };
-            update_doc.insert(format!("values.{}", prop), bson::to_bson(&timed).map_err(|e| DatabaseError::ConnectionError(e.to_string()))?);
+            update_doc.insert(format!("values.{}", prop), bson::to_bson(&timed).map_err(|e| DatabaseError::SerializationError(e.to_string()))?);
         }
         collection.update_one(doc! { "_id": oid }, doc! { "$set": update_doc }).await.map_err(|e| DatabaseError::ConnectionError(e.to_string()))?;
 
@@ -203,10 +207,10 @@ impl Database for MongoDB {
         let mut filter = doc! { "object_id": object_id };
         let mut ts_range = doc! {};
         if let Some(start_time) = &start_time {
-            ts_range.insert("$gte", bson::to_bson(start_time).unwrap());
+            ts_range.insert("$gte", bson::to_bson(start_time).map_err(|e| DatabaseError::SerializationError(e.to_string()))?);
         }
         if let Some(end_time) = &end_time {
-            ts_range.insert("$lte", bson::to_bson(end_time).unwrap());
+            ts_range.insert("$lte", bson::to_bson(end_time).map_err(|e| DatabaseError::SerializationError(e.to_string()))?);
         }
         if !ts_range.is_empty() {
             filter.insert("timestamp", ts_range);
