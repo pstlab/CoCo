@@ -15,7 +15,7 @@ use clips::{ClipsValue, Type};
 use mongodb::bson::{Document, doc, oid::ObjectId};
 use reqwest::{Client, StatusCode};
 use serde_json::json;
-use tracing::{trace, warn};
+use tracing::{error, trace, warn};
 use yup_oauth2::{ServiceAccountAuthenticator, read_service_account_key};
 
 pub struct FCMModule {
@@ -49,12 +49,27 @@ impl CoCoModule<MongoDB, CLIPSKnowledgeBase> for FCMModule {
             3,
             vec![Type(Type::SYMBOL), Type(Type::STRING), Type(Type::STRING)],
             Box::new(move |_env, ctx| {
-                let object_id = ctx.get_next_argument(Type(Type::SYMBOL)).expect("Failed to get object ID argument for send-message UDF");
-                let object_id = if let ClipsValue::Symbol(s) = object_id { s } else { panic!("Expected symbol for object ID argument in send-message UDF") };
-                let title = ctx.get_next_argument(Type(Type::STRING)).expect("Failed to get title argument for send-message UDF");
-                let title = if let ClipsValue::String(s) = title { s } else { panic!("Expected string for title argument in send-message UDF") };
-                let message = ctx.get_next_argument(Type(Type::STRING)).expect("Failed to get message argument for send-message UDF");
-                let message = if let ClipsValue::String(s) = message { s } else { panic!("Expected string for message argument in send-message UDF") };
+                let object_id = match ctx.get_next_argument(Type(Type::SYMBOL)) {
+                    Some(ClipsValue::Symbol(s)) => s,
+                    _ => {
+                        error!("Expected symbol for object ID argument in send-message UDF");
+                        return ClipsValue::Void();
+                    }
+                };
+                let title = match ctx.get_next_argument(Type(Type::STRING)) {
+                    Some(ClipsValue::String(s)) => s,
+                    _ => {
+                        error!("Expected string for title argument in send-message UDF");
+                        return ClipsValue::Void();
+                    }
+                };
+                let message = match ctx.get_next_argument(Type(Type::STRING)) {
+                    Some(ClipsValue::String(s)) => s,
+                    _ => {
+                        error!("Expected string for message argument in send-message UDF");
+                        return ClipsValue::Void();
+                    }
+                };
 
                 let db = db_for_udf.clone();
                 let client = client.clone();

@@ -67,14 +67,20 @@ impl<DB: Database> CoCoModule<DB, CLIPSKnowledgeBase> for OllamaModule {
             2,
             vec![Type(Type::SYMBOL), Type(Type::STRING)],
             Box::new(move |_env, ctx: &mut UDFContext| {
-                let object_id = match ctx.get_next_argument(Type(Type::SYMBOL)).expect("Failed to get object ID argument for prompt UDF") {
-                    ClipsValue::Symbol(s) => s.to_string(),
-                    _ => panic!("Expected symbol for object ID argument in prompt UDF"),
+                let object_id = match ctx.get_next_argument(Type(Type::SYMBOL)) {
+                    Some(ClipsValue::Symbol(s)) => s,
+                    _ => {
+                        error!("Expected symbol for object ID argument in prompt UDF");
+                        return ClipsValue::Void();
+                    }
                 };
 
-                let prompt = match ctx.get_next_argument(Type(Type::STRING)).expect("Failed to get prompt argument for prompt UDF") {
-                    ClipsValue::String(s) => s.to_string(),
-                    _ => panic!("Expected string for prompt argument in prompt UDF"),
+                let prompt = match ctx.get_next_argument(Type(Type::STRING)) {
+                    Some(ClipsValue::String(s)) => s,
+                    _ => {
+                        error!("Expected string for prompt argument in prompt UDF");
+                        return ClipsValue::Void();
+                    }
                 };
 
                 let client = client.clone();

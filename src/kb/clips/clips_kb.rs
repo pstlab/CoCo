@@ -191,7 +191,9 @@ impl ActorState {
             return Err(KnowledgeBaseError::ObjectClassesRequired(object_id));
         }
         for class_name in classes {
-            assert!(self.classes.contains_key(&class_name), "Class {} not found for object {}", class_name, object_id);
+            if !self.classes.contains_key(&class_name) {
+                return Err(KnowledgeBaseError::ClassNotFound(format!("Class {} not found for object {}", class_name, object_id)));
+            }
             let fb = env.fact_builder(&class_name).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to create fact builder for class {}: {}", class_name, e)))?;
             let fb = fb.put_symbol("id", object_id.as_str()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set id slot for object {}: {}", object_id, e)))?;
             let fact = env.assert_fact(fb).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to assert fact for object {}: {}", object_id, e)))?;
@@ -252,7 +254,9 @@ impl ActorState {
         object.classes.insert(class_name.to_owned());
 
         for class_name in classes {
-            assert!(self.classes.contains_key(&class_name), "Class {} not found for object {}", class_name, object_id);
+            if !self.classes.contains_key(&class_name) {
+                return Err(KnowledgeBaseError::ClassNotFound(format!("Class {} not found for object {}", class_name, object_id)));
+            }
             let fb = env.fact_builder(&class_name).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to create fact builder for class {}: {}", class_name, e)))?;
             let fb = fb.put_symbol("id", object_id).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set id slot for object {}: {}", object_id, e)))?;
             let fact = env.assert_fact(fb).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to assert fact for object {}: {}", object_id, e)))?;
@@ -348,10 +352,20 @@ impl CLIPSKnowledgeBase {
             let event_tx_add_class = event_tx.clone();
             env.add_udf("add-class", None, 2, 2, vec![Type(Type::SYMBOL), Type(Type::SYMBOL)], move |env, ctx| {
                 let state = &mut *state_add_class.borrow_mut();
-                let object_id = ctx.get_next_argument(Type(Type::SYMBOL)).expect("Failed to get object ID argument for add-class UDF");
-                let object_id = if let ClipsValue::Symbol(s) = object_id { s } else { panic!("Expected symbol for object ID argument in add-class UDF") };
-                let class_name = ctx.get_next_argument(Type(Type::SYMBOL)).expect("Failed to get class name argument for add-class UDF");
-                let class_name = if let ClipsValue::Symbol(s) = class_name { s } else { panic!("Expected symbol for class name argument in add-class UDF") };
+                let object_id = match ctx.get_next_argument(Type(Type::SYMBOL)) {
+                    Some(ClipsValue::Symbol(s)) => s,
+                    _ => {
+                        error!("Expected symbol for object ID argument in add-class UDF");
+                        return ClipsValue::Void();
+                    }
+                };
+                let class_name = match ctx.get_next_argument(Type(Type::SYMBOL)) {
+                    Some(ClipsValue::Symbol(s)) => s,
+                    _ => {
+                        error!("Expected symbol for class name argument in add-class UDF");
+                        return ClipsValue::Void();
+                    }
+                };
 
                 trace!("CLIPS UDF 'add-class' called with object_id='{}' and class_name='{}'", object_id, class_name);
                 match state.add_class(env, &object_id, &class_name) {
@@ -372,37 +386,59 @@ impl CLIPSKnowledgeBase {
             let event_tx_set_properties = event_tx.clone();
             env.add_udf("set-properties", None, 3, 3, vec![Type(Type::SYMBOL), Type(Type::MULTIFIELD), Type(Type::MULTIFIELD)], move |env, ctx| {
                 let state = &mut *state_set_properties.borrow_mut();
-                let object_id = match ctx.get_next_argument(Type(Type::SYMBOL)).expect("Failed to get object ID argument for prompt UDF") {
-                    ClipsValue::Symbol(s) => s.to_string(),
-                    _ => panic!("Expected symbol for object ID argument in prompt UDF"),
+                let object_id = match ctx.get_next_argument(Type(Type::SYMBOL)) {
+                    Some(ClipsValue::Symbol(s)) => s.to_string(),
+                    _ => {
+                        error!("Expected symbol for object ID argument in set-properties UDF");
+                        return ClipsValue::Void();
+                    }
                 };
-                let props: Vec<String> = match ctx.get_next_argument(Type(Type::MULTIFIELD)).expect("Failed to get properties argument for set-properties UDF") {
-                    ClipsValue::Multifield(mf) => mf
-                        .into_iter()
-                        .map(|v| match v {
-                            ClipsValue::Symbol(s) => s,
-                            _ => panic!("Expected symbol in properties multifield for set-properties UDF"),
-                        })
-                        .collect(),
-                    _ => panic!("Expected multifield for properties argument in set-properties UDF"),
+                let props: Vec<String> = match ctx.get_next_argument(Type(Type::MULTIFIELD)) {
+                    Some(ClipsValue::Multifield(mf)) => {
+                        let mut out = Vec::with_capacity(mf.len());
+                        for v in mf {
+                            match v {
+                                ClipsValue::Symbol(s) => out.push(s),
+                                _ => {
+                                    error!("Expected symbol in properties multifield for set-properties UDF");
+                                    return ClipsValue::Void();
+                                }
+                            }
+                        }
+                        out
+                    }
+                    _ => {
+                        error!("Expected multifield for properties argument in set-properties UDF");
+                        return ClipsValue::Void();
+                    }
                 };
-                let vals: Vec<Value> = match ctx.get_next_argument(Type(Type::MULTIFIELD)).expect("Failed to get values argument for set-properties UDF") {
-                    ClipsValue::Multifield(mf) => mf
-                        .into_iter()
-                        .map(|v| match v {
-                            ClipsValue::Integer(i) => Value::Int(i),
-                            ClipsValue::Float(f) => Value::Float(f),
-                            ClipsValue::Symbol(s) => match s.as_str() {
-                                "TRUE" => Value::Bool(true),
-                                "FALSE" => Value::Bool(false),
-                                "nil" => Value::Null,
-                                other => Value::Symbol(other.to_owned()),
-                            },
-                            ClipsValue::String(s) => Value::String(s),
-                            _ => panic!("Expected symbol, integer, or float in values multifield for set-properties UDF"),
-                        })
-                        .collect(),
-                    _ => panic!("Expected multifield for values argument in set-properties UDF"),
+                let vals: Vec<Value> = match ctx.get_next_argument(Type(Type::MULTIFIELD)) {
+                    Some(ClipsValue::Multifield(mf)) => {
+                        let mut out = Vec::with_capacity(mf.len());
+                        for v in mf {
+                            let value = match v {
+                                ClipsValue::Integer(i) => Value::Int(i),
+                                ClipsValue::Float(f) => Value::Float(f),
+                                ClipsValue::Symbol(s) => match s.as_str() {
+                                    "TRUE" => Value::Bool(true),
+                                    "FALSE" => Value::Bool(false),
+                                    "nil" => Value::Null,
+                                    other => Value::Symbol(other.to_owned()),
+                                },
+                                ClipsValue::String(s) => Value::String(s),
+                                _ => {
+                                    error!("Expected symbol, integer, float, or string in values multifield for set-properties UDF");
+                                    return ClipsValue::Void();
+                                }
+                            };
+                            out.push(value);
+                        }
+                        out
+                    }
+                    _ => {
+                        error!("Expected multifield for values argument in set-properties UDF");
+                        return ClipsValue::Void();
+                    }
                 };
 
                 let properties: HashMap<String, Value> = props.into_iter().zip(vals).collect();
@@ -425,43 +461,73 @@ impl CLIPSKnowledgeBase {
             let event_tx_add_data = event_tx.clone();
             env.add_udf("add-data", None, 3, 4, vec![Type(Type::SYMBOL), Type(Type::MULTIFIELD), Type(Type::MULTIFIELD), Type(Type::INTEGER)], move |env, ctx| {
                 let state = &mut *state_add_data.borrow_mut();
-                let object_id = match ctx.get_next_argument(Type(Type::SYMBOL)).expect("Failed to get object ID argument for prompt UDF") {
-                    ClipsValue::Symbol(s) => s.to_string(),
-                    _ => panic!("Expected symbol for object ID argument in prompt UDF"),
+                let object_id = match ctx.get_next_argument(Type(Type::SYMBOL)) {
+                    Some(ClipsValue::Symbol(s)) => s.to_string(),
+                    _ => {
+                        error!("Expected symbol for object ID argument in add-data UDF");
+                        return ClipsValue::Void();
+                    }
                 };
-                let args: Vec<String> = match ctx.get_next_argument(Type(Type::MULTIFIELD)).expect("Failed to get args argument for add-data UDF") {
-                    ClipsValue::Multifield(mf) => mf
-                        .into_iter()
-                        .map(|v| match v {
-                            ClipsValue::Symbol(s) => s,
-                            _ => panic!("Expected symbol, integer, or float in args multifield for add-data UDF"),
-                        })
-                        .collect(),
-                    _ => panic!("Expected multifield for args argument in add-data UDF"),
+                let args: Vec<String> = match ctx.get_next_argument(Type(Type::MULTIFIELD)) {
+                    Some(ClipsValue::Multifield(mf)) => {
+                        let mut out = Vec::with_capacity(mf.len());
+                        for v in mf {
+                            match v {
+                                ClipsValue::Symbol(s) => out.push(s),
+                                _ => {
+                                    error!("Expected symbol in args multifield for add-data UDF");
+                                    return ClipsValue::Void();
+                                }
+                            }
+                        }
+                        out
+                    }
+                    _ => {
+                        error!("Expected multifield for args argument in add-data UDF");
+                        return ClipsValue::Void();
+                    }
                 };
-                let vals: Vec<Value> = match ctx.get_next_argument(Type(Type::MULTIFIELD)).expect("Failed to get values argument for add-data UDF") {
-                    ClipsValue::Multifield(mf) => mf
-                        .into_iter()
-                        .map(|v| match v {
-                            ClipsValue::Integer(i) => Value::Int(i),
-                            ClipsValue::Float(f) => Value::Float(f),
-                            ClipsValue::Symbol(s) => match s.as_str() {
-                                "TRUE" => Value::Bool(true),
-                                "FALSE" => Value::Bool(false),
-                                "nil" => Value::Null,
-                                other => Value::Symbol(other.to_owned()),
-                            },
-                            ClipsValue::String(s) => Value::String(s),
-                            _ => panic!("Expected symbol, integer, or float in values multifield for add-data UDF"),
-                        })
-                        .collect(),
-                    _ => panic!("Expected multifield for values argument in add-data UDF"),
+                let vals: Vec<Value> = match ctx.get_next_argument(Type(Type::MULTIFIELD)) {
+                    Some(ClipsValue::Multifield(mf)) => {
+                        let mut out = Vec::with_capacity(mf.len());
+                        for v in mf {
+                            let value = match v {
+                                ClipsValue::Integer(i) => Value::Int(i),
+                                ClipsValue::Float(f) => Value::Float(f),
+                                ClipsValue::Symbol(s) => match s.as_str() {
+                                    "TRUE" => Value::Bool(true),
+                                    "FALSE" => Value::Bool(false),
+                                    "nil" => Value::Null,
+                                    other => Value::Symbol(other.to_owned()),
+                                },
+                                ClipsValue::String(s) => Value::String(s),
+                                _ => {
+                                    error!("Expected symbol, integer, float, or string in values multifield for add-data UDF");
+                                    return ClipsValue::Void();
+                                }
+                            };
+                            out.push(value);
+                        }
+                        out
+                    }
+                    _ => {
+                        error!("Expected multifield for values argument in add-data UDF");
+                        return ClipsValue::Void();
+                    }
                 };
-                let date_time = if let Some(arg) = ctx.has_next_argument().then(|| ctx.get_next_argument(Type(Type::INTEGER)).expect("Failed to get date_time argument for add-data UDF")) {
-                    if let ClipsValue::Integer(i) = arg {
-                        DateTime::<Utc>::from_timestamp(i, 0).expect("Failed to convert date_time argument in add-data UDF")
-                    } else {
-                        panic!("Expected integer for date_time argument in add-data UDF");
+                let date_time = if ctx.has_next_argument() {
+                    match ctx.get_next_argument(Type(Type::INTEGER)) {
+                        Some(ClipsValue::Integer(ts)) => match DateTime::<Utc>::from_timestamp(ts, 0) {
+                            Some(dt) => dt,
+                            None => {
+                                error!("Invalid timestamp for date_time argument in add-data UDF: {}", ts);
+                                return ClipsValue::Void();
+                            }
+                        },
+                        _ => {
+                            error!("Expected integer for date_time argument in add-data UDF");
+                            return ClipsValue::Void();
+                        }
                     }
                 } else {
                     Utc::now()

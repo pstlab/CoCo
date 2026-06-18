@@ -8,7 +8,7 @@ use crate::{
 use async_trait::async_trait;
 use clips::{ClipsValue, Type, UDFContext};
 use std::collections::{HashMap, HashSet};
-use tracing::{info, trace};
+use tracing::{error, info, trace};
 
 pub struct ChronoxideModule {}
 
@@ -139,14 +139,20 @@ impl<DB: Database> CoCoModule<DB, CLIPSKnowledgeBase> for ChronoxideModule {
             2,
             vec![Type(Type::SYMBOL), Type(Type::STRING)],
             Box::new(move |_env, ctx: &mut UDFContext| {
-                let solver_id = match ctx.get_next_argument(Type(Type::SYMBOL)).expect("Failed to get solver ID argument for create-solver UDF") {
-                    ClipsValue::Symbol(s) => s.to_string(),
-                    _ => panic!("Expected symbol for solver ID argument in create-solver UDF"),
+                let solver_id = match ctx.get_next_argument(Type(Type::SYMBOL)) {
+                    Some(ClipsValue::Symbol(s)) => s.to_string(),
+                    _ => {
+                        error!("Expected symbol for solver ID argument in create-solver UDF");
+                        return ClipsValue::Void();
+                    }
                 };
 
-                let riddle = match ctx.get_next_argument(Type(Type::STRING)).expect("Failed to get RiDDLe content argument for create-solver UDF") {
-                    ClipsValue::String(s) => s.to_string(),
-                    _ => panic!("Expected string for RiDDLe content argument in create-solver UDF"),
+                let riddle = match ctx.get_next_argument(Type(Type::STRING)) {
+                    Some(ClipsValue::String(s)) => s.to_string(),
+                    _ => {
+                        error!("Expected string for RiDDLe content argument in create-solver UDF");
+                        return ClipsValue::Void();
+                    }
                 };
 
                 trace!("Creating Chronoxide solver with ID {} and RiDDLe content: {}", solver_id, riddle);
