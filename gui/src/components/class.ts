@@ -25,6 +25,14 @@ const obj_item_listener: coco.CoCoObjectListener = {
   data_updated: (_data: Record<string, Array<coco.TimeValue>>) => { }
 };
 
+function PropertyHeader(): VNode {
+  return h('tr', [
+    h('th', 'Name'),
+    h('th', { style: { width: '6rem', minWidth: '6rem' } }, 'Type'),
+    h('th', { style: { width: '2.5rem', minWidth: '2.5rem' } }, 'Info')
+  ]);
+}
+
 export function ObjectRow(cls: coco.CoCoClass, obj: coco.CoCoObject): VNode {
   const cells = [obj.get_id()];
   for (const prop of cls.get_static_properties().keys().toArray().sort()) {
@@ -67,10 +75,9 @@ export function CoCoClass(cls: coco.CoCoClass): VNode {
   const description_cell = (description?: string): string | VNode => {
     const text = description?.trim();
     if (!text) return '';
-    return h('span.text-muted', { attrs: { title: text, 'aria-label': text } }, h('i.fa-solid.fa-circle-info'));
+    return h('span', { attrs: { title: text } }, h('i.fa-solid.fa-circle-info'));
   };
 
-  const props_header = ["Name", "Type", "Info"];
   const static_props_rows = cls.get_static_properties().entries().toArray().sort(([nameA], [nameB]) => nameA.localeCompare(nameB)).map(([name, type]) => Row([name, type.type, description_cell(type.description)]));
   const dynamic_props_rows = cls.get_dynamic_properties().entries().toArray().sort(([nameA], [nameB]) => nameA.localeCompare(nameB)).map(([name, type]) => Row([name, type.type, description_cell(type.description)]));
 
@@ -108,8 +115,8 @@ export function CoCoClass(cls: coco.CoCoClass): VNode {
           }
         }, par_cls_name)
       )) : h('p.mt-2', 'No parent classes.'),
-    static_props_rows.length > 0 ? Table(Header(props_header), static_props_rows, 'Static Properties') : h('p.mt-2', 'No static properties.'),
-    dynamic_props_rows.length > 0 ? Table(Header(props_header), dynamic_props_rows, 'Dynamic Properties') : h('p.mt-2', 'No dynamic properties.'),
+    static_props_rows.length > 0 ? Table(PropertyHeader(), static_props_rows, 'Static Properties') : h('p.mt-2', 'No static properties.'),
+    dynamic_props_rows.length > 0 ? Table(PropertyHeader(), dynamic_props_rows, 'Dynamic Properties') : h('p.mt-2', 'No dynamic properties.'),
     rows.length > 0 ? Table(Header(header), rows, 'Instances') : h('p.mt-2', 'No instances of this class yet.')
   ]);
 }
