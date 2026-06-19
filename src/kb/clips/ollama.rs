@@ -427,10 +427,10 @@ mod tests {
         let object_id = "test_object".to_string();
         let mut full_text = String::new();
 
-        full_text.push_str("Hello <fac");
+        full_text.push_str("Hello [fac");
         flush_values(&object_id, &mut full_text, false, &values_tx);
 
-        full_text.push_str("ial=happy>");
+        full_text.push_str("ial=happy]");
         flush_values(&object_id, &mut full_text, false, &values_tx);
 
         full_text.push_str(" world!");
