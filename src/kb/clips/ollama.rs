@@ -5,7 +5,7 @@ use crate::{
     model::{CoCoError, Property, Value},
 };
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
+use chrono::Utc;
 use clips::{ClipsValue, Type, UDFContext};
 use futures_util::StreamExt;
 use reqwest::{Client, Response};
@@ -21,7 +21,7 @@ pub struct OllamaModule {
 }
 
 enum OllamaMessage {
-    AddValues { object_id: String, values: HashMap<String, Value>, timestamp: DateTime<Utc> },
+    AddValues { object_id: String, text: String, values: HashMap<String, Value> },
     GetPromptContext { object_id: String, resp_tx: oneshot::Sender<Result<HashMap<String, Property>, CoCoError>> },
 }
 
@@ -55,8 +55,9 @@ impl<DB: Database> CoCoModule<DB, CLIPSKnowledgeBase> for OllamaModule {
         tokio::spawn(async move {
             while let Some(update) = values_rx.recv().await {
                 match update {
-                    OllamaMessage::AddValues { object_id, values, timestamp } => {
-                        trace!("Received AddValues for object_id {}: {:?}", object_id, values);
+                    OllamaMessage::AddValues { object_id, text, values } => {
+                        trace!("Received AddValues for object_id {}: text: {}, values: {}", object_id, text, values.iter().map(|(k, v)| format!("{}={:?}", k, v)).collect::<Vec<_>>().join(", "));
+                        let timestamp = Utc::now();
                         if let Err(e) = values_kb.add_values(object_id.clone(), values, timestamp).await {
                             error!("Failed to add values to object {}: {}", object_id, e);
                         }
@@ -237,17 +238,13 @@ fn flush_values(object_id: &str, full_text: &mut String, done: bool, values_tx: 
     for (idx, c) in full_text.char_indices() {
         match state {
             ParserState::Text => {
-                if c == '<' {
+                if c == '[' {
                     let text = buffer.trim();
                     if !text.is_empty() {
-                        values.insert("text".to_string(), Value::String(text.to_string()));
-                        trace!("Sending values to OllamaUpdate: {:?}", values);
-                        let _ = values_tx.send(OllamaMessage::AddValues { object_id: object_id.to_string(), values: values.clone(), timestamp: Utc::now() });
-                        values.remove("text");
+                        trace!("Sending '{}' with values {}", text, values.iter().map(|(k, v)| format!("{}={:?}", k, v)).collect::<Vec<_>>().join(", "));
+                        let _ = values_tx.send(OllamaMessage::AddValues { object_id: object_id.to_string(), text: text.to_string(), values: values.clone() });
                     }
 
-                    // Everything before '<' is finalized text, so we can safely drain it
-                    // even if the tag itself is incomplete in this chunk.
                     safe_cut_index = safe_cut_index.max(idx);
 
                     buffer.clear();
@@ -257,10 +254,8 @@ fn flush_values(object_id: &str, full_text: &mut String, done: bool, values_tx: 
                     if c == '.' || c == '?' || c == '!' {
                         let text = buffer.trim();
                         if !text.is_empty() {
-                            values.insert("text".to_string(), Value::String(text.to_string()));
-                            trace!("Sending values to OllamaUpdate: {:?}", values);
-                            let _ = values_tx.send(OllamaMessage::AddValues { object_id: object_id.to_string(), values: values.clone(), timestamp: Utc::now() });
-                            values.remove("text");
+                            trace!("Sending '{}' with values {}", text, values.iter().map(|(k, v)| format!("{}={:?}", k, v)).collect::<Vec<_>>().join(", "));
+                            let _ = values_tx.send(OllamaMessage::AddValues { object_id: object_id.to_string(), text: text.to_string(), values: values.clone() });
                         }
                         buffer.clear();
                         safe_cut_index = idx + c.len_utf8();
@@ -268,7 +263,7 @@ fn flush_values(object_id: &str, full_text: &mut String, done: bool, values_tx: 
                 }
             }
             ParserState::Command => {
-                if c == '>' {
+                if c == ']' {
                     for part in buffer.split(|ch| [';', ','].contains(&ch)) {
                         let pair = part.trim();
                         if pair.is_empty() {
@@ -295,10 +290,8 @@ fn flush_values(object_id: &str, full_text: &mut String, done: bool, values_tx: 
         if let ParserState::Text = state {
             let text = buffer.trim();
             if !text.is_empty() {
-                values.insert("text".to_string(), Value::String(text.to_string()));
-                trace!("Sending values to OllamaUpdate: {:?}", values);
-                let _ = values_tx.send(OllamaMessage::AddValues { object_id: object_id.to_string(), values: values.clone(), timestamp: Utc::now() });
-                values.remove("text");
+                trace!("Sending final '{}' with values {}", text, values.iter().map(|(k, v)| format!("{}={:?}", k, v)).collect::<Vec<_>>().join(", "));
+                let _ = values_tx.send(OllamaMessage::AddValues { object_id: object_id.to_string(), text: text.to_string(), values: values.clone() });
             }
             safe_cut_index = full_text.len();
         }
@@ -319,37 +312,30 @@ fn property_description(property: &Property) -> String {
 }
 
 fn build_tagged_prompt(user_prompt: &str, properties: &HashMap<String, Property>) -> String {
-    let allowed_keys = properties.keys().cloned().collect::<Vec<_>>().join(", ");
+    let allowed_keys = properties.keys().filter(|name| name.as_str() != "text").cloned().collect::<Vec<_>>();
 
-    let property_details = properties.iter().map(|(name, property)| format!("- {} => {}", name, property_description(property))).collect::<Vec<_>>().join("\n");
+    if allowed_keys.is_empty() {
+        return format!("Return plain text only. Do not output any tags.\nUser message:\n{}", user_prompt);
+    }
 
-    let tag_requirement = if properties.is_empty() { "- If no allowed keys are available, return plain text without tags." } else { "- Include at least one tag when the sentence has any expressive or stylistic cue." };
+    let property_details = properties.iter().filter(|(name, _)| name.as_str() != "text").map(|(name, property)| format!("- {} => {}", name, property_description(property))).collect::<Vec<_>>().join("\n");
 
     format!(
-        "You are generating expressive utterances.\n\
-TASK\n\
-- Produce one response where text can include inline tags before the text they modify.\n\
+        "Generate a tagged response.\n\
+Allowed keys: {}\n\
+Rules:\n\
+- Use only inline opening tags: [key=value] or [key=v;arg=w].\n\
+- Tags modify only the text that follows.\n\
+- No explanations, no markdown, no extra lines.\n\
 \n\
-TAG FORMAT\n\
-- Use tags like <key=value> or <key=value;arg2=value2>.\n\
-- Keep tags compact with no spaces inside tags.\n\
-- A tag modifies the text that follows it.\n\
-\n\
-ALLOWED KEYS\n\
+Property details:\n\
 {}\n\
 \n\
-PROPERTY DETAILS\n\
-{}\n\
-\n\
-OUTPUT RULES\n\
-- Return only tagged text, no explanations.\n\
-- Use only allowed keys.\n\
-- Prefer sentence-level tags and only when meaningful.\n\
-{}\n\
-\n\
-Now answer this user message:\n\
+User message:\n\
 {}",
-        allowed_keys, property_details, tag_requirement, user_prompt
+        allowed_keys.join(", "),
+        property_details,
+        user_prompt
     )
 }
 
@@ -390,14 +376,16 @@ mod tests {
     async fn test_flush_values() {
         let (values_tx, mut values_rx) = mpsc::unbounded_channel();
         let object_id = "test_object".to_string();
-        let mut full_text = String::from("Hello world. <facial=happy;arms=opened> How are you? <facial=sad, arms=crossed> Goodbye!");
+        let mut full_text = String::from("Hello world. [facial=happy;arms=opened] How are you? [facial=sad, arms=crossed] Goodbye!");
 
         flush_values(&object_id, &mut full_text, true, &values_tx);
 
         let mut received_values = Vec::new();
         while let Ok(update) = values_rx.try_recv() {
-            if let OllamaMessage::AddValues { object_id: _, values, timestamp: _ } = update {
-                received_values.push(values);
+            if let OllamaMessage::AddValues { object_id: _, text, values } = update {
+                let mut combined_values = values.clone();
+                combined_values.insert("text".to_string(), Value::String(text));
+                received_values.push(combined_values);
             }
         }
 
@@ -421,8 +409,10 @@ mod tests {
 
         let mut received_values = Vec::new();
         while let Ok(update) = values_rx.try_recv() {
-            if let OllamaMessage::AddValues { object_id: _, values, timestamp: _ } = update {
-                received_values.push(values);
+            if let OllamaMessage::AddValues { object_id: _, text, values } = update {
+                let mut combined_values = values.clone();
+                combined_values.insert("text".to_string(), Value::String(text));
+                received_values.push(combined_values);
             }
         }
 
@@ -448,8 +438,10 @@ mod tests {
 
         let mut received_values = Vec::new();
         while let Ok(update) = values_rx.try_recv() {
-            if let OllamaMessage::AddValues { object_id: _, values, timestamp: _ } = update {
-                received_values.push(values);
+            if let OllamaMessage::AddValues { object_id: _, text, values } = update {
+                let mut combined_values = values.clone();
+                combined_values.insert("text".to_string(), Value::String(text));
+                received_values.push(combined_values);
             }
         }
 
