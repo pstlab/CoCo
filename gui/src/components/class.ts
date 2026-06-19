@@ -64,9 +64,15 @@ export function ObjectRow(cls: coco.CoCoClass, obj: coco.CoCoObject): VNode {
 export function CoCoClass(cls: coco.CoCoClass): VNode {
   const parents = cls.get_parents().values().toArray().sort();
 
-  const props_header = ["Name", "Type"];
-  const static_props_rows = cls.get_static_properties().entries().toArray().sort(([nameA], [nameB]) => nameA.localeCompare(nameB)).map(([name, type]) => Row([name, type.type]));
-  const dynamic_props_rows = cls.get_dynamic_properties().entries().toArray().sort(([nameA], [nameB]) => nameA.localeCompare(nameB)).map(([name, type]) => Row([name, type.type]));
+  const description_cell = (description?: string): string | VNode => {
+    const text = description?.trim();
+    if (!text) return '';
+    return h('span.text-muted', { attrs: { title: text, 'aria-label': text } }, h('i.fa-solid.fa-circle-info'));
+  };
+
+  const props_header = ["Name", "Type", "Info"];
+  const static_props_rows = cls.get_static_properties().entries().toArray().sort(([nameA], [nameB]) => nameA.localeCompare(nameB)).map(([name, type]) => Row([name, type.type, description_cell(type.description)]));
+  const dynamic_props_rows = cls.get_dynamic_properties().entries().toArray().sort(([nameA], [nameB]) => nameA.localeCompare(nameB)).map(([name, type]) => Row([name, type.type, description_cell(type.description)]));
 
   const header = ["ID", ...cls.get_static_properties().keys().toArray().sort(), ...cls.get_dynamic_properties().keys().toArray().sort()];
   const rows = cls.get_instances().values().map(obj => ObjectRow(cls, obj)).toArray();
