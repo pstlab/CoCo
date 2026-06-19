@@ -4,7 +4,7 @@ use crate::{
     model::{Class, CoCoError, CoCoEvent, Object, Property, Rule, TimedValue, Value, object_from_json, properties_from_json, values_from_json},
     server::{
         DataFilter, DateQuery, ObjectFilter,
-        secure_db::{Role, UserResponse, UsersDB},
+        auth_db::{Role, UserResponse, UsersDB},
     },
 };
 use axum::{
@@ -40,7 +40,7 @@ struct AppState {
     users_db: UsersDB,
 }
 
-pub async fn secure_coco_router(coco: CoCo, users_db: UsersDB) -> Router {
+pub async fn auth_coco_router(coco: CoCo, users_db: UsersDB) -> Router {
     let state = AppState { coco, users_db };
 
     let auth_router = Router::new()
@@ -1007,7 +1007,7 @@ impl Modify for SecurityAddon {
     ),
     paths(register, login, refresh_token, get_me, get_users, get_user, create_user, update_user, get_classes, get_class, create_class, get_rules, get_rule, create_rule, get_objects, get_object, create_object, set_properties, add_data, get_data, ws_handler, openapi),
     components(
-        schemas(Class, Rule, Property, OpenApiObject, OpenApiValue)
+        schemas(UserResponse, Class, Rule, Property, OpenApiObject, OpenApiValue)
     ),
     modifiers(&SecurityAddon),
     tags(

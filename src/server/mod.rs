@@ -4,12 +4,12 @@ use chrono::{DateTime, Utc};
 use serde::Deserialize;
 use utoipa::IntoParams;
 
-#[cfg(not(feature = "secure"))]
+#[cfg(not(feature = "auth"))]
 pub mod public;
-#[cfg(feature = "secure")]
-pub mod secure;
-#[cfg(feature = "secure")]
-pub mod secure_db;
+#[cfg(feature = "auth")]
+pub mod auth;
+#[cfg(feature = "auth")]
+pub mod auth_db;
 
 #[derive(Debug, Deserialize)]
 pub(super) struct DataFilter {
