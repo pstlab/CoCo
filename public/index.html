@@ -99,16 +99,6 @@
         </div>
       </div>
       <div class="tab-pane fade" id="pills-api" role="tabpanel" aria-labelledby="pills-api-tab" tabindex="0">
-        <div class="d-flex flex-wrap align-items-center gap-3 mb-3">
-          <div class="form-check form-switch">
-            <input class="form-check-input" type="checkbox" role="switch" id="swagger-secure-toggle">
-            <label class="form-check-label" for="swagger-secure-toggle">Secure mode (Authorization header)</label>
-          </div>
-          <div class="input-group" style="max-width: 440px;">
-            <span class="input-group-text">Bearer</span>
-            <input type="text" class="form-control" id="swagger-bearer-token" placeholder="Paste JWT token">
-          </div>
-        </div>
         <div id="swagger-ui"></div>
       </div>
       <div class="tab-pane fade" id="pills-rules" role="tabpanel" aria-labelledby="pills-rules-tab" tabindex="0">
@@ -201,57 +191,27 @@
   <script>
     let swaggerInitialized = false;
 
-    function getSwaggerAuthState() {
-      const secureToggle = document.getElementById('swagger-secure-toggle');
-      const tokenInput = document.getElementById('swagger-bearer-token');
-      return {
-        enabled: Boolean(secureToggle?.checked),
-        token: tokenInput?.value?.trim() || ''
-      };
-    }
-
     function initSwaggerUi() {
       if (swaggerInitialized || typeof SwaggerUIBundle === 'undefined') {
         return;
       }
 
       SwaggerUIBundle({
-        url: './openapi.json',
-        dom_id: '#swagger-ui',
-        requestInterceptor: req => {
-          const auth = getSwaggerAuthState();
-          req.headers = req.headers || {};
-
-          if (auth.enabled && auth.token) {
-            req.headers.Authorization = `Bearer ${auth.token}`;
-          } else {
-            delete req.headers.Authorization;
-          }
-
-          return req;
-        }
+        urls: [
+          { url: './public_api.json', name: 'Public API' },
+          { url: './secure_api.json', name: 'Secure API' }
+        ],
+        'urls.primaryName': 'Public API',
+        dom_id: '#swagger-ui'
       });
 
       swaggerInitialized = true;
-    }
-
-    function bindSwaggerControls() {
-      const secureToggle = document.getElementById('swagger-secure-toggle');
-      const tokenInput = document.getElementById('swagger-bearer-token');
-
-      secureToggle?.addEventListener('change', () => {
-        if (!secureToggle.checked) {
-          tokenInput.value = '';
-        }
-      });
     }
 
     const apiTabTrigger = document.getElementById('pills-api-tab');
     if (apiTabTrigger) {
       apiTabTrigger.addEventListener('shown.bs.tab', initSwaggerUi);
     }
-
-    bindSwaggerControls();
 
     if (document.getElementById('pills-api')?.classList.contains('show')) {
       initSwaggerUi();

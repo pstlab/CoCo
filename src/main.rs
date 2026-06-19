@@ -10,12 +10,12 @@ use coco::kb::clips::chronoxide::ChronoxideModule;
 use coco::kb::clips::ollama::OllamaModule;
 #[cfg(feature = "mqtt")]
 use coco::mqtt::MQTTModule;
+#[cfg(not(feature = "secure"))]
+use coco::server::public::public_coco_router;
 #[cfg(feature = "secure")]
 use coco::server::secure::secure_coco_router;
 #[cfg(feature = "secure")]
 use coco::server::secure_db::UsersDB;
-#[cfg(not(feature = "secure"))]
-use coco::server::unsecure::unsecure_coco_router;
 use tower_http::services::{ServeDir, ServeFile};
 use tracing::{Level, error, info, subscriber};
 
@@ -47,7 +47,7 @@ async fn main() {
             error!("Failed to set up users database: {}", e);
             std::process::exit(1);
         })).await,
-        _ => unsecure_coco_router(coco).await,
+        _ => public_coco_router(coco).await,
     };
 
     #[cfg(feature = "fcm")]

@@ -24,7 +24,7 @@ use utoipa::OpenApi;
 type OpenApiValue = Value;
 type OpenApiObject = Object;
 
-pub async fn unsecure_coco_router(coco: CoCo) -> Router {
+pub async fn public_coco_router(coco: CoCo) -> Router {
     Router::new()
         .route("/ws", get(ws_handler))
         .route("/classes", get(get_classes).post(create_class))
