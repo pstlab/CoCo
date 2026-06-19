@@ -35,12 +35,18 @@
             </li>
           </ul>
           <div id="api-spec-control" class="d-none ms-lg-auto mt-2 mt-lg-0" aria-live="polite">
-            <div class="input-group input-group-sm" style="width: 260px;">
-              <label class="input-group-text" for="api-spec-select">Spec</label>
-              <select class="form-select" id="api-spec-select">
-                <option value="./public_api.json" selected>Public API</option>
-                <option value="./secure_api.json">Secure API</option>
-              </select>
+            <div class="d-flex gap-2 justify-content-end flex-wrap">
+              <div class="input-group input-group-sm" style="width: 320px;">
+                <label class="input-group-text" for="api-server-input">Server</label>
+                <input class="form-control" id="api-server-input" type="text" placeholder="http://localhost:3000">
+              </div>
+              <div class="input-group input-group-sm" style="width: 260px;">
+                <label class="input-group-text" for="api-spec-select">Spec</label>
+                <select class="form-select" id="api-spec-select">
+                  <option value="public_api.json" selected>Public API</option>
+                  <option value="secure_api.json">Secure API</option>
+                </select>
+              </div>
             </div>
           </div>
         </div>
@@ -198,8 +204,18 @@
     crossorigin="anonymous"></script>
   <script src="https://unpkg.com/swagger-ui-dist@5.32.6/swagger-ui-bundle.js" crossorigin></script>
   <script>
+    const DEFAULT_API_SERVER = 'http://localhost:3000';
     let swaggerInitialized = false;
     let specListenerBound = false;
+
+    function getSelectedServerBase() {
+      const input = document.getElementById('api-server-input');
+      const value = input?.value?.trim() || '';
+      if (!value) {
+        return null;
+      }
+      return value.replace(/\/+$/, '');
+    }
 
     function setSpecControlVisibility(isVisible) {
       const specControl = document.getElementById('api-spec-control');
@@ -209,16 +225,34 @@
       specControl.classList.toggle('d-none', !isVisible);
     }
 
-    function renderSwagger(url) {
+    async function renderSwagger(specFile) {
       const swaggerRoot = document.getElementById('swagger-ui');
       if (!swaggerRoot || typeof SwaggerUIBundle === 'undefined') {
         return;
       }
 
       swaggerRoot.innerHTML = '';
+      const specUrl = `./${String(specFile || '').replace(/^\.\//, '')}`;
+
+      let spec;
+      try {
+        const response = await fetch(specUrl, { method: 'GET' });
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}`);
+        }
+        spec = await response.json();
+      } catch (err) {
+        swaggerRoot.innerHTML = `<div class="alert alert-danger" role="alert">Failed to load API definition from ${specUrl}</div>`;
+        return;
+      }
+
+      const selectedServer = getSelectedServerBase();
+      if (selectedServer) {
+        spec.servers = [{ url: selectedServer, description: 'User selected server' }];
+      }
 
       SwaggerUIBundle({
-        url,
+        spec,
         dom_id: '#swagger-ui'
       });
     }
@@ -229,13 +263,24 @@
       }
 
       const specSelect = document.getElementById('api-spec-select');
-      const selectedUrl = specSelect?.value || './public_api.json';
-      renderSwagger(selectedUrl);
+      const serverInput = document.getElementById('api-server-input');
+      const selectedSpec = specSelect?.value || 'public_api.json';
+
+      if (serverInput && !serverInput.value.trim()) {
+        serverInput.value = DEFAULT_API_SERVER;
+      }
+
+      renderSwagger(selectedSpec);
 
       if (specSelect && !specListenerBound) {
         specSelect.addEventListener('change', event => {
           renderSwagger(event.target.value);
         });
+
+        serverInput?.addEventListener('change', () => {
+          renderSwagger(specSelect.value);
+        });
+
         specListenerBound = true;
       }
 
