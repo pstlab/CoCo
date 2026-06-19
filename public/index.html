@@ -34,6 +34,15 @@
                 type="button" role="tab" aria-controls="pills-rules" aria-selected="false">Rules</button>
             </li>
           </ul>
+          <div id="api-spec-control" class="d-none ms-lg-auto mt-2 mt-lg-0" aria-live="polite">
+            <div class="input-group input-group-sm" style="width: 260px;">
+              <label class="input-group-text" for="api-spec-select">Spec</label>
+              <select class="form-select" id="api-spec-select">
+                <option value="./public_api.json" selected>Public API</option>
+                <option value="./secure_api.json">Secure API</option>
+              </select>
+            </div>
+          </div>
         </div>
       </div>
     </nav>
@@ -99,15 +108,6 @@
         </div>
       </div>
       <div class="tab-pane fade" id="pills-api" role="tabpanel" aria-labelledby="pills-api-tab" tabindex="0">
-        <div class="d-flex justify-content-end mb-3">
-          <div class="input-group" style="max-width: 280px;">
-            <label class="input-group-text" for="api-spec-select">Spec</label>
-            <select class="form-select" id="api-spec-select">
-              <option value="./public_api.json" selected>Public API</option>
-              <option value="./secure_api.json">Secure API</option>
-            </select>
-          </div>
-        </div>
         <div id="swagger-ui"></div>
       </div>
       <div class="tab-pane fade" id="pills-rules" role="tabpanel" aria-labelledby="pills-rules-tab" tabindex="0">
@@ -201,6 +201,14 @@
     let swaggerInitialized = false;
     let specListenerBound = false;
 
+    function setSpecControlVisibility(isVisible) {
+      const specControl = document.getElementById('api-spec-control');
+      if (!specControl) {
+        return;
+      }
+      specControl.classList.toggle('d-none', !isVisible);
+    }
+
     function renderSwagger(url) {
       const swaggerRoot = document.getElementById('swagger-ui');
       if (!swaggerRoot || typeof SwaggerUIBundle === 'undefined') {
@@ -235,12 +243,29 @@
     }
 
     const apiTabTrigger = document.getElementById('pills-api-tab');
+    const homeTabTrigger = document.getElementById('pills-home-tab');
+    const rulesTabTrigger = document.getElementById('pills-rules-tab');
+
     if (apiTabTrigger) {
-      apiTabTrigger.addEventListener('shown.bs.tab', initSwaggerUi);
+      apiTabTrigger.addEventListener('shown.bs.tab', () => {
+        setSpecControlVisibility(true);
+        initSwaggerUi();
+      });
+    }
+
+    if (homeTabTrigger) {
+      homeTabTrigger.addEventListener('shown.bs.tab', () => setSpecControlVisibility(false));
+    }
+
+    if (rulesTabTrigger) {
+      rulesTabTrigger.addEventListener('shown.bs.tab', () => setSpecControlVisibility(false));
     }
 
     if (document.getElementById('pills-api')?.classList.contains('show')) {
+      setSpecControlVisibility(true);
       initSwaggerUi();
+    } else {
+      setSpecControlVisibility(false);
     }
   </script>
 </body>
