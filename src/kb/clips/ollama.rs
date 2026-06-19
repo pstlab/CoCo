@@ -128,10 +128,12 @@ impl<DB: Database> CoCoModule<DB, CLIPSKnowledgeBase> for OllamaModule {
                         }
                     };
 
-                    trace!("Sending prompt to Ollama for object_id {}: {}", object_id, prompt);
+                    let final_prompt = build_tagged_prompt(&prompt, &prompt_context);
+
+                    trace!("Sending prompt to Ollama for object_id {}: {}", object_id, final_prompt);
                     let body = serde_json::json!({
                         "model": model,
-                        "prompt": prompt
+                        "prompt": final_prompt
                     });
 
                     match client.post(&url).json(&body).send().await {
@@ -189,8 +191,8 @@ async fn parse_response(object_id: String, response: Response, values_tx: mpsc::
 
             match std::str::from_utf8(&line_bytes) {
                 Ok(line_str) => {
-                    parse_ollama_line(line_str, &mut full_text);
-                    flush_values(&object_id, &mut full_text, &values_tx);
+                    let done = parse_ollama_line(line_str, &mut full_text);
+                    flush_values(&object_id, &mut full_text, done, &values_tx);
                 }
                 Err(e) => error!("Invalid UTF-8 sequence in line: {}", e),
             }
@@ -201,23 +203,23 @@ async fn parse_response(object_id: String, response: Response, values_tx: mpsc::
         if let Ok(line_str) = std::str::from_utf8(&pending) {
             let trimmed = line_str.trim_end_matches(['\r', '\n']);
             if !trimmed.is_empty() {
-                parse_ollama_line(trimmed, &mut full_text);
-                flush_values(&object_id, &mut full_text, &values_tx);
+                let done = parse_ollama_line(trimmed, &mut full_text);
+                flush_values(&object_id, &mut full_text, done, &values_tx);
             }
         }
     }
 }
 
-fn parse_ollama_line(line: &str, full_text: &mut String) {
+fn parse_ollama_line(line: &str, full_text: &mut String) -> bool {
     match serde_json::from_str::<OllamaResponse>(line) {
         Ok(ollama_response) => {
+            trace!("Parsed Ollama response: {:?}", ollama_response.response);
             full_text.push_str(&ollama_response.response);
-            if ollama_response.done {
-                trace!("Ollama response complete");
-            }
+            ollama_response.done
         }
         Err(e) => {
             error!("Error parsing Ollama response: {}", e);
+            false
         }
     }
 }
@@ -227,7 +229,7 @@ enum ParserState {
     Command,
 }
 
-fn flush_values(object_id: &str, full_text: &mut String, values_tx: &mpsc::UnboundedSender<OllamaMessage>) {
+fn flush_values(object_id: &str, full_text: &mut String, done: bool, values_tx: &mpsc::UnboundedSender<OllamaMessage>) {
     let mut state = ParserState::Text;
     let mut buffer = String::new();
     let mut safe_cut_index = 0;
@@ -243,6 +245,10 @@ fn flush_values(object_id: &str, full_text: &mut String, values_tx: &mpsc::Unbou
                         let _ = values_tx.send(OllamaMessage::AddValues { object_id: object_id.to_string(), values: values.clone(), timestamp: Utc::now() });
                         values.remove("text");
                     }
+
+                    // Everything before '<' is finalized text, so we can safely drain it
+                    // even if the tag itself is incomplete in this chunk.
+                    safe_cut_index = safe_cut_index.max(idx);
 
                     buffer.clear();
                     state = ParserState::Command;
@@ -263,18 +269,21 @@ fn flush_values(object_id: &str, full_text: &mut String, values_tx: &mpsc::Unbou
             }
             ParserState::Command => {
                 if c == '>' {
-                    let parts: Vec<&str> = buffer.splitn(2, '=').collect();
-                    if parts.len() == 2 {
-                        let key = parts[0].trim().to_string();
-                        let val = parts[1].trim_matches(|ch| ch == '"' || ch == '\'').to_string();
-                        values.insert(key, Value::String(val));
+                    for part in buffer.split(|ch| [';', ','].contains(&ch)) {
+                        let pair = part.trim();
+                        if pair.is_empty() {
+                            continue;
+                        }
+                        let mut key_val = pair.splitn(2, '=');
+                        let key = key_val.next().unwrap_or("").trim();
+                        let val = key_val.next().unwrap_or("").trim_matches(|ch| ch == '"' || ch == '\'').trim();
+                        if !key.is_empty() && !val.is_empty() {
+                            values.insert(key.to_string(), Value::String(val.to_string()));
+                        }
                     }
 
                     buffer.clear();
                     state = ParserState::Text;
-
-                    // Tag chiuso con successo! Aggiorniamo l'indice di taglio sicuro.
-                    safe_cut_index = idx + c.len_utf8();
                 } else {
                     buffer.push(c);
                 }
@@ -282,7 +291,66 @@ fn flush_values(object_id: &str, full_text: &mut String, values_tx: &mpsc::Unbou
         }
     }
 
+    if done {
+        if let ParserState::Text = state {
+            let text = buffer.trim();
+            if !text.is_empty() {
+                values.insert("text".to_string(), Value::String(text.to_string()));
+                trace!("Sending values to OllamaUpdate: {:?}", values);
+                let _ = values_tx.send(OllamaMessage::AddValues { object_id: object_id.to_string(), values: values.clone(), timestamp: Utc::now() });
+                values.remove("text");
+            }
+            safe_cut_index = full_text.len();
+        }
+    }
+
     full_text.drain(..safe_cut_index);
+}
+
+fn property_description(property: &Property) -> String {
+    match property {
+        Property::Bool { description: Some(description), .. } => format!("Bool property, {}", description),
+        Property::String { description: Some(description), .. } => format!("String property, {}", description),
+        Property::Symbol { allowed_values: Some(allowed_values), description: Some(description), .. } => format!("Symbol property (allowed values: {}), {}", allowed_values.iter().cloned().collect::<Vec<_>>().join(", "), description),
+        Property::Int { min, max, description: Some(description), .. } => format!("Int property (min: {}, max: {}), {}", min.map_or("-∞".to_string(), |v| v.to_string()), max.map_or("∞".to_string(), |v| v.to_string()), description),
+        Property::Float { min, max, description: Some(description), .. } => format!("Float property (min: {}, max: {}), {}", min.map_or("-∞".to_string(), |v| v.to_string()), max.map_or("∞".to_string(), |v| v.to_string()), description),
+        _ => "No description".to_string(),
+    }
+}
+
+fn build_tagged_prompt(user_prompt: &str, properties: &HashMap<String, Property>) -> String {
+    let allowed_keys = properties.keys().cloned().collect::<Vec<_>>().join(", ");
+
+    let property_details = properties.iter().map(|(name, property)| format!("- {} => {}", name, property_description(property))).collect::<Vec<_>>().join("\n");
+
+    let tag_requirement = if properties.is_empty() { "- If no allowed keys are available, return plain text without tags." } else { "- Include at least one tag when the sentence has any expressive or stylistic cue." };
+
+    format!(
+        "You are generating expressive utterances.\n\
+TASK\n\
+- Produce one response where text can include inline tags before the text they modify.\n\
+\n\
+TAG FORMAT\n\
+- Use tags like <key=value> or <key=value;arg2=value2>.\n\
+- Keep tags compact with no spaces inside tags.\n\
+- A tag modifies the text that follows it.\n\
+\n\
+ALLOWED KEYS\n\
+{}\n\
+\n\
+PROPERTY DETAILS\n\
+{}\n\
+\n\
+OUTPUT RULES\n\
+- Return only tagged text, no explanations.\n\
+- Use only allowed keys.\n\
+- Prefer sentence-level tags and only when meaningful.\n\
+{}\n\
+\n\
+Now answer this user message:\n\
+{}",
+        allowed_keys, property_details, tag_requirement, user_prompt
+    )
 }
 
 #[cfg(test)]
@@ -322,9 +390,9 @@ mod tests {
     async fn test_flush_values() {
         let (values_tx, mut values_rx) = mpsc::unbounded_channel();
         let object_id = "test_object".to_string();
-        let mut full_text = String::from("Hello world. <facial=happy> How are you? <facial=sad> Goodbye!");
+        let mut full_text = String::from("Hello world. <facial=happy;arms=opened> How are you? <facial=sad, arms=crossed> Goodbye!");
 
-        flush_values(&object_id, &mut full_text, &values_tx);
+        flush_values(&object_id, &mut full_text, true, &values_tx);
 
         let mut received_values = Vec::new();
         while let Ok(update) = values_rx.try_recv() {
@@ -336,9 +404,59 @@ mod tests {
         assert_eq!(received_values.len(), 3);
         assert_eq!(received_values[0].get("text").unwrap(), &Value::String("Hello world.".to_string()));
         assert_eq!(received_values[1].get("facial").unwrap(), &Value::String("happy".to_string()));
+        assert_eq!(received_values[1].get("arms").unwrap(), &Value::String("opened".to_string()));
         assert_eq!(received_values[1].get("text").unwrap(), &Value::String("How are you?".to_string()));
         assert_eq!(received_values[2].get("facial").unwrap(), &Value::String("sad".to_string()));
+        assert_eq!(received_values[2].get("arms").unwrap(), &Value::String("crossed".to_string()));
         assert_eq!(received_values[2].get("text").unwrap(), &Value::String("Goodbye!".to_string()));
+    }
+
+    #[tokio::test]
+    async fn test_flush_values_only_text_on_done() {
+        let (values_tx, mut values_rx) = mpsc::unbounded_channel();
+        let object_id = "test_object".to_string();
+        let mut full_text = String::from("Solo testo senza punteggiatura finale");
+
+        flush_values(&object_id, &mut full_text, true, &values_tx);
+
+        let mut received_values = Vec::new();
+        while let Ok(update) = values_rx.try_recv() {
+            if let OllamaMessage::AddValues { object_id: _, values, timestamp: _ } = update {
+                received_values.push(values);
+            }
+        }
+
+        assert_eq!(received_values.len(), 1);
+        assert_eq!(received_values[0].get("text").unwrap(), &Value::String("Solo testo senza punteggiatura finale".to_string()));
+        assert!(full_text.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_flush_values_no_duplicate_when_tag_is_streamed() {
+        let (values_tx, mut values_rx) = mpsc::unbounded_channel();
+        let object_id = "test_object".to_string();
+        let mut full_text = String::new();
+
+        full_text.push_str("Hello <fac");
+        flush_values(&object_id, &mut full_text, false, &values_tx);
+
+        full_text.push_str("ial=happy>");
+        flush_values(&object_id, &mut full_text, false, &values_tx);
+
+        full_text.push_str(" world!");
+        flush_values(&object_id, &mut full_text, true, &values_tx);
+
+        let mut received_values = Vec::new();
+        while let Ok(update) = values_rx.try_recv() {
+            if let OllamaMessage::AddValues { object_id: _, values, timestamp: _ } = update {
+                received_values.push(values);
+            }
+        }
+
+        assert_eq!(received_values.len(), 2);
+        assert_eq!(received_values[0].get("text").unwrap(), &Value::String("Hello".to_string()));
+        assert_eq!(received_values[1].get("facial").unwrap(), &Value::String("happy".to_string()));
+        assert_eq!(received_values[1].get("text").unwrap(), &Value::String("world!".to_string()));
     }
 
     #[tokio::test]
@@ -374,6 +492,8 @@ mod tests {
         .await
         .unwrap();
 
+        let props = kb.get_dynamic_properties(HashSet::from(["TestClass".to_string()])).await.expect("Failed to get dynamic properties").into_values().flat_map(|m| m).collect::<HashMap<String, Property>>();
+
         let host = std::env::var("OLLAMA_HOST").unwrap_or_else(|_| "localhost".to_string());
         let port = std::env::var("OLLAMA_PORT").unwrap_or_else(|_| "11434".to_string()).parse::<u16>().unwrap_or(11434);
         let model = std::env::var("OLLAMA_MODEL").unwrap_or_else(|_| "llama3".to_string());
@@ -381,7 +501,7 @@ mod tests {
         let client = Client::new();
         let body = serde_json::json!({
             "model": model,
-            "prompt": "Hello, Ollama!"
+            "prompt": build_tagged_prompt("Test prompt for Ollama response parsing.", &props)
         });
 
         match client.post(&url).json(&body).send().await {
