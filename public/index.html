@@ -8,7 +8,7 @@
   <title>CoCo</title>
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/css/bootstrap.min.css" rel="stylesheet"
     integrity="sha384-sRIl4kxILFvY47J16cr9ZwB07vP4J8+LH7qKQnuqkuIAvNWLzeN8tE5YBujZqJLB" crossorigin="anonymous">
-  <link rel="stylesheet" href="https://unpkg.com/swagger-ui-dist@5.32.0/swagger-ui.css" />
+  <link rel="stylesheet" href="https://unpkg.com/swagger-ui-dist@5.32.6/swagger-ui.css" />
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.13.1/font/bootstrap-icons.min.css">
 </head>
 
@@ -99,6 +99,15 @@
         </div>
       </div>
       <div class="tab-pane fade" id="pills-api" role="tabpanel" aria-labelledby="pills-api-tab" tabindex="0">
+        <div class="d-flex justify-content-end mb-3">
+          <div class="input-group" style="max-width: 280px;">
+            <label class="input-group-text" for="api-spec-select">Spec</label>
+            <select class="form-select" id="api-spec-select">
+              <option value="./public_api.json" selected>Public API</option>
+              <option value="./secure_api.json">Secure API</option>
+            </select>
+          </div>
+        </div>
         <div id="swagger-ui"></div>
       </div>
       <div class="tab-pane fade" id="pills-rules" role="tabpanel" aria-labelledby="pills-rules-tab" tabindex="0">
@@ -187,23 +196,40 @@
   <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.8/dist/js/bootstrap.bundle.min.js"
     integrity="sha384-FKyoEForCGlyvwx9Hj09JcYn3nv7wiPVlz7YYwJrWVcXK/BmnVDxM+D2scQbITxI"
     crossorigin="anonymous"></script>
-  <script src="https://unpkg.com/swagger-ui-dist@5.32.0/swagger-ui-bundle.js" crossorigin></script>
+  <script src="https://unpkg.com/swagger-ui-dist@5.32.6/swagger-ui-bundle.js" crossorigin></script>
   <script>
     let swaggerInitialized = false;
+    let specListenerBound = false;
+
+    function renderSwagger(url) {
+      const swaggerRoot = document.getElementById('swagger-ui');
+      if (!swaggerRoot || typeof SwaggerUIBundle === 'undefined') {
+        return;
+      }
+
+      swaggerRoot.innerHTML = '';
+
+      SwaggerUIBundle({
+        url,
+        dom_id: '#swagger-ui'
+      });
+    }
 
     function initSwaggerUi() {
       if (swaggerInitialized || typeof SwaggerUIBundle === 'undefined') {
         return;
       }
 
-      SwaggerUIBundle({
-        urls: [
-          { url: './public_api.json', name: 'Public API' },
-          { url: './secure_api.json', name: 'Secure API' }
-        ],
-        'urls.primaryName': 'Public API',
-        dom_id: '#swagger-ui'
-      });
+      const specSelect = document.getElementById('api-spec-select');
+      const selectedUrl = specSelect?.value || './public_api.json';
+      renderSwagger(selectedUrl);
+
+      if (specSelect && !specListenerBound) {
+        specSelect.addEventListener('change', event => {
+          renderSwagger(event.target.value);
+        });
+        specListenerBound = true;
+      }
 
       swaggerInitialized = true;
     }
