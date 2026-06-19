@@ -18,6 +18,8 @@ pub enum Property {
     Bool {
         #[serde(skip_serializing_if = "Option::is_none")]
         default: Option<bool>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        description: Option<String>,
     },
     #[serde(rename = "int")]
     Int {
@@ -27,6 +29,8 @@ pub enum Property {
         min: Option<i64>,
         #[serde(skip_serializing_if = "Option::is_none")]
         max: Option<i64>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        description: Option<String>,
     },
     #[serde(rename = "float")]
     Float {
@@ -36,11 +40,15 @@ pub enum Property {
         min: Option<f64>,
         #[serde(skip_serializing_if = "Option::is_none")]
         max: Option<f64>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        description: Option<String>,
     },
     #[serde(rename = "string")]
     String {
         #[serde(skip_serializing_if = "Option::is_none")]
         default: Option<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        description: Option<String>,
     },
     #[serde(rename = "symbol")]
     Symbol {
@@ -48,17 +56,23 @@ pub enum Property {
         default: Option<String>,
         #[serde(skip_serializing_if = "Option::is_none")]
         allowed_values: Option<HashSet<String>>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        description: Option<String>,
     },
     #[serde(rename = "object")]
     Object {
         #[serde(skip_serializing_if = "Option::is_none")]
         default: Option<String>,
         classes: Vec<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        description: Option<String>,
     },
     #[serde(rename = "bool-array")]
     BoolArray {
         #[serde(skip_serializing_if = "Option::is_none")]
         default: Option<Vec<bool>>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        description: Option<String>,
     },
     #[serde(rename = "int-array")]
     IntArray {
@@ -68,6 +82,8 @@ pub enum Property {
         min: Option<i64>,
         #[serde(skip_serializing_if = "Option::is_none")]
         max: Option<i64>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        description: Option<String>,
     },
     #[serde(rename = "float-array")]
     FloatArray {
@@ -77,11 +93,15 @@ pub enum Property {
         min: Option<f64>,
         #[serde(skip_serializing_if = "Option::is_none")]
         max: Option<f64>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        description: Option<String>,
     },
     #[serde(rename = "string-array")]
     StringArray {
         #[serde(skip_serializing_if = "Option::is_none")]
         default: Option<Vec<String>>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        description: Option<String>,
     },
     #[serde(rename = "symbol-array")]
     SymbolArray {
@@ -89,12 +109,16 @@ pub enum Property {
         default: Option<Vec<String>>,
         #[serde(skip_serializing_if = "Option::is_none")]
         allowed_values: Option<HashSet<String>>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        description: Option<String>,
     },
     #[serde(rename = "object-array")]
     ObjectArray {
         #[serde(skip_serializing_if = "Option::is_none")]
         default: Option<Vec<String>>,
-        class: String,
+        classes: Vec<String>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        description: Option<String>,
     },
 }
 
@@ -172,41 +196,41 @@ pub fn value_from_json(property: &Property, raw: &JsonValue) -> Result<Value, Co
 impl fmt::Display for Property {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Property::Bool { default } => {
-                write!(f, "bool(default: {:?})", default)
+            Property::Bool { default, description } => {
+                write!(f, "bool(default: {:?}, description: {:?})", default, description)
             }
-            Property::Int { default, min, max } => {
-                write!(f, "int(default: {:?}, min: {:?}, max: {:?})", default, min, max)
+            Property::Int { default, min, max, description } => {
+                write!(f, "int(default: {:?}, min: {:?}, max: {:?}, description: {:?})", default, min, max, description)
             }
-            Property::Float { default, min, max } => {
-                write!(f, "float(default: {:?}, min: {:?}, max: {:?})", default, min, max)
+            Property::Float { default, min, max, description } => {
+                write!(f, "float(default: {:?}, min: {:?}, max: {:?}, description: {:?})", default, min, max, description)
             }
-            Property::String { default } => {
-                write!(f, "string(default: {:?})", default)
+            Property::String { default, description } => {
+                write!(f, "string(default: {:?}, description: {:?})", default, description)
             }
-            Property::Symbol { default, allowed_values } => {
-                write!(f, "symbol(default: {:?}, allowed_values: {:?})", default, allowed_values)
+            Property::Symbol { default, allowed_values, description } => {
+                write!(f, "symbol(default: {:?}, allowed_values: {:?}, description: {:?})", default, allowed_values, description)
             }
-            Property::Object { default, classes: class } => {
-                write!(f, "object(default: {:?}, class: {:?})", default, class)
+            Property::Object { default, classes, description } => {
+                write!(f, "object(default: {:?}, classes: {:?}, description: {:?})", default, classes, description)
             }
-            Property::BoolArray { default } => {
-                write!(f, "bool-array(default: {:?})", default)
+            Property::BoolArray { default, description } => {
+                write!(f, "bool-array(default: {:?}, description: {:?})", default, description)
             }
-            Property::IntArray { default, min, max } => {
-                write!(f, "int-array(default: {:?}, min: {:?}, max: {:?})", default, min, max)
+            Property::IntArray { default, min, max, description } => {
+                write!(f, "int-array(default: {:?}, min: {:?}, max: {:?}, description: {:?})", default, min, max, description)
             }
-            Property::FloatArray { default, min, max } => {
-                write!(f, "float-array(default: {:?}, min: {:?}, max: {:?})", default, min, max)
+            Property::FloatArray { default, min, max, description } => {
+                write!(f, "float-array(default: {:?}, min: {:?}, max: {:?}, description: {:?})", default, min, max, description)
             }
-            Property::StringArray { default } => {
-                write!(f, "string-array(default: {:?})", default)
+            Property::StringArray { default, description } => {
+                write!(f, "string-array(default: {:?}, description: {:?})", default, description)
             }
-            Property::SymbolArray { default, allowed_values } => {
-                write!(f, "symbol-array(default: {:?}, allowed_values: {:?})", default, allowed_values)
+            Property::SymbolArray { default, allowed_values, description } => {
+                write!(f, "symbol-array(default: {:?}, allowed_values: {:?}, description: {:?})", default, allowed_values, description)
             }
-            Property::ObjectArray { default, class } => {
-                write!(f, "object-array(default: {:?}, class: {:?})", default, class)
+            Property::ObjectArray { default, classes, description } => {
+                write!(f, "object-array(default: {:?}, classes: {:?}, description: {:?})", default, classes, description)
             }
         }
     }

@@ -58,7 +58,15 @@ async fn create_objects() {
         name: "TemperatureSensor".to_string(),
         parents: Some(HashSet::from(["Sensor".to_string()])),
         static_properties: None,
-        dynamic_properties: Some(HashMap::from([("temperature".to_string(), Property::Float { default: None, min: Some(-10.0), max: Some(50.0) })])),
+        dynamic_properties: Some(HashMap::from([(
+            "temperature".to_string(),
+            Property::Float {
+                default: None,
+                min: Some(-10.0),
+                max: Some(50.0),
+                description: Some("Temperature in Celsius".to_string()),
+            },
+        )])),
     })
     .await
     .unwrap();
@@ -67,7 +75,26 @@ async fn create_objects() {
         name: "Patient".to_string(),
         parents: None,
         static_properties: None,
-        dynamic_properties: Some(HashMap::from([("sbp".to_string(), Property::Float { default: None, min: Some(80.0), max: Some(200.0) }), ("dbp".to_string(), Property::Float { default: None, min: Some(60.0), max: Some(120.0) })])),
+        dynamic_properties: Some(HashMap::from([
+            (
+                "sbp".to_string(),
+                Property::Float {
+                    default: None,
+                    min: Some(80.0),
+                    max: Some(200.0),
+                    description: Some("Systolic blood pressure in mmHg".to_string()),
+                },
+            ),
+            (
+                "dbp".to_string(),
+                Property::Float {
+                    default: None,
+                    min: Some(60.0),
+                    max: Some(120.0),
+                    description: Some("Diastolic blood pressure in mmHg".to_string()),
+                },
+            ),
+        ])),
     })
     .await
     .unwrap();
@@ -76,7 +103,14 @@ async fn create_objects() {
         name: "PhysiologicalSensor".to_string(),
         parents: Some(HashSet::from(["Sensor".to_string()])),
         static_properties: None,
-        dynamic_properties: Some(HashMap::from([("patient".to_string(), Property::Object { default: None, classes: vec!["Patient".to_string()] })])),
+        dynamic_properties: Some(HashMap::from([(
+            "patient".to_string(),
+            Property::Object {
+                default: None,
+                classes: vec!["Patient".to_string()],
+                description: Some("The patient associated with this sensor".to_string()),
+            },
+        )])),
     })
     .await
     .unwrap();
@@ -85,7 +119,26 @@ async fn create_objects() {
         name: "BloodPressureSensor".to_string(),
         parents: Some(HashSet::from(["PhysiologicalSensor".to_string()])),
         static_properties: None,
-        dynamic_properties: Some(HashMap::from([("sbp".to_string(), Property::Float { default: None, min: Some(80.0), max: Some(200.0) }), ("dbp".to_string(), Property::Float { default: None, min: Some(60.0), max: Some(120.0) })])),
+        dynamic_properties: Some(HashMap::from([
+            (
+                "sbp".to_string(),
+                Property::Float {
+                    default: None,
+                    min: Some(80.0),
+                    max: Some(200.0),
+                    description: Some("Systolic blood pressure in mmHg".to_string()),
+                },
+            ),
+            (
+                "dbp".to_string(),
+                Property::Float {
+                    default: None,
+                    min: Some(60.0),
+                    max: Some(120.0),
+                    description: Some("Diastolic blood pressure in mmHg".to_string()),
+                },
+            ),
+        ])),
     })
     .await
     .unwrap();

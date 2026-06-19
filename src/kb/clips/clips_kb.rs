@@ -723,7 +723,7 @@ impl KnowledgeBase for CLIPSKnowledgeBase {
 fn prop_deftemplate(class: &Class, name: &str, property: &Property, is_static: bool) -> String {
     let mut def = format!("(deftemplate {}_{} (slot id (type SYMBOL))", class.name, name);
     match property {
-        Property::Bool { default } => {
+        Property::Bool { default, .. } => {
             def.push_str(" (slot value (type SYMBOL) (allowed-symbols TRUE FALSE nil)");
             if let Some(def_val) = default {
                 def.push_str(&format!(" (default {})", if *def_val { "TRUE" } else { "FALSE" }));
@@ -737,7 +737,7 @@ fn prop_deftemplate(class: &Class, name: &str, property: &Property, is_static: b
             def.push(')');
             def
         }
-        Property::Int { default, min, max } => {
+        Property::Int { default, min, max, .. } => {
             def.push_str(" (slot value (type INTEGER SYMBOL) (allowed-symbols nil)");
             if let Some(def_val) = default {
                 def.push_str(&format!(" (default {})", def_val));
@@ -756,7 +756,7 @@ fn prop_deftemplate(class: &Class, name: &str, property: &Property, is_static: b
             def.push(')');
             def
         }
-        Property::Float { default, min, max } => {
+        Property::Float { default, min, max, .. } => {
             def.push_str(" (slot value (type FLOAT SYMBOL) (allowed-symbols nil)");
             if let Some(def_val) = default {
                 let def_str = def_val.to_string();
@@ -787,7 +787,7 @@ fn prop_deftemplate(class: &Class, name: &str, property: &Property, is_static: b
             def.push(')');
             def
         }
-        Property::String { default } => {
+        Property::String { default, .. } => {
             def.push_str(" (slot value (type STRING SYMBOL) (allowed-symbols nil)");
             if let Some(def_val) = default {
                 def.push_str(&format!(" (default \"{}\")", def_val));
@@ -801,7 +801,7 @@ fn prop_deftemplate(class: &Class, name: &str, property: &Property, is_static: b
             def.push(')');
             def
         }
-        Property::Symbol { default, allowed_values } => {
+        Property::Symbol { default, allowed_values, .. } => {
             def.push_str(" (slot value (type SYMBOL)");
             if let Some(allowed) = allowed_values {
                 def.push_str(" (allowed-symbols nil");
@@ -837,7 +837,7 @@ fn prop_deftemplate(class: &Class, name: &str, property: &Property, is_static: b
             def.push(')');
             def
         }
-        Property::BoolArray { default } => {
+        Property::BoolArray { default, .. } => {
             def.push_str(" (multislot value (type SYMBOL) (allowed-symbols TRUE FALSE nil)");
             if let Some(def_val) = default {
                 let def_str = def_val.iter().map(|b| if *b { "TRUE" } else { "FALSE" }).collect::<Vec<_>>().join(" ");
@@ -850,7 +850,7 @@ fn prop_deftemplate(class: &Class, name: &str, property: &Property, is_static: b
             def.push(')');
             def
         }
-        Property::IntArray { default, min, max } => {
+        Property::IntArray { default, min, max, .. } => {
             def.push_str(" (multislot value (type INTEGER SYMBOL) (allowed-symbols nil)");
             if let Some(def_val) = default {
                 let def_str = def_val.iter().map(|i| i.to_string()).collect::<Vec<_>>().join(" ");
@@ -868,7 +868,7 @@ fn prop_deftemplate(class: &Class, name: &str, property: &Property, is_static: b
             def.push(')');
             def
         }
-        Property::FloatArray { default, min, max } => {
+        Property::FloatArray { default, min, max, .. } => {
             def.push_str(" (multislot value (type FLOAT SYMBOL) (allowed-symbols nil)");
             if let Some(def_val) = default {
                 let def_str = def_val
@@ -903,7 +903,7 @@ fn prop_deftemplate(class: &Class, name: &str, property: &Property, is_static: b
             def.push(')');
             def
         }
-        Property::StringArray { default } => {
+        Property::StringArray { default, .. } => {
             def.push_str(" (multislot value (type STRING SYMBOL) (allowed-symbols nil)");
             if let Some(def_val) = default {
                 let def_str = def_val.iter().map(|s| format!("\"{}\"", s)).collect::<Vec<_>>().join(" ");
@@ -916,7 +916,7 @@ fn prop_deftemplate(class: &Class, name: &str, property: &Property, is_static: b
             def.push(')');
             def
         }
-        Property::SymbolArray { default, allowed_values } => {
+        Property::SymbolArray { default, allowed_values, .. } => {
             def.push_str(" (multislot value (type SYMBOL)");
             if let Some(allowed) = allowed_values {
                 def.push_str(" (allowed-symbols nil");
@@ -1072,10 +1072,10 @@ fn get_default(property: &Property) -> Value {
         Property::String { default, .. } => default.clone().map(Value::String).unwrap_or(Value::Null),
         Property::Symbol { default, .. } => default.clone().map(Value::Symbol).unwrap_or(Value::Null),
         Property::Object { default, .. } => default.clone().map(Value::Object).unwrap_or(Value::Null),
-        Property::BoolArray { default } => default.clone().map(Value::BoolArray).unwrap_or(Value::Null),
+        Property::BoolArray { default, .. } => default.clone().map(Value::BoolArray).unwrap_or(Value::Null),
         Property::IntArray { default, .. } => default.clone().map(Value::IntArray).unwrap_or(Value::Null),
         Property::FloatArray { default, .. } => default.clone().map(Value::FloatArray).unwrap_or(Value::Null),
-        Property::StringArray { default } => default.clone().map(Value::StringArray).unwrap_or(Value::Null),
+        Property::StringArray { default, .. } => default.clone().map(Value::StringArray).unwrap_or(Value::Null),
         Property::SymbolArray { default, .. } => default.clone().map(Value::StringArray).unwrap_or(Value::Null),
         Property::ObjectArray { default, .. } => default.clone().map(Value::StringArray).unwrap_or(Value::Null),
     }
