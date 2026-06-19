@@ -656,14 +656,14 @@ impl KnowledgeBase for CLIPSKnowledgeBase {
         self.command_tx.send(KBCommand::CreateClass(class, resp_tx)).map_err(|_| KnowledgeBaseError::KBError("Failed to send CreateClass command to CLIPS knowledge base actor".to_owned()))?;
         resp_rx.await.map_err(|_| KnowledgeBaseError::KBError("Failed to receive response for CreateClass command from CLIPS knowledge base actor".to_owned()))?
     }
-    async fn get_static_properties(&self, classe_names: HashSet<String>) -> Result<HashMap<String, HashMap<String, Property>>, KnowledgeBaseError> {
+    async fn get_static_properties(&self, class_names: HashSet<String>) -> Result<HashMap<String, HashMap<String, Property>>, KnowledgeBaseError> {
         let (resp_tx, resp_rx) = oneshot::channel();
-        self.command_tx.send(KBCommand::GetStaticProperties(classe_names, resp_tx)).map_err(|_| KnowledgeBaseError::KBError("Failed to send GetStaticProperties command to CLIPS knowledge base actor".to_owned()))?;
+        self.command_tx.send(KBCommand::GetStaticProperties(class_names, resp_tx)).map_err(|_| KnowledgeBaseError::KBError("Failed to send GetStaticProperties command to CLIPS knowledge base actor".to_owned()))?;
         resp_rx.await.map_err(|_| KnowledgeBaseError::KBError("Failed to receive response for GetStaticProperties command from CLIPS knowledge base actor".to_owned()))?
     }
-    async fn get_dynamic_properties(&self, classe_names: HashSet<String>) -> Result<HashMap<String, HashMap<String, Property>>, KnowledgeBaseError> {
+    async fn get_dynamic_properties(&self, class_names: HashSet<String>) -> Result<HashMap<String, HashMap<String, Property>>, KnowledgeBaseError> {
         let (resp_tx, resp_rx) = oneshot::channel();
-        self.command_tx.send(KBCommand::GetDynamicProperties(classe_names, resp_tx)).map_err(|_| KnowledgeBaseError::KBError("Failed to send GetDynamicProperties command to CLIPS knowledge base actor".to_owned()))?;
+        self.command_tx.send(KBCommand::GetDynamicProperties(class_names, resp_tx)).map_err(|_| KnowledgeBaseError::KBError("Failed to send GetDynamicProperties command to CLIPS knowledge base actor".to_owned()))?;
         resp_rx.await.map_err(|_| KnowledgeBaseError::KBError("Failed to receive response for GetDynamicProperties command from CLIPS knowledge base actor".to_owned()))?
     }
 

@@ -306,16 +306,6 @@ mod tests {
         let subscriber = tracing_subscriber::fmt().with_max_level(Level::TRACE).finish();
         subscriber::set_global_default(subscriber).expect("Failed to set global default subscriber");
 
-        let host = std::env::var("OLLAMA_HOST").unwrap_or_else(|_| "localhost".to_string());
-        let port = std::env::var("OLLAMA_PORT").unwrap_or_else(|_| "11434".to_string()).parse::<u16>().unwrap_or(11434);
-        let model = std::env::var("OLLAMA_MODEL").unwrap_or_else(|_| "llama3".to_string());
-        let url = format!("http://{}:{}/api/generate", host, port);
-        let client = Client::new();
-        let body = serde_json::json!({
-            "model": model,
-            "prompt": "Hello, Ollama!"
-        });
-
         let (kb, _) = CLIPSKnowledgeBase::new();
         kb.create_class(Class {
             name: "TestClass".to_string(),
@@ -343,6 +333,16 @@ mod tests {
         })
         .await
         .unwrap();
+
+        let host = std::env::var("OLLAMA_HOST").unwrap_or_else(|_| "localhost".to_string());
+        let port = std::env::var("OLLAMA_PORT").unwrap_or_else(|_| "11434".to_string()).parse::<u16>().unwrap_or(11434);
+        let model = std::env::var("OLLAMA_MODEL").unwrap_or_else(|_| "llama3".to_string());
+        let url = format!("http://{}:{}/api/generate", host, port);
+        let client = Client::new();
+        let body = serde_json::json!({
+            "model": model,
+            "prompt": "Hello, Ollama!"
+        });
 
         match client.post(&url).json(&body).send().await {
             Ok(response) => {
