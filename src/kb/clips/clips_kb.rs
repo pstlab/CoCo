@@ -1080,3 +1080,156 @@ fn get_default(property: &Property) -> Value {
         Property::ObjectArray { default, .. } => default.clone().map(Value::StringArray).unwrap_or(Value::Null),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn test_class() -> Class {
+        Class {
+            name: "device".to_owned(),
+            parents: None,
+            static_properties: None,
+            dynamic_properties: None,
+        }
+    }
+
+    #[test]
+    fn prop_deftemplate_covers_scalar_variants() {
+        let class = test_class();
+
+        let bool_def = prop_deftemplate(&class, "enabled", &Property::Bool { default: Some(true), description: None }, true);
+        assert!(bool_def.contains("(slot value (type SYMBOL) (allowed-symbols TRUE FALSE nil)"));
+        assert!(bool_def.contains("(default TRUE)"));
+        assert!(!bool_def.contains("(slot time (type INTEGER))"));
+
+        let int_def = prop_deftemplate(&class, "level", &Property::Int { default: Some(5), min: Some(0), max: Some(10), description: None }, false);
+        assert!(int_def.contains("(default 5)"));
+        assert!(int_def.contains("(range 0 10)"));
+        assert!(int_def.contains("(slot time (type INTEGER))"));
+
+        let float_def = prop_deftemplate(&class, "temperature", &Property::Float { default: Some(42.0), min: Some(1.0), max: Some(99.0), description: None }, true);
+        assert!(float_def.contains("(default 42.0)"));
+        assert!(float_def.contains("(range 1.0 99.0)"));
+
+        let string_def = prop_deftemplate(&class, "name", &Property::String { default: Some("sensor".to_owned()), description: None }, false);
+        assert!(string_def.contains("(default \"sensor\")"));
+        assert!(string_def.contains("(slot time (type INTEGER))"));
+
+        let mut allowed_symbols = HashSet::new();
+        allowed_symbols.insert("ok".to_owned());
+        allowed_symbols.insert("error".to_owned());
+        let symbol_def = prop_deftemplate(&class, "status", &Property::Symbol { default: Some("ok".to_owned()), allowed_values: Some(allowed_symbols), description: None }, true);
+        assert!(symbol_def.contains("(allowed-symbols nil"));
+        assert!(symbol_def.contains("(default ok)"));
+
+        let object_def = prop_deftemplate(&class, "owner", &Property::Object { default: Some("obj_1".to_owned()), classes: vec!["user".to_owned()], description: None }, false);
+        assert!(object_def.contains("(default obj_1)"));
+        assert!(object_def.contains("(slot time (type INTEGER))"));
+    }
+
+    #[test]
+    fn prop_deftemplate_covers_array_variants() {
+        let class = test_class();
+
+        let bool_array_def = prop_deftemplate(&class, "flags", &Property::BoolArray { default: Some(vec![true, false]), description: None }, true);
+        assert!(bool_array_def.contains("(multislot value (type SYMBOL) (allowed-symbols TRUE FALSE nil)"));
+        assert!(bool_array_def.contains("(default TRUE FALSE)"));
+
+        let int_array_def = prop_deftemplate(&class, "samples", &Property::IntArray { default: Some(vec![1, 2, 3]), min: Some(0), max: Some(100), description: None }, false);
+        assert!(int_array_def.contains("(default 1 2 3)"));
+        assert!(int_array_def.contains("(range 0 100)"));
+        assert!(int_array_def.contains("(slot time (type INTEGER))"));
+
+        let float_array_def = prop_deftemplate(&class, "weights", &Property::FloatArray { default: Some(vec![1.0, 2.5]), min: Some(0.0), max: Some(10.0), description: None }, true);
+        assert!(float_array_def.contains("(default 1.0 2.5)"));
+        assert!(float_array_def.contains("(range 0.0 10.0)"));
+
+        let string_array_def = prop_deftemplate(&class, "labels", &Property::StringArray { default: Some(vec!["a".to_owned(), "b".to_owned()]), description: None }, false);
+        assert!(string_array_def.contains("(default \"a\" \"b\")"));
+        assert!(string_array_def.contains("(slot time (type INTEGER))"));
+
+        let mut allowed_symbols = HashSet::new();
+        allowed_symbols.insert("x".to_owned());
+        allowed_symbols.insert("y".to_owned());
+        let symbol_array_def = prop_deftemplate(
+            &class,
+            "states",
+            &Property::SymbolArray {
+                default: Some(vec!["x".to_owned(), "y".to_owned()]),
+                allowed_values: Some(allowed_symbols),
+                description: None,
+            },
+            true,
+        );
+        assert!(symbol_array_def.contains("(allowed-symbols nil"));
+        assert!(symbol_array_def.contains("(default x y)"));
+
+        let object_array_def = prop_deftemplate(
+            &class,
+            "related",
+            &Property::ObjectArray {
+                default: Some(vec!["obj_a".to_owned(), "obj_b".to_owned()]),
+                classes: vec!["device".to_owned()],
+                description: None,
+            },
+            false,
+        );
+        assert!(object_array_def.contains("(default obj_a obj_b)"));
+        assert!(object_array_def.contains("(slot time (type INTEGER))"));
+    }
+
+    #[test]
+    fn get_default_covers_all_none_defaults() {
+        let properties = vec![
+            Property::Bool { default: None, description: None },
+            Property::Int { default: None, min: None, max: None, description: None },
+            Property::Float { default: None, min: None, max: None, description: None },
+            Property::String { default: None, description: None },
+            Property::Symbol { default: None, allowed_values: None, description: None },
+            Property::Object { default: None, classes: vec!["device".to_owned()], description: None },
+            Property::BoolArray { default: None, description: None },
+            Property::IntArray { default: None, min: None, max: None, description: None },
+            Property::FloatArray { default: None, min: None, max: None, description: None },
+            Property::StringArray { default: None, description: None },
+            Property::SymbolArray { default: None, allowed_values: None, description: None },
+            Property::ObjectArray { default: None, classes: vec!["device".to_owned()], description: None },
+        ];
+
+        for property in properties {
+            assert_eq!(get_default(&property), Value::Null);
+        }
+    }
+
+    #[test]
+    fn get_default_covers_all_some_defaults() {
+        assert_eq!(get_default(&Property::Bool { default: Some(true), description: None }), Value::Bool(true));
+        assert_eq!(get_default(&Property::Int { default: Some(7), min: None, max: None, description: None }), Value::Int(7));
+        assert_eq!(get_default(&Property::Float { default: Some(3.5), min: None, max: None, description: None }), Value::Float(3.5));
+        assert_eq!(get_default(&Property::String { default: Some("abc".to_owned()), description: None }), Value::String("abc".to_owned()));
+        assert_eq!(get_default(&Property::Symbol { default: Some("ok".to_owned()), allowed_values: None, description: None }), Value::Symbol("ok".to_owned()));
+        assert_eq!(get_default(&Property::Object { default: Some("obj_1".to_owned()), classes: vec!["device".to_owned()], description: None }), Value::Object("obj_1".to_owned()));
+        assert_eq!(get_default(&Property::BoolArray { default: Some(vec![true, false]), description: None }), Value::BoolArray(vec![true, false]));
+        assert_eq!(get_default(&Property::IntArray { default: Some(vec![1, 2]), min: None, max: None, description: None }), Value::IntArray(vec![1, 2]));
+        assert_eq!(get_default(&Property::FloatArray { default: Some(vec![1.0, 2.5]), min: None, max: None, description: None }), Value::FloatArray(vec![1.0, 2.5]));
+        assert_eq!(get_default(&Property::StringArray { default: Some(vec!["a".to_owned(), "b".to_owned()]), description: None }), Value::StringArray(vec!["a".to_owned(), "b".to_owned()]));
+
+        // get_default currently maps SymbolArray/ObjectArray defaults to Value::StringArray.
+        assert_eq!(
+            get_default(&Property::SymbolArray {
+                default: Some(vec!["x".to_owned(), "y".to_owned()]),
+                allowed_values: None,
+                description: None,
+            }),
+            Value::StringArray(vec!["x".to_owned(), "y".to_owned()])
+        );
+        assert_eq!(
+            get_default(&Property::ObjectArray {
+                default: Some(vec!["obj_a".to_owned(), "obj_b".to_owned()]),
+                classes: vec!["device".to_owned()],
+                description: None,
+            }),
+            Value::StringArray(vec!["obj_a".to_owned(), "obj_b".to_owned()])
+        );
+    }
+}
