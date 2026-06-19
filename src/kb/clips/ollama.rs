@@ -246,7 +246,17 @@ mod tests {
         kb.create_class(Class {
             name: "TestClass".to_string(),
             static_properties: None,
-            dynamic_properties: Some(HashMap::from([("text".to_string(), Property::String { default: None })])),
+            dynamic_properties: Some(HashMap::from([
+                ("text".to_string(), Property::String { default: None, description: None }),
+                (
+                    "facial".to_string(),
+                    Property::Symbol {
+                        default: Some("neutral".to_string()),
+                        allowed_values: Some(HashSet::from(["neutral".to_string(), "happy".to_string(), "sad".to_string()])),
+                        description: Some("Facial expression of the object".to_string()),
+                    },
+                ),
+            ])),
             parents: None,
         })
         .await
