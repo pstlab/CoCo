@@ -54,10 +54,9 @@ pub async fn secure_coco_router(coco: CoCo, users_db: UsersDB) -> Router {
         .route("/objects", get(get_objects).post(create_object))
         .route("/objects/{id}", get(get_object).patch(set_properties))
         .route("/objects/{id}/data", get(get_data).post(add_data))
-        .route("/openapi", get(openapi))
         .route_layer(from_fn_with_state(state.clone(), auth_middleware));
 
-    let unauth_router = Router::new().route("/register", post(register)).route("/login", post(login)).route("/refresh_token", post(refresh_token)).route("/ws", get(ws_handler));
+    let unauth_router = Router::new().route("/register", post(register)).route("/login", post(login)).route("/refresh_token", post(refresh_token)).route("/ws", get(ws_handler)).route("/openapi", get(openapi));
 
     unauth_router.merge(auth_router).with_state(state)
 }

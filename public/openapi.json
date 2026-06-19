@@ -9,7 +9,7 @@
         "license": {
             "name": ""
         },
-        "version": "0.1.0"
+        "version": "0.2.0"
     },
     "servers": [
         {
@@ -39,6 +39,9 @@
                                 }
                             }
                         }
+                    },
+                    "401": {
+                        "description": "Missing or invalid JWT token"
                     }
                 }
             },
@@ -62,6 +65,15 @@
                 "responses": {
                     "201": {
                         "description": "Class created successfully"
+                    },
+                    "400": {
+                        "description": "Invalid class data in request body"
+                    },
+                    "401": {
+                        "description": "Missing or invalid JWT token"
+                    },
+                    "403": {
+                        "description": "Forbidden - only admin users can create new classes"
                     },
                     "409": {
                         "description": "Class already exists"
@@ -102,10 +114,87 @@
                             }
                         }
                     },
+                    "401": {
+                        "description": "Missing or invalid JWT token"
+                    },
                     "404": {
                         "description": "Class not found"
                     }
                 }
+            }
+        },
+        "/login": {
+            "post": {
+                "tags": [
+                    "Authentication"
+                ],
+                "summary": "Login a user",
+                "description": "Authenticate a user with their username and password, returns access and refresh JWT tokens if successful.",
+                "operationId": "login",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/Credentials"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "User authenticated successfully, returns access and refresh JWT tokens",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/AuthTokens"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Invalid username or password"
+                    },
+                    "500": {
+                        "description": "Failed to authenticate user"
+                    }
+                }
+            }
+        },
+        "/me": {
+            "get": {
+                "tags": [
+                    "Authentication"
+                ],
+                "summary": "Get current user",
+                "description": "Retrieve the authenticated user's profile.",
+                "operationId": "get_me",
+                "responses": {
+                    "200": {
+                        "description": "Current user profile",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/UserResponse"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Missing or invalid JWT token"
+                    },
+                    "404": {
+                        "description": "User not found"
+                    },
+                    "500": {
+                        "description": "Failed to retrieve current user profile"
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
             }
         },
         "/objects": {
@@ -153,6 +242,9 @@
                                 }
                             }
                         }
+                    },
+                    "401": {
+                        "description": "Missing or invalid JWT token"
                     }
                 }
             },
@@ -183,6 +275,15 @@
                                 }
                             }
                         }
+                    },
+                    "400": {
+                        "description": "Invalid object data in request body"
+                    },
+                    "401": {
+                        "description": "Missing or invalid JWT token"
+                    },
+                    "403": {
+                        "description": "Forbidden - only admin users can create new objects"
                     },
                     "404": {
                         "description": "Class not found for object"
@@ -226,6 +327,12 @@
                             }
                         }
                     },
+                    "401": {
+                        "description": "Missing or invalid JWT token"
+                    },
+                    "403": {
+                        "description": "Forbidden - you do not have permission to access this object"
+                    },
                     "404": {
                         "description": "Object not found"
                     }
@@ -254,7 +361,72 @@
                         "application/json": {
                             "schema": {
                                 "type": "object",
-                                "additionalProperties": {},
+                                "additionalProperties": {
+                                    "oneOf": [
+                                        {
+                                            "type": "null",
+                                            "default": null
+                                        },
+                                        {
+                                            "type": "boolean"
+                                        },
+                                        {
+                                            "type": "integer",
+                                            "format": "int64"
+                                        },
+                                        {
+                                            "type": "number",
+                                            "format": "double"
+                                        },
+                                        {
+                                            "type": "string"
+                                        },
+                                        {
+                                            "type": "string"
+                                        },
+                                        {
+                                            "type": "string"
+                                        },
+                                        {
+                                            "type": "array",
+                                            "items": {
+                                                "type": "boolean"
+                                            }
+                                        },
+                                        {
+                                            "type": "array",
+                                            "items": {
+                                                "type": "integer",
+                                                "format": "int64"
+                                            }
+                                        },
+                                        {
+                                            "type": "array",
+                                            "items": {
+                                                "type": "number",
+                                                "format": "double"
+                                            }
+                                        },
+                                        {
+                                            "type": "array",
+                                            "items": {
+                                                "type": "string"
+                                            }
+                                        },
+                                        {
+                                            "type": "array",
+                                            "items": {
+                                                "type": "string"
+                                            }
+                                        },
+                                        {
+                                            "type": "array",
+                                            "items": {
+                                                "type": "string"
+                                            }
+                                        }
+                                    ]
+                                },
                                 "propertyNames": {
                                     "type": "string"
                                 }
@@ -266,6 +438,15 @@
                 "responses": {
                     "200": {
                         "description": "Object properties updated successfully"
+                    },
+                    "400": {
+                        "description": "Invalid property values in request body"
+                    },
+                    "401": {
+                        "description": "Missing or invalid JWT token"
+                    },
+                    "403": {
+                        "description": "Forbidden - you do not have permission to modify this object"
                     },
                     "404": {
                         "description": "Object not found"
@@ -333,6 +514,12 @@
                             }
                         }
                     },
+                    "401": {
+                        "description": "Missing or invalid JWT token"
+                    },
+                    "403": {
+                        "description": "Forbidden - you do not have permission to access this object's data"
+                    },
                     "404": {
                         "description": "Object not found"
                     },
@@ -374,7 +561,72 @@
                         "application/json": {
                             "schema": {
                                 "type": "object",
-                                "additionalProperties": {},
+                                "additionalProperties": {
+                                    "oneOf": [
+                                        {
+                                            "type": "null",
+                                            "default": null
+                                        },
+                                        {
+                                            "type": "boolean"
+                                        },
+                                        {
+                                            "type": "integer",
+                                            "format": "int64"
+                                        },
+                                        {
+                                            "type": "number",
+                                            "format": "double"
+                                        },
+                                        {
+                                            "type": "string"
+                                        },
+                                        {
+                                            "type": "string"
+                                        },
+                                        {
+                                            "type": "string"
+                                        },
+                                        {
+                                            "type": "array",
+                                            "items": {
+                                                "type": "boolean"
+                                            }
+                                        },
+                                        {
+                                            "type": "array",
+                                            "items": {
+                                                "type": "integer",
+                                                "format": "int64"
+                                            }
+                                        },
+                                        {
+                                            "type": "array",
+                                            "items": {
+                                                "type": "number",
+                                                "format": "double"
+                                            }
+                                        },
+                                        {
+                                            "type": "array",
+                                            "items": {
+                                                "type": "string"
+                                            }
+                                        },
+                                        {
+                                            "type": "array",
+                                            "items": {
+                                                "type": "string"
+                                            }
+                                        },
+                                        {
+                                            "type": "array",
+                                            "items": {
+                                                "type": "string"
+                                            }
+                                        }
+                                    ]
+                                },
                                 "propertyNames": {
                                     "type": "string"
                                 }
@@ -386,6 +638,15 @@
                 "responses": {
                     "200": {
                         "description": "Data added to object successfully"
+                    },
+                    "400": {
+                        "description": "Invalid data values in request body"
+                    },
+                    "401": {
+                        "description": "Missing or invalid JWT token"
+                    },
+                    "403": {
+                        "description": "Forbidden - you do not have permission to modify this object"
                     },
                     "404": {
                         "description": "Object not found"
@@ -418,6 +679,82 @@
                 }
             }
         },
+        "/refresh_token": {
+            "post": {
+                "tags": [
+                    "Authentication"
+                ],
+                "summary": "Refresh authentication tokens",
+                "description": "Exchange a valid refresh token for a new access and refresh JWT token pair.",
+                "operationId": "refresh_token",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/RefreshTokenRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "Tokens refreshed successfully",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/AuthTokens"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Invalid or expired refresh token"
+                    },
+                    "500": {
+                        "description": "Failed to refresh tokens"
+                    }
+                }
+            }
+        },
+        "/register": {
+            "post": {
+                "tags": [
+                    "Authentication"
+                ],
+                "summary": "Register a new user",
+                "description": "Create a new user account with a username, password, and role.",
+                "operationId": "register",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/Credentials"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "User registered successfully, returns access and refresh JWT tokens",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/AuthTokens"
+                                }
+                            }
+                        }
+                    },
+                    "409": {
+                        "description": "Username already exists"
+                    },
+                    "500": {
+                        "description": "Failed to register user"
+                    }
+                }
+            }
+        },
         "/rules": {
             "get": {
                 "tags": [
@@ -439,6 +776,9 @@
                                 }
                             }
                         }
+                    },
+                    "401": {
+                        "description": "Missing or invalid JWT token"
                     }
                 }
             },
@@ -462,6 +802,15 @@
                 "responses": {
                     "201": {
                         "description": "Rule created successfully"
+                    },
+                    "400": {
+                        "description": "Invalid rule data in request body"
+                    },
+                    "401": {
+                        "description": "Missing or invalid JWT token"
+                    },
+                    "403": {
+                        "description": "Forbidden - only admin users can create new rules"
                     },
                     "409": {
                         "description": "Rule already exists"
@@ -502,10 +851,188 @@
                             }
                         }
                     },
+                    "401": {
+                        "description": "Missing or invalid JWT token"
+                    },
                     "404": {
                         "description": "Rule not found"
                     }
                 }
+            }
+        },
+        "/users": {
+            "get": {
+                "tags": [
+                    "Authentication"
+                ],
+                "summary": "List all users",
+                "description": "Retrieve a list of all registered users (admin only).",
+                "operationId": "get_users",
+                "responses": {
+                    "200": {
+                        "description": "List of users",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "array",
+                                    "items": {
+                                        "$ref": "#/components/schemas/UserResponse"
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Missing or invalid JWT token"
+                    },
+                    "403": {
+                        "description": "Forbidden - only admin users can view the list of users"
+                    },
+                    "500": {
+                        "description": "Failed to retrieve users"
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            },
+            "post": {
+                "tags": [
+                    "Authentication"
+                ],
+                "summary": "Create a new user",
+                "description": "Create a new user account with a username, password, and role (admin only). Role defaults to user.",
+                "operationId": "create_user",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/CreateUserRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "201": {
+                        "description": "User created successfully"
+                    },
+                    "400": {
+                        "description": "Invalid user data in request body"
+                    },
+                    "401": {
+                        "description": "Missing or invalid JWT token"
+                    },
+                    "403": {
+                        "description": "Forbidden - only admin users can create new users"
+                    },
+                    "409": {
+                        "description": "Username already exists"
+                    },
+                    "500": {
+                        "description": "Failed to create user"
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            },
+            "patch": {
+                "tags": [
+                    "Authentication"
+                ],
+                "summary": "Update a user",
+                "description": "Update an existing user's role and permissions (admin only).",
+                "operationId": "update_user",
+                "requestBody": {
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/UpdateUserRequest"
+                            }
+                        }
+                    },
+                    "required": true
+                },
+                "responses": {
+                    "200": {
+                        "description": "User updated successfully"
+                    },
+                    "400": {
+                        "description": "Invalid user data in request body"
+                    },
+                    "401": {
+                        "description": "Missing or invalid JWT token"
+                    },
+                    "403": {
+                        "description": "Forbidden - only admin users can update users"
+                    },
+                    "404": {
+                        "description": "User not found"
+                    },
+                    "500": {
+                        "description": "Failed to update user"
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        },
+        "/users/{name}": {
+            "get": {
+                "tags": [
+                    "Authentication"
+                ],
+                "summary": "Get a user",
+                "description": "Retrieve a user's profile. Accessible only by admin users or by the user themselves.",
+                "operationId": "get_user",
+                "parameters": [
+                    {
+                        "name": "name",
+                        "in": "path",
+                        "description": "Username to retrieve",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "User profile",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/UserResponse"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Missing or invalid JWT token"
+                    },
+                    "403": {
+                        "description": "Forbidden - only admin users or the user themselves can view this profile"
+                    },
+                    "404": {
+                        "description": "User not found"
+                    },
+                    "500": {
+                        "description": "Failed to retrieve user profile"
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
             }
         },
         "/ws": {
@@ -516,9 +1043,23 @@
                 "summary": "WebSocket connection",
                 "description": "Establish a WebSocket connection for real-time updates.",
                 "operationId": "ws_handler",
+                "parameters": [
+                    {
+                        "name": "token",
+                        "in": "query",
+                        "description": "JWT token for authentication",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
                 "responses": {
                     "101": {
                         "description": "WebSocket connection established"
+                    },
+                    "401": {
+                        "description": "Missing or invalid JWT token"
                     }
                 }
             }
@@ -526,6 +1067,25 @@
     },
     "components": {
         "schemas": {
+            "AuthTokens": {
+                "type": "object",
+                "required": [
+                    "access_token",
+                    "refresh_token",
+                    "token_type"
+                ],
+                "properties": {
+                    "access_token": {
+                        "type": "string"
+                    },
+                    "refresh_token": {
+                        "type": "string"
+                    },
+                    "token_type": {
+                        "type": "string"
+                    }
+                }
+            },
             "Class": {
                 "type": "object",
                 "required": [
@@ -568,6 +1128,59 @@
                         "propertyNames": {
                             "type": "string"
                         }
+                    }
+                }
+            },
+            "CreateUserRequest": {
+                "type": "object",
+                "required": [
+                    "username",
+                    "password"
+                ],
+                "properties": {
+                    "password": {
+                        "type": "string"
+                    },
+                    "read_access": {
+                        "type": [
+                            "array",
+                            "null"
+                        ],
+                        "items": {
+                            "type": "string"
+                        },
+                        "uniqueItems": true
+                    },
+                    "role": {
+                        "$ref": "#/components/schemas/Role"
+                    },
+                    "username": {
+                        "type": "string"
+                    },
+                    "write_access": {
+                        "type": [
+                            "array",
+                            "null"
+                        ],
+                        "items": {
+                            "type": "string"
+                        },
+                        "uniqueItems": true
+                    }
+                }
+            },
+            "Credentials": {
+                "type": "object",
+                "required": [
+                    "username",
+                    "password"
+                ],
+                "properties": {
+                    "password": {
+                        "type": "string"
+                    },
+                    "username": {
+                        "type": "string"
                     }
                 }
             },
@@ -628,6 +1241,12 @@
                                     "null"
                                 ]
                             },
+                            "description": {
+                                "type": [
+                                    "string",
+                                    "null"
+                                ]
+                            },
                             "type": {
                                 "type": "string",
                                 "enum": [
@@ -648,6 +1267,12 @@
                                     "null"
                                 ],
                                 "format": "int64"
+                            },
+                            "description": {
+                                "type": [
+                                    "string",
+                                    "null"
+                                ]
                             },
                             "max": {
                                 "type": [
@@ -684,6 +1309,12 @@
                                 ],
                                 "format": "double"
                             },
+                            "description": {
+                                "type": [
+                                    "string",
+                                    "null"
+                                ]
+                            },
                             "max": {
                                 "type": [
                                     "number",
@@ -713,6 +1344,12 @@
                         ],
                         "properties": {
                             "default": {
+                                "type": [
+                                    "string",
+                                    "null"
+                                ]
+                            },
+                            "description": {
                                 "type": [
                                     "string",
                                     "null"
@@ -748,6 +1385,12 @@
                                     "null"
                                 ]
                             },
+                            "description": {
+                                "type": [
+                                    "string",
+                                    "null"
+                                ]
+                            },
                             "type": {
                                 "type": "string",
                                 "enum": [
@@ -759,14 +1402,23 @@
                     {
                         "type": "object",
                         "required": [
-                            "class",
+                            "classes",
                             "type"
                         ],
                         "properties": {
-                            "class": {
-                                "type": "string"
+                            "classes": {
+                                "type": "array",
+                                "items": {
+                                    "type": "string"
+                                }
                             },
                             "default": {
+                                "type": [
+                                    "string",
+                                    "null"
+                                ]
+                            },
+                            "description": {
                                 "type": [
                                     "string",
                                     "null"
@@ -795,6 +1447,12 @@
                                     "type": "boolean"
                                 }
                             },
+                            "description": {
+                                "type": [
+                                    "string",
+                                    "null"
+                                ]
+                            },
                             "type": {
                                 "type": "string",
                                 "enum": [
@@ -818,6 +1476,12 @@
                                     "type": "integer",
                                     "format": "int64"
                                 }
+                            },
+                            "description": {
+                                "type": [
+                                    "string",
+                                    "null"
+                                ]
                             },
                             "max": {
                                 "type": [
@@ -857,6 +1521,12 @@
                                     "format": "double"
                                 }
                             },
+                            "description": {
+                                "type": [
+                                    "string",
+                                    "null"
+                                ]
+                            },
                             "max": {
                                 "type": [
                                     "number",
@@ -894,6 +1564,12 @@
                                     "type": "string"
                                 }
                             },
+                            "description": {
+                                "type": [
+                                    "string",
+                                    "null"
+                                ]
+                            },
                             "type": {
                                 "type": "string",
                                 "enum": [
@@ -927,6 +1603,12 @@
                                     "type": "string"
                                 }
                             },
+                            "description": {
+                                "type": [
+                                    "string",
+                                    "null"
+                                ]
+                            },
                             "type": {
                                 "type": "string",
                                 "enum": [
@@ -938,12 +1620,15 @@
                     {
                         "type": "object",
                         "required": [
-                            "class",
+                            "classes",
                             "type"
                         ],
                         "properties": {
-                            "class": {
-                                "type": "string"
+                            "classes": {
+                                "type": "array",
+                                "items": {
+                                    "type": "string"
+                                }
                             },
                             "default": {
                                 "type": [
@@ -954,6 +1639,12 @@
                                     "type": "string"
                                 }
                             },
+                            "description": {
+                                "type": [
+                                    "string",
+                                    "null"
+                                ]
+                            },
                             "type": {
                                 "type": "string",
                                 "enum": [
@@ -962,6 +1653,24 @@
                             }
                         }
                     }
+                ]
+            },
+            "RefreshTokenRequest": {
+                "type": "object",
+                "required": [
+                    "refresh_token"
+                ],
+                "properties": {
+                    "refresh_token": {
+                        "type": "string"
+                    }
+                }
+            },
+            "Role": {
+                "type": "string",
+                "enum": [
+                    "admin",
+                    "user"
                 ]
             },
             "Rule": {
@@ -991,6 +1700,75 @@
                         "format": "date-time"
                     },
                     "value": {}
+                }
+            },
+            "UpdateUserRequest": {
+                "type": "object",
+                "required": [
+                    "username"
+                ],
+                "properties": {
+                    "read_access": {
+                        "type": [
+                            "array",
+                            "null"
+                        ],
+                        "items": {
+                            "type": "string"
+                        },
+                        "uniqueItems": true
+                    },
+                    "role": {
+                        "$ref": "#/components/schemas/Role"
+                    },
+                    "username": {
+                        "type": "string"
+                    },
+                    "write_access": {
+                        "type": [
+                            "array",
+                            "null"
+                        ],
+                        "items": {
+                            "type": "string"
+                        },
+                        "uniqueItems": true
+                    }
+                }
+            },
+            "UserResponse": {
+                "type": "object",
+                "required": [
+                    "username",
+                    "role"
+                ],
+                "properties": {
+                    "read_access": {
+                        "type": [
+                            "array",
+                            "null"
+                        ],
+                        "items": {
+                            "type": "string"
+                        },
+                        "uniqueItems": true
+                    },
+                    "role": {
+                        "$ref": "#/components/schemas/Role"
+                    },
+                    "username": {
+                        "type": "string"
+                    },
+                    "write_access": {
+                        "type": [
+                            "array",
+                            "null"
+                        ],
+                        "items": {
+                            "type": "string"
+                        },
+                        "uniqueItems": true
+                    }
                 }
             },
             "Value": {
@@ -1044,12 +1822,35 @@
                         "items": {
                             "type": "string"
                         }
+                    },
+                    {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
                     }
                 ]
+            }
+        },
+        "securitySchemes": {
+            "bearerAuth": {
+                "type": "http",
+                "scheme": "bearer",
+                "bearerFormat": "JWT"
             }
         }
     },
     "tags": [
+        {
+            "name": "Authentication",
+            "description": "Endpoints for user registration and login"
+        },
         {
             "name": "Classes",
             "description": "Operations related to knowledge base classes"
