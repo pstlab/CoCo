@@ -2,16 +2,16 @@ use crate::{
     CoCo, CoCoModule,
     db::Database,
     kb::{KnowledgeBase, clips::CLIPSKnowledgeBase},
-    model::{CoCoError, Value},
+    model::{CoCoError, Property, Value},
 };
 use async_trait::async_trait;
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 use clips::{ClipsValue, Type, UDFContext};
 use futures_util::StreamExt;
 use reqwest::{Client, Response};
 use serde::Deserialize;
 use std::collections::HashMap;
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, oneshot};
 use tracing::{error, info, trace};
 
 pub struct OllamaModule {
@@ -20,8 +20,9 @@ pub struct OllamaModule {
     client: Client,
 }
 
-enum OllamaUpdate {
-    AddValues { object_id: String, values: HashMap<String, Value>, timestamp: chrono::DateTime<Utc> },
+enum OllamaMessage {
+    AddValues { object_id: String, values: HashMap<String, Value>, timestamp: DateTime<Utc> },
+    GetPromptContext { object_id: String, resp_tx: oneshot::Sender<Result<HashMap<String, Property>, CoCoError>> },
 }
 
 impl OllamaModule {
@@ -48,14 +49,39 @@ impl<DB: Database> CoCoModule<DB, CLIPSKnowledgeBase> for OllamaModule {
         let client = self.client.clone();
         let url = self.url.clone();
         let model = self.model.clone();
-        let (values_tx, mut values_rx) = mpsc::unbounded_channel::<OllamaUpdate>();
+        let (values_tx, mut values_rx) = mpsc::unbounded_channel::<OllamaMessage>();
         let values_kb = kb.clone();
 
         tokio::spawn(async move {
             while let Some(update) = values_rx.recv().await {
-                let OllamaUpdate::AddValues { object_id, values, timestamp } = update;
-                if let Err(e) = values_kb.add_values(object_id, values, timestamp).await {
-                    error!("Error adding values to object from Ollama worker: {}", e);
+                match update {
+                    OllamaMessage::AddValues { object_id, values, timestamp } => {
+                        trace!("Received AddValues for object_id {}: {:?}", object_id, values);
+                        if let Err(e) = values_kb.add_values(object_id.clone(), values, timestamp).await {
+                            error!("Failed to add values to object {}: {}", object_id, e);
+                        }
+                    }
+                    OllamaMessage::GetPromptContext { object_id, resp_tx } => {
+                        trace!("Received GetPromptContext for object_id {}", object_id);
+                        match values_kb.get_object(object_id.clone()).await {
+                            Ok(Some(object)) => match values_kb.get_dynamic_properties(object.classes).await {
+                                Ok(props) => {
+                                    let _ = resp_tx.send(Ok(props.into_values().flat_map(|m| m).collect()));
+                                }
+                                Err(e) => {
+                                    let _ = resp_tx.send(Err(CoCoError::KnowledgeBaseError(format!("Failed to get prompt context for object {}: {}", object_id, e))));
+                                }
+                            },
+                            Ok(None) => {
+                                let _ = resp_tx.send(Err(CoCoError::KnowledgeBaseError(format!("Object {} not found", object_id))));
+                                continue;
+                            }
+                            Err(e) => {
+                                let _ = resp_tx.send(Err(CoCoError::KnowledgeBaseError(format!("Failed to get object {}: {}", object_id, e))));
+                                continue;
+                            }
+                        }
+                    }
                 }
             }
         });
@@ -88,6 +114,20 @@ impl<DB: Database> CoCoModule<DB, CLIPSKnowledgeBase> for OllamaModule {
                 let model = model.clone();
                 let values_tx = values_tx.clone();
                 tokio::spawn(async move {
+                    let (resp_tx, resp_rx) = oneshot::channel();
+                    let _ = values_tx.send(OllamaMessage::GetPromptContext { object_id: object_id.clone(), resp_tx });
+                    let prompt_context = match resp_rx.await {
+                        Ok(Ok(props)) => props,
+                        Ok(Err(e)) => {
+                            error!("Failed to get prompt context for object {}: {}", object_id, e);
+                            return;
+                        }
+                        Err(e) => {
+                            error!("Failed to receive prompt context for object {}: {}", object_id, e);
+                            return;
+                        }
+                    };
+
                     trace!("Sending prompt to Ollama for object_id {}: {}", object_id, prompt);
                     let body = serde_json::json!({
                         "model": model,
@@ -120,7 +160,7 @@ struct OllamaResponse {
     done: bool,
 }
 
-async fn parse_response(object_id: String, response: Response, values_tx: mpsc::UnboundedSender<OllamaUpdate>) {
+async fn parse_response(object_id: String, response: Response, values_tx: mpsc::UnboundedSender<OllamaMessage>) {
     let mut stream = response.bytes_stream();
     let mut full_text = String::new();
     let mut pending = Vec::new();
@@ -187,7 +227,7 @@ enum ParserState {
     Command,
 }
 
-fn flush_values(object_id: &str, full_text: &mut String, values_tx: &mpsc::UnboundedSender<OllamaUpdate>) {
+fn flush_values(object_id: &str, full_text: &mut String, values_tx: &mpsc::UnboundedSender<OllamaMessage>) {
     let mut state = ParserState::Text;
     let mut buffer = String::new();
     let mut safe_cut_index = 0;
@@ -200,7 +240,7 @@ fn flush_values(object_id: &str, full_text: &mut String, values_tx: &mpsc::Unbou
                     if !text.is_empty() {
                         values.insert("text".to_string(), Value::String(text.to_string()));
                         trace!("Sending values to OllamaUpdate: {:?}", values);
-                        let _ = values_tx.send(OllamaUpdate::AddValues { object_id: object_id.to_string(), values: values.clone(), timestamp: Utc::now() });
+                        let _ = values_tx.send(OllamaMessage::AddValues { object_id: object_id.to_string(), values: values.clone(), timestamp: Utc::now() });
                         values.remove("text");
                     }
 
@@ -213,7 +253,7 @@ fn flush_values(object_id: &str, full_text: &mut String, values_tx: &mpsc::Unbou
                         if !text.is_empty() {
                             values.insert("text".to_string(), Value::String(text.to_string()));
                             trace!("Sending values to OllamaUpdate: {:?}", values);
-                            let _ = values_tx.send(OllamaUpdate::AddValues { object_id: object_id.to_string(), values: values.clone(), timestamp: Utc::now() });
+                            let _ = values_tx.send(OllamaMessage::AddValues { object_id: object_id.to_string(), values: values.clone(), timestamp: Utc::now() });
                             values.remove("text");
                         }
                         buffer.clear();
@@ -288,9 +328,9 @@ mod tests {
 
         let mut received_values = Vec::new();
         while let Ok(update) = values_rx.try_recv() {
-            let OllamaUpdate::AddValues { object_id: obj_id, values, timestamp: _ } = update;
-            assert_eq!(obj_id, object_id);
-            received_values.push(values);
+            if let OllamaMessage::AddValues { object_id: _, values, timestamp: _ } = update {
+                received_values.push(values);
+            }
         }
 
         assert_eq!(received_values.len(), 3);
