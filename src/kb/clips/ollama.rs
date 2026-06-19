@@ -190,30 +190,59 @@ enum ParserState {
 fn flush_values(object_id: &str, full_text: &mut String, values_tx: &mpsc::UnboundedSender<OllamaUpdate>) {
     let mut state = ParserState::Text;
     let mut buffer = String::new();
+    let mut safe_cut_index = 0;
     let mut values = HashMap::new();
-    for c in full_text.chars() {
+    for (idx, c) in full_text.char_indices() {
         match state {
             ParserState::Text => {
                 if c == '<' {
-                    state = ParserState::Command;
-                    if !buffer.is_empty() {
-                        values.insert("text".to_string(), Value::String(buffer.clone()));
-                        buffer.clear();
+                    let text = buffer.trim();
+                    if !text.is_empty() {
+                        values.insert("text".to_string(), Value::String(text.to_string()));
+                        trace!("Sending values to OllamaUpdate: {:?}", values);
                         let _ = values_tx.send(OllamaUpdate::AddValues { object_id: object_id.to_string(), values: values.clone(), timestamp: Utc::now() });
+                        values.remove("text");
                     }
+
+                    buffer.clear();
+                    state = ParserState::Command;
                 } else {
                     buffer.push(c);
+                    if c == '.' || c == '?' || c == '!' {
+                        let text = buffer.trim();
+                        if !text.is_empty() {
+                            values.insert("text".to_string(), Value::String(text.to_string()));
+                            trace!("Sending values to OllamaUpdate: {:?}", values);
+                            let _ = values_tx.send(OllamaUpdate::AddValues { object_id: object_id.to_string(), values: values.clone(), timestamp: Utc::now() });
+                            values.remove("text");
+                        }
+                        buffer.clear();
+                        safe_cut_index = idx + c.len_utf8();
+                    }
                 }
             }
             ParserState::Command => {
                 if c == '>' {
+                    let parts: Vec<&str> = buffer.splitn(2, '=').collect();
+                    if parts.len() == 2 {
+                        let key = parts[0].trim().to_string();
+                        let val = parts[1].trim_matches(|ch| ch == '"' || ch == '\'').to_string();
+                        values.insert(key, Value::String(val));
+                    }
+
+                    buffer.clear();
                     state = ParserState::Text;
+
+                    // Tag chiuso con successo! Aggiorniamo l'indice di taglio sicuro.
+                    safe_cut_index = idx + c.len_utf8();
                 } else {
                     buffer.push(c);
                 }
             }
         }
     }
+
+    full_text.drain(..safe_cut_index);
 }
 
 #[cfg(test)]
@@ -226,6 +255,51 @@ mod tests {
     use std::collections::{HashMap, HashSet};
     use tokio::sync::mpsc;
     use tracing::{Level, subscriber};
+
+    #[tokio::test]
+    async fn test_ollama_connection() {
+        let host = std::env::var("OLLAMA_HOST").unwrap_or_else(|_| "localhost".to_string());
+        let port = std::env::var("OLLAMA_PORT").unwrap_or_else(|_| "11434".to_string()).parse::<u16>().unwrap_or(11434);
+        let model = std::env::var("OLLAMA_MODEL").unwrap_or_else(|_| "llama3".to_string());
+        let url = format!("http://{}:{}/api/generate", host, port);
+        let client = Client::new();
+        let body = serde_json::json!({
+            "model": model,
+            "prompt": "Hello, Ollama!"
+        });
+
+        match client.post(&url).json(&body).send().await {
+            Ok(response) => {
+                assert!(response.status().is_success(), "Ollama API request failed with status: {}", response.status());
+            }
+            Err(e) => {
+                panic!("Failed to send request to Ollama: {}", e);
+            }
+        };
+    }
+
+    #[tokio::test]
+    async fn test_flush_values() {
+        let (values_tx, mut values_rx) = mpsc::unbounded_channel();
+        let object_id = "test_object".to_string();
+        let mut full_text = String::from("Hello world. <facial=happy> How are you? <facial=sad> Goodbye!");
+
+        flush_values(&object_id, &mut full_text, &values_tx);
+
+        let mut received_values = Vec::new();
+        while let Ok(update) = values_rx.try_recv() {
+            let OllamaUpdate::AddValues { object_id: obj_id, values, timestamp: _ } = update;
+            assert_eq!(obj_id, object_id);
+            received_values.push(values);
+        }
+
+        assert_eq!(received_values.len(), 3);
+        assert_eq!(received_values[0].get("text").unwrap(), &Value::String("Hello world.".to_string()));
+        assert_eq!(received_values[1].get("facial").unwrap(), &Value::String("happy".to_string()));
+        assert_eq!(received_values[1].get("text").unwrap(), &Value::String("How are you?".to_string()));
+        assert_eq!(received_values[2].get("facial").unwrap(), &Value::String("sad".to_string()));
+        assert_eq!(received_values[2].get("text").unwrap(), &Value::String("Goodbye!".to_string()));
+    }
 
     #[tokio::test]
     async fn test_parse_response() {
