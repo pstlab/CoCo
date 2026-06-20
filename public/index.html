@@ -205,113 +205,68 @@
   <script src="https://unpkg.com/swagger-ui-dist@5.32.6/swagger-ui-bundle.js" crossorigin></script>
   <script>
     const DEFAULT_API_SERVER = 'http://localhost:3000';
-    let swaggerInitialized = false;
-    let specListenerBound = false;
+    let swaggerInstance = null;
 
-    function getSelectedServerBase() {
-      const input = document.getElementById('api-server-input');
-      const value = input?.value?.trim() || '';
-      if (!value) {
-        return null;
-      }
-      return value.replace(/\/+$/, '');
-    }
+    const getSelectedServerBase = () => {
+      const value = document.getElementById('api-server-input')?.value.trim();
+      return value ? value.replace(/\/+$/, '') : null;
+    };
 
-    function setSpecControlVisibility(isVisible) {
-      const specControl = document.getElementById('api-spec-control');
-      if (!specControl) {
-        return;
-      }
-      specControl.classList.toggle('d-none', !isVisible);
-    }
+    const setSpecControlVisibility = (isVisible) => {
+      document.getElementById('api-spec-control')?.classList.toggle('d-none', !isVisible);
+    };
 
-    async function renderSwagger(specFile) {
+    async function renderSwagger() {
       const swaggerRoot = document.getElementById('swagger-ui');
-      if (!swaggerRoot || typeof SwaggerUIBundle === 'undefined') {
-        return;
-      }
+      if (!swaggerRoot || typeof SwaggerUIBundle === 'undefined') return;
 
-      swaggerRoot.innerHTML = '';
-      const specUrl = `./${String(specFile || '').replace(/^\.\//, '')}`;
+      const specUrl = document.getElementById('api-spec-select')?.value || 'public_api.json';
 
-      let spec;
       try {
-        const response = await fetch(specUrl, { method: 'GET' });
-        if (!response.ok) {
-          throw new Error(`HTTP ${response.status}`);
+        const response = await fetch(`${specUrl}?t=${Date.now()}`);
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+        const spec = await response.json();
+
+        const selectedServer = getSelectedServerBase();
+        if (selectedServer) {
+          spec.servers = [{ url: selectedServer, description: 'User selected server' }];
         }
-        spec = await response.json();
+
+        if (swaggerInstance) {
+          swaggerInstance.specActions.updateJsonSpec(spec);
+        } else {
+          swaggerInstance = SwaggerUIBundle({ spec, dom_id: '#swagger-ui' });
+        }
       } catch (err) {
         swaggerRoot.innerHTML = `<div class="alert alert-danger" role="alert">Failed to load API definition from ${specUrl}</div>`;
-        return;
       }
-
-      const selectedServer = getSelectedServerBase();
-      if (selectedServer) {
-        spec.servers = [{ url: selectedServer, description: 'User selected server' }];
-      }
-
-      SwaggerUIBundle({
-        spec,
-        dom_id: '#swagger-ui'
-      });
     }
 
     function initSwaggerUi() {
-      if (swaggerInitialized || typeof SwaggerUIBundle === 'undefined') {
-        return;
-      }
+      if (swaggerInstance) return;
 
-      const specSelect = document.getElementById('api-spec-select');
       const serverInput = document.getElementById('api-server-input');
-      const selectedSpec = specSelect?.value || 'public_api.json';
-
       if (serverInput && !serverInput.value.trim()) {
         serverInput.value = DEFAULT_API_SERVER;
       }
 
-      renderSwagger(selectedSpec);
+      document.getElementById('api-spec-select')?.addEventListener('change', renderSwagger);
+      serverInput?.addEventListener('change', renderSwagger);
 
-      if (specSelect && !specListenerBound) {
-        specSelect.addEventListener('change', event => {
-          renderSwagger(event.target.value);
-        });
-
-        serverInput?.addEventListener('change', () => {
-          renderSwagger(specSelect.value);
-        });
-
-        specListenerBound = true;
-      }
-
-      swaggerInitialized = true;
+      renderSwagger();
     }
 
-    const apiTabTrigger = document.getElementById('pills-api-tab');
-    const homeTabTrigger = document.getElementById('pills-home-tab');
-    const rulesTabTrigger = document.getElementById('pills-rules-tab');
-
-    if (apiTabTrigger) {
-      apiTabTrigger.addEventListener('shown.bs.tab', () => {
-        setSpecControlVisibility(true);
-        initSwaggerUi();
+    document.querySelectorAll('button[data-bs-toggle="pill"]').forEach(tab => {
+      tab.addEventListener('shown.bs.tab', (e) => {
+        const isApiTab = e.target.id === 'pills-api-tab';
+        setSpecControlVisibility(isApiTab);
+        if (isApiTab) initSwaggerUi();
       });
-    }
+    });
 
-    if (homeTabTrigger) {
-      homeTabTrigger.addEventListener('shown.bs.tab', () => setSpecControlVisibility(false));
-    }
-
-    if (rulesTabTrigger) {
-      rulesTabTrigger.addEventListener('shown.bs.tab', () => setSpecControlVisibility(false));
-    }
-
-    if (document.getElementById('pills-api')?.classList.contains('show')) {
-      setSpecControlVisibility(true);
-      initSwaggerUi();
-    } else {
-      setSpecControlVisibility(false);
-    }
+    const isApiTabActive = document.getElementById('pills-api-tab')?.classList.contains('active');
+    setSpecControlVisibility(isApiTabActive);
+    if (isApiTabActive) initSwaggerUi();
   </script>
 </body>
 
