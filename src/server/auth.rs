@@ -1,7 +1,7 @@
 use crate::{
     CoCo,
     db::DatabaseError,
-    model::{Class, CoCoError, CoCoEvent, Object, Property, Rule, TimedValue, Value, object_from_json, properties_from_json, values_from_json},
+    model::{CoCoClass, CoCoError, CoCoEvent, CoCoObject, CoCoRule, CoCoValue, TimedValue, object_from_json, properties_from_json, values_from_json},
     server::{
         DataFilter, DateQuery, ObjectFilter,
         auth_db::{Role, UserResponse, UsersDB},
@@ -30,9 +30,6 @@ use utoipa::{
     Modify, OpenApi, ToSchema,
     openapi::security::{HttpAuthScheme, HttpBuilder, SecurityScheme},
 };
-
-type OpenApiValue = Value;
-type OpenApiObject = Object;
 
 #[derive(Clone)]
 struct AppState {
@@ -401,7 +398,7 @@ async fn update_user(State(state): State<AppState>, Extension(user): Extension<C
         summary = "List all classes",
         description = "Retrieve a list of all available classes in the knowledge base.",
         responses(
-            (status = 200, description = "List of classes", body = [Class]),
+            (status = 200, description = "List of classes", body = [CoCoClass]),
             (status = 401, description = "Missing or invalid JWT token")
         )
     )]
@@ -423,7 +420,7 @@ async fn get_classes(State(state): State<AppState>) -> impl IntoResponse {
             ("name" = String, Path, description = "Name of the class to retrieve")
         ),
         responses(
-            (status = 200, description = "The requested class", body = Class),
+            (status = 200, description = "The requested class", body = CoCoClass),
             (status = 401, description = "Missing or invalid JWT token"),
             (status = 404, description = "Class not found")
         )
@@ -443,7 +440,7 @@ async fn get_class(State(state): State<AppState>, Path(name): Path<String>) -> i
         tag = "Classes",
         summary = "Create a class",
         description = "Create a new class in the knowledge base.",
-        request_body = Class,
+        request_body = CoCoClass,
         responses(
             (status = 201, description = "Class created successfully"),
             (status = 400, description = "Invalid class data in request body"),
@@ -453,7 +450,7 @@ async fn get_class(State(state): State<AppState>, Path(name): Path<String>) -> i
             (status = 500, description = "Failed to create class")
         )
     )]
-async fn create_class(State(state): State<AppState>, Extension(user): Extension<CurrentUser>, Json(class): Json<Class>) -> impl IntoResponse {
+async fn create_class(State(state): State<AppState>, Extension(user): Extension<CurrentUser>, Json(class): Json<CoCoClass>) -> impl IntoResponse {
     trace!("Handling request to create class with name: {}", class.name);
     if user.role != Role::Admin {
         return (StatusCode::FORBIDDEN, "Only admin users can create new classes").into_response();
@@ -514,7 +511,7 @@ async fn get_rule(State(state): State<AppState>, Path(name): Path<String>) -> im
         tag = "Rules",
         summary = "Create a rule",
         description = "Create a new rule in the knowledge base.",
-        request_body = Rule,
+        request_body = CoCoRule,
         responses(
             (status = 201, description = "Rule created successfully"),
             (status = 400, description = "Invalid rule data in request body"),
@@ -524,7 +521,7 @@ async fn get_rule(State(state): State<AppState>, Path(name): Path<String>) -> im
             (status = 500, description = "Failed to create rule")
         )
     )]
-async fn create_rule(State(state): State<AppState>, Extension(user): Extension<CurrentUser>, Json(rule): Json<Rule>) -> impl IntoResponse {
+async fn create_rule(State(state): State<AppState>, Extension(user): Extension<CurrentUser>, Json(rule): Json<CoCoRule>) -> impl IntoResponse {
     trace!("Handling request to create rule with name: {}", rule.name);
     if user.role != Role::Admin {
         return (StatusCode::FORBIDDEN, "Only admin users can create new rules").into_response();
@@ -544,7 +541,7 @@ async fn create_rule(State(state): State<AppState>, Extension(user): Extension<C
         description = "Retrieve a list of all available objects in the knowledge base.",
         params(ObjectFilter),
         responses(
-            (status = 200, description = "List of objects", body = [OpenApiObject]),
+            (status = 200, description = "List of objects", body = [CoCoObject]),
             (status = 401, description = "Missing or invalid JWT token")
         )
     )]
@@ -591,7 +588,7 @@ async fn get_objects(State(state): State<AppState>, Extension(user): Extension<C
             ("id" = String, Path, description = "ID of the object to retrieve")
         ),
         responses(
-            (status = 200, description = "The requested object", body = OpenApiObject),
+            (status = 200, description = "The requested object", body = CoCoObject),
             (status = 401, description = "Missing or invalid JWT token"),
             (status = 403, description = "Forbidden - you do not have permission to access this object"),
             (status = 404, description = "Object not found")
@@ -621,7 +618,7 @@ async fn get_object(State(state): State<AppState>, Extension(user): Extension<Cu
         tag = "Objects",
         summary = "Create an object",
         description = "Create a new object in the knowledge base.",
-        request_body = OpenApiObject,
+        request_body = CoCoObject,
         responses(
             (status = 201, description = "Object created successfully", body = String),
             (status = 400, description = "Invalid object data in request body"),
@@ -657,7 +654,7 @@ async fn create_object(State(state): State<AppState>, Extension(user): Extension
         params(
             ("id" = String, Path, description = "ID of the object to update")
         ),
-        request_body = inline(HashMap<String, OpenApiValue>),
+        request_body = inline(HashMap<String, CoCoValue>),
         responses(
             (status = 200, description = "Object properties updated successfully"),
             (status = 400, description = "Invalid property values in request body"),
@@ -696,7 +693,7 @@ async fn set_properties(State(state): State<AppState>, Extension(user): Extensio
             ("id" = String, Path, description = "ID of the object to update"),
             ("time" = Option<DateTime<Utc>>, Query, description = "Timestamp for the data being added (optional, defaults to current time)")
         ),
-        request_body = inline(HashMap<String, OpenApiValue>),
+        request_body = inline(HashMap<String, CoCoValue>),
         responses(
             (status = 200, description = "Data added to object successfully"),
             (status = 400, description = "Invalid data values in request body"),
@@ -1006,9 +1003,6 @@ impl Modify for SecurityAddon {
         (url = "/", description = "Base URL for CoCo API")
     ),
     paths(register, login, refresh_token, get_me, get_users, get_user, create_user, update_user, get_classes, get_class, create_class, get_rules, get_rule, create_rule, get_objects, get_object, create_object, set_properties, add_data, get_data, ws_handler, openapi),
-    components(
-        schemas(UserResponse, Class, Rule, Property, OpenApiObject, OpenApiValue)
-    ),
     modifiers(&SecurityAddon),
     tags(
         (name = "Authentication", description = "Endpoints for user registration and login"),

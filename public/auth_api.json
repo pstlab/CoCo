@@ -34,7 +34,7 @@
                                 "schema": {
                                     "type": "array",
                                     "items": {
-                                        "$ref": "#/components/schemas/Class"
+                                        "$ref": "#/components/schemas/CoCoClass"
                                     }
                                 }
                             }
@@ -56,7 +56,7 @@
                     "content": {
                         "application/json": {
                             "schema": {
-                                "$ref": "#/components/schemas/Class"
+                                "$ref": "#/components/schemas/CoCoClass"
                             }
                         }
                     },
@@ -109,7 +109,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/Class"
+                                    "$ref": "#/components/schemas/CoCoClass"
                                 }
                             }
                         }
@@ -237,7 +237,7 @@
                                 "schema": {
                                     "type": "array",
                                     "items": {
-                                        "$ref": "#/components/schemas/Object"
+                                        "$ref": "#/components/schemas/CoCoObject"
                                     }
                                 }
                             }
@@ -259,7 +259,7 @@
                     "content": {
                         "application/json": {
                             "schema": {
-                                "$ref": "#/components/schemas/Object"
+                                "$ref": "#/components/schemas/CoCoObject"
                             }
                         }
                     },
@@ -322,7 +322,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "$ref": "#/components/schemas/Object"
+                                    "$ref": "#/components/schemas/CoCoObject"
                                 }
                             }
                         }
@@ -793,7 +793,7 @@
                     "content": {
                         "application/json": {
                             "schema": {
-                                "$ref": "#/components/schemas/Rule"
+                                "$ref": "#/components/schemas/CoCoRule"
                             }
                         }
                     },
@@ -1086,7 +1086,7 @@
                     }
                 }
             },
-            "Class": {
+            "CoCoClass": {
                 "type": "object",
                 "required": [
                     "name"
@@ -1098,7 +1098,7 @@
                             "null"
                         ],
                         "additionalProperties": {
-                            "$ref": "#/components/schemas/Property"
+                            "$ref": "#/components/schemas/CoCoProperty"
                         },
                         "propertyNames": {
                             "type": "string"
@@ -1123,7 +1123,7 @@
                             "null"
                         ],
                         "additionalProperties": {
-                            "$ref": "#/components/schemas/Property"
+                            "$ref": "#/components/schemas/CoCoProperty"
                         },
                         "propertyNames": {
                             "type": "string"
@@ -1131,60 +1131,7 @@
                     }
                 }
             },
-            "CreateUserRequest": {
-                "type": "object",
-                "required": [
-                    "username",
-                    "password"
-                ],
-                "properties": {
-                    "password": {
-                        "type": "string"
-                    },
-                    "read_access": {
-                        "type": [
-                            "array",
-                            "null"
-                        ],
-                        "items": {
-                            "type": "string"
-                        },
-                        "uniqueItems": true
-                    },
-                    "role": {
-                        "$ref": "#/components/schemas/Role"
-                    },
-                    "username": {
-                        "type": "string"
-                    },
-                    "write_access": {
-                        "type": [
-                            "array",
-                            "null"
-                        ],
-                        "items": {
-                            "type": "string"
-                        },
-                        "uniqueItems": true
-                    }
-                }
-            },
-            "Credentials": {
-                "type": "object",
-                "required": [
-                    "username",
-                    "password"
-                ],
-                "properties": {
-                    "password": {
-                        "type": "string"
-                    },
-                    "username": {
-                        "type": "string"
-                    }
-                }
-            },
-            "Object": {
+            "CoCoObject": {
                 "type": "object",
                 "required": [
                     "classes"
@@ -1208,7 +1155,9 @@
                             "object",
                             "null"
                         ],
-                        "additionalProperties": {},
+                        "additionalProperties": {
+                            "$ref": "#/components/schemas/CoCoValue"
+                        },
                         "propertyNames": {
                             "type": "string"
                         }
@@ -1227,7 +1176,7 @@
                     }
                 }
             },
-            "Property": {
+            "CoCoProperty": {
                 "oneOf": [
                     {
                         "type": "object",
@@ -1655,6 +1604,140 @@
                     }
                 ]
             },
+            "CoCoRule": {
+                "type": "object",
+                "required": [
+                    "name",
+                    "content"
+                ],
+                "properties": {
+                    "content": {
+                        "type": "string"
+                    },
+                    "name": {
+                        "type": "string"
+                    }
+                }
+            },
+            "CoCoValue": {
+                "oneOf": [
+                    {
+                        "type": "null",
+                        "default": null
+                    },
+                    {
+                        "type": "boolean"
+                    },
+                    {
+                        "type": "integer",
+                        "format": "int64"
+                    },
+                    {
+                        "type": "number",
+                        "format": "double"
+                    },
+                    {
+                        "type": "string"
+                    },
+                    {
+                        "type": "string"
+                    },
+                    {
+                        "type": "string"
+                    },
+                    {
+                        "type": "array",
+                        "items": {
+                            "type": "boolean"
+                        }
+                    },
+                    {
+                        "type": "array",
+                        "items": {
+                            "type": "integer",
+                            "format": "int64"
+                        }
+                    },
+                    {
+                        "type": "array",
+                        "items": {
+                            "type": "number",
+                            "format": "double"
+                        }
+                    },
+                    {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    },
+                    {
+                        "type": "array",
+                        "items": {
+                            "type": "string"
+                        }
+                    }
+                ]
+            },
+            "CreateUserRequest": {
+                "type": "object",
+                "required": [
+                    "username",
+                    "password"
+                ],
+                "properties": {
+                    "password": {
+                        "type": "string"
+                    },
+                    "read_access": {
+                        "type": [
+                            "array",
+                            "null"
+                        ],
+                        "items": {
+                            "type": "string"
+                        },
+                        "uniqueItems": true
+                    },
+                    "role": {
+                        "$ref": "#/components/schemas/Role"
+                    },
+                    "username": {
+                        "type": "string"
+                    },
+                    "write_access": {
+                        "type": [
+                            "array",
+                            "null"
+                        ],
+                        "items": {
+                            "type": "string"
+                        },
+                        "uniqueItems": true
+                    }
+                }
+            },
+            "Credentials": {
+                "type": "object",
+                "required": [
+                    "username",
+                    "password"
+                ],
+                "properties": {
+                    "password": {
+                        "type": "string"
+                    },
+                    "username": {
+                        "type": "string"
+                    }
+                }
+            },
             "RefreshTokenRequest": {
                 "type": "object",
                 "required": [
@@ -1673,21 +1756,6 @@
                     "user"
                 ]
             },
-            "Rule": {
-                "type": "object",
-                "required": [
-                    "name",
-                    "content"
-                ],
-                "properties": {
-                    "content": {
-                        "type": "string"
-                    },
-                    "name": {
-                        "type": "string"
-                    }
-                }
-            },
             "TimedValue": {
                 "type": "object",
                 "required": [
@@ -1699,7 +1767,9 @@
                         "type": "string",
                         "format": "date-time"
                     },
-                    "value": {}
+                    "value": {
+                        "$ref": "#/components/schemas/CoCoValue"
+                    }
                 }
             },
             "UpdateUserRequest": {
@@ -1770,72 +1840,6 @@
                         "uniqueItems": true
                     }
                 }
-            },
-            "Value": {
-                "oneOf": [
-                    {
-                        "type": "null",
-                        "default": null
-                    },
-                    {
-                        "type": "boolean"
-                    },
-                    {
-                        "type": "integer",
-                        "format": "int64"
-                    },
-                    {
-                        "type": "number",
-                        "format": "double"
-                    },
-                    {
-                        "type": "string"
-                    },
-                    {
-                        "type": "string"
-                    },
-                    {
-                        "type": "string"
-                    },
-                    {
-                        "type": "array",
-                        "items": {
-                            "type": "boolean"
-                        }
-                    },
-                    {
-                        "type": "array",
-                        "items": {
-                            "type": "integer",
-                            "format": "int64"
-                        }
-                    },
-                    {
-                        "type": "array",
-                        "items": {
-                            "type": "number",
-                            "format": "double"
-                        }
-                    },
-                    {
-                        "type": "array",
-                        "items": {
-                            "type": "string"
-                        }
-                    },
-                    {
-                        "type": "array",
-                        "items": {
-                            "type": "string"
-                        }
-                    },
-                    {
-                        "type": "array",
-                        "items": {
-                            "type": "string"
-                        }
-                    }
-                ]
             }
         },
         "securitySchemes": {

@@ -1,6 +1,6 @@
 use crate::{
     kb::{KnowledgeBase, KnowledgeBaseError, KnowledgeBaseEvent},
-    model::{Class, Object, Property, Rule, TimedValue, Value},
+    model::{CoCoClass, CoCoObject, CoCoProperty, CoCoRule, CoCoValue, TimedValue},
 };
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
@@ -14,24 +14,24 @@ use tokio::sync::{mpsc, oneshot};
 use tracing::{error, info, trace};
 
 type Udf = Box<dyn FnMut(&mut Environment, &mut UDFContext) -> ClipsValue + Send>;
-type ClassPropertyMap = HashMap<String, HashMap<String, Property>>;
+type ClassPropertyMap = HashMap<String, HashMap<String, CoCoProperty>>;
 
 enum KBCommand {
-    GetClasses(oneshot::Sender<Result<Vec<Class>, KnowledgeBaseError>>),
-    GetClass(String, oneshot::Sender<Result<Option<Class>, KnowledgeBaseError>>),
-    CreateClass(Class, oneshot::Sender<Result<(), KnowledgeBaseError>>),
-    GetRules(oneshot::Sender<Result<Vec<Rule>, KnowledgeBaseError>>),
-    GetRule(String, oneshot::Sender<Result<Option<Rule>, KnowledgeBaseError>>),
-    CreateRule(Rule, oneshot::Sender<Result<(), KnowledgeBaseError>>),
-    GetObjects(oneshot::Sender<Result<Vec<Object>, KnowledgeBaseError>>),
-    GetObject(String, oneshot::Sender<Result<Option<Object>, KnowledgeBaseError>>),
-    CreateObject(Object, oneshot::Sender<Result<(), KnowledgeBaseError>>),
+    GetClasses(oneshot::Sender<Result<Vec<CoCoClass>, KnowledgeBaseError>>),
+    GetClass(String, oneshot::Sender<Result<Option<CoCoClass>, KnowledgeBaseError>>),
+    CreateClass(CoCoClass, oneshot::Sender<Result<(), KnowledgeBaseError>>),
+    GetRules(oneshot::Sender<Result<Vec<CoCoRule>, KnowledgeBaseError>>),
+    GetRule(String, oneshot::Sender<Result<Option<CoCoRule>, KnowledgeBaseError>>),
+    CreateRule(CoCoRule, oneshot::Sender<Result<(), KnowledgeBaseError>>),
+    GetObjects(oneshot::Sender<Result<Vec<CoCoObject>, KnowledgeBaseError>>),
+    GetObject(String, oneshot::Sender<Result<Option<CoCoObject>, KnowledgeBaseError>>),
+    CreateObject(CoCoObject, oneshot::Sender<Result<(), KnowledgeBaseError>>),
     GetStaticProperties(HashSet<String>, oneshot::Sender<Result<ClassPropertyMap, KnowledgeBaseError>>),
     GetDynamicProperties(HashSet<String>, oneshot::Sender<Result<ClassPropertyMap, KnowledgeBaseError>>),
     AddClass(String, String, oneshot::Sender<Result<(), KnowledgeBaseError>>),
     GetObjectClasses(String, oneshot::Sender<Result<HashSet<String>, KnowledgeBaseError>>),
-    SetProperties(String, HashMap<String, Value>, oneshot::Sender<Result<(), KnowledgeBaseError>>),
-    AddValues(String, HashMap<String, Value>, DateTime<Utc>, oneshot::Sender<Result<(), KnowledgeBaseError>>),
+    SetProperties(String, HashMap<String, CoCoValue>, oneshot::Sender<Result<(), KnowledgeBaseError>>),
+    AddValues(String, HashMap<String, CoCoValue>, DateTime<Utc>, oneshot::Sender<Result<(), KnowledgeBaseError>>),
     AddUDF(String, Option<Type>, u16, u16, Vec<Type>, Udf, oneshot::Sender<Result<(), KnowledgeBaseError>>),
 }
 
@@ -41,9 +41,9 @@ pub struct CLIPSKnowledgeBase {
 }
 
 struct ActorState {
-    classes: HashMap<String, Class>,
-    objects: HashMap<String, Object>,
-    rules: HashMap<String, Rule>,
+    classes: HashMap<String, CoCoClass>,
+    objects: HashMap<String, CoCoObject>,
+    rules: HashMap<String, CoCoRule>,
 
     instances: HashMap<String, HashMap<String, Fact>>,               // class name -> object id -> fact
     values: HashMap<String, HashMap<String, HashMap<String, Fact>>>, // class name -> object id -> property name -> fact
@@ -84,7 +84,7 @@ impl ActorState {
         Ok(visited)
     }
 
-    fn get_static_properties(&self, classes: &HashSet<String>) -> Result<HashMap<String, HashMap<String, Property>>, KnowledgeBaseError> {
+    fn get_static_properties(&self, classes: &HashSet<String>) -> Result<HashMap<String, HashMap<String, CoCoProperty>>, KnowledgeBaseError> {
         let all_classes = self.get_class_hierarchy(classes)?;
         let mut class_properties = HashMap::new();
 
@@ -105,7 +105,7 @@ impl ActorState {
         Ok(class_properties)
     }
 
-    fn get_dynamic_properties(&self, classes: &HashSet<String>) -> Result<HashMap<String, HashMap<String, Property>>, KnowledgeBaseError> {
+    fn get_dynamic_properties(&self, classes: &HashSet<String>) -> Result<HashMap<String, HashMap<String, CoCoProperty>>, KnowledgeBaseError> {
         let all_classes = self.get_class_hierarchy(classes)?;
         let mut class_properties = HashMap::new();
 
@@ -126,15 +126,15 @@ impl ActorState {
         Ok(class_properties)
     }
 
-    fn get_classes(&self) -> Vec<Class> {
+    fn get_classes(&self) -> Vec<CoCoClass> {
         self.classes.values().cloned().collect()
     }
 
-    fn get_class(&self, name: &str) -> Option<Class> {
+    fn get_class(&self, name: &str) -> Option<CoCoClass> {
         self.classes.get(name).cloned()
     }
 
-    fn create_class(&mut self, env: &mut Environment, class: Class) -> Result<(), KnowledgeBaseError> {
+    fn create_class(&mut self, env: &mut Environment, class: CoCoClass) -> Result<(), KnowledgeBaseError> {
         if self.classes.contains_key(&class.name) {
             return Err(KnowledgeBaseError::ClassAlreadyExists(class.name));
         }
@@ -153,15 +153,15 @@ impl ActorState {
         Ok(())
     }
 
-    fn get_rules(&self) -> Vec<Rule> {
+    fn get_rules(&self) -> Vec<CoCoRule> {
         self.rules.values().cloned().collect()
     }
 
-    fn get_rule(&self, name: &str) -> Option<Rule> {
+    fn get_rule(&self, name: &str) -> Option<CoCoRule> {
         self.rules.get(name).cloned()
     }
 
-    fn create_rule(&mut self, env: &mut Environment, rule: Rule) -> Result<(), KnowledgeBaseError> {
+    fn create_rule(&mut self, env: &mut Environment, rule: CoCoRule) -> Result<(), KnowledgeBaseError> {
         if self.rules.contains_key(&rule.name) {
             return Err(KnowledgeBaseError::RuleAlreadyExists(rule.name.clone()));
         }
@@ -172,15 +172,15 @@ impl ActorState {
         Ok(())
     }
 
-    fn get_objects(&self) -> Vec<Object> {
+    fn get_objects(&self) -> Vec<CoCoObject> {
         self.objects.values().cloned().collect()
     }
 
-    fn get_object(&self, object_id: String) -> Option<Object> {
+    fn get_object(&self, object_id: String) -> Option<CoCoObject> {
         self.objects.get(&object_id).cloned()
     }
 
-    fn create_object(&mut self, env: &mut Environment, object: Object) -> Result<(), KnowledgeBaseError> {
+    fn create_object(&mut self, env: &mut Environment, object: CoCoObject) -> Result<(), KnowledgeBaseError> {
         let object_id = object.id.clone().ok_or(KnowledgeBaseError::ObjectIDRequired)?;
         if self.objects.contains_key(&object_id) {
             return Err(KnowledgeBaseError::ObjectAlreadyExists(object_id));
@@ -301,7 +301,7 @@ impl ActorState {
         Ok(())
     }
 
-    fn set_properties(&mut self, env: &mut Environment, object_id: &str, properties: &HashMap<String, Value>) -> Result<(), KnowledgeBaseError> {
+    fn set_properties(&mut self, env: &mut Environment, object_id: &str, properties: &HashMap<String, CoCoValue>) -> Result<(), KnowledgeBaseError> {
         let static_props = self.get_static_properties(&self.objects.get(object_id).ok_or_else(|| KnowledgeBaseError::ObjectNotFound(object_id.to_owned()))?.classes)?;
         let object = self.objects.get_mut(object_id).ok_or_else(|| KnowledgeBaseError::ObjectNotFound(object_id.to_owned()))?;
         for (class_name, props) in static_props {
@@ -319,7 +319,7 @@ impl ActorState {
         Ok(())
     }
 
-    fn add_values(&mut self, env: &mut Environment, object_id: &str, values: &HashMap<String, Value>, timestamp: DateTime<Utc>) -> Result<(), KnowledgeBaseError> {
+    fn add_values(&mut self, env: &mut Environment, object_id: &str, values: &HashMap<String, CoCoValue>, timestamp: DateTime<Utc>) -> Result<(), KnowledgeBaseError> {
         let dynamic_props = self.get_dynamic_properties(&self.objects.get(object_id).ok_or_else(|| KnowledgeBaseError::ObjectNotFound(object_id.to_owned()))?.classes)?;
         let object = self.objects.get_mut(object_id).ok_or_else(|| KnowledgeBaseError::ObjectNotFound(object_id.to_owned()))?;
         for (class_name, props) in dynamic_props {
@@ -412,20 +412,20 @@ impl CLIPSKnowledgeBase {
                         return ClipsValue::Void();
                     }
                 };
-                let vals: Vec<Value> = match ctx.get_next_argument(Type(Type::MULTIFIELD)) {
+                let vals: Vec<CoCoValue> = match ctx.get_next_argument(Type(Type::MULTIFIELD)) {
                     Some(ClipsValue::Multifield(mf)) => {
                         let mut out = Vec::with_capacity(mf.len());
                         for v in mf {
                             let value = match v {
-                                ClipsValue::Integer(i) => Value::Int(i),
-                                ClipsValue::Float(f) => Value::Float(f),
+                                ClipsValue::Integer(i) => CoCoValue::Int(i),
+                                ClipsValue::Float(f) => CoCoValue::Float(f),
                                 ClipsValue::Symbol(s) => match s.as_str() {
-                                    "TRUE" => Value::Bool(true),
-                                    "FALSE" => Value::Bool(false),
-                                    "nil" => Value::Null,
-                                    other => Value::Symbol(other.to_owned()),
+                                    "TRUE" => CoCoValue::Bool(true),
+                                    "FALSE" => CoCoValue::Bool(false),
+                                    "nil" => CoCoValue::Null,
+                                    other => CoCoValue::Symbol(other.to_owned()),
                                 },
-                                ClipsValue::String(s) => Value::String(s),
+                                ClipsValue::String(s) => CoCoValue::String(s),
                                 _ => {
                                     error!("Expected symbol, integer, float, or string in values multifield for set-properties UDF");
                                     return ClipsValue::Void();
@@ -441,7 +441,7 @@ impl CLIPSKnowledgeBase {
                     }
                 };
 
-                let properties: HashMap<String, Value> = props.into_iter().zip(vals).collect();
+                let properties: HashMap<String, CoCoValue> = props.into_iter().zip(vals).collect();
                 trace!("CLIPS UDF 'set-properties' called with object_id='{}' and properties={:?}", object_id, properties);
                 match state.set_properties(env, &object_id, &properties) {
                     Ok(_) => {
@@ -487,20 +487,20 @@ impl CLIPSKnowledgeBase {
                         return ClipsValue::Void();
                     }
                 };
-                let vals: Vec<Value> = match ctx.get_next_argument(Type(Type::MULTIFIELD)) {
+                let vals: Vec<CoCoValue> = match ctx.get_next_argument(Type(Type::MULTIFIELD)) {
                     Some(ClipsValue::Multifield(mf)) => {
                         let mut out = Vec::with_capacity(mf.len());
                         for v in mf {
                             let value = match v {
-                                ClipsValue::Integer(i) => Value::Int(i),
-                                ClipsValue::Float(f) => Value::Float(f),
+                                ClipsValue::Integer(i) => CoCoValue::Int(i),
+                                ClipsValue::Float(f) => CoCoValue::Float(f),
                                 ClipsValue::Symbol(s) => match s.as_str() {
-                                    "TRUE" => Value::Bool(true),
-                                    "FALSE" => Value::Bool(false),
-                                    "nil" => Value::Null,
-                                    other => Value::Symbol(other.to_owned()),
+                                    "TRUE" => CoCoValue::Bool(true),
+                                    "FALSE" => CoCoValue::Bool(false),
+                                    "nil" => CoCoValue::Null,
+                                    other => CoCoValue::Symbol(other.to_owned()),
                                 },
-                                ClipsValue::String(s) => Value::String(s),
+                                ClipsValue::String(s) => CoCoValue::String(s),
                                 _ => {
                                     error!("Expected symbol, integer, float, or string in values multifield for add-data UDF");
                                     return ClipsValue::Void();
@@ -533,7 +533,7 @@ impl CLIPSKnowledgeBase {
                     Utc::now()
                 };
 
-                let values: HashMap<String, Value> = args.into_iter().zip(vals).collect();
+                let values: HashMap<String, CoCoValue> = args.into_iter().zip(vals).collect();
                 trace!("CLIPS UDF 'add-data' called with object_id='{}', values={:?}, and date_time={}", object_id, values, date_time);
                 match state.add_values(env, &object_id, &values, date_time) {
                     Ok(_) => {
@@ -641,59 +641,59 @@ impl CLIPSKnowledgeBase {
 
 #[async_trait]
 impl KnowledgeBase for CLIPSKnowledgeBase {
-    async fn get_classes(&self) -> Result<Vec<Class>, KnowledgeBaseError> {
+    async fn get_classes(&self) -> Result<Vec<CoCoClass>, KnowledgeBaseError> {
         let (resp_tx, resp_rx) = oneshot::channel();
         self.command_tx.send(KBCommand::GetClasses(resp_tx)).map_err(|_| KnowledgeBaseError::KBError("Failed to send GetClasses command to CLIPS knowledge base actor".to_owned()))?;
         resp_rx.await.map_err(|_| KnowledgeBaseError::KBError("Failed to receive response for GetClasses command from CLIPS knowledge base actor".to_owned()))?
     }
-    async fn get_class(&self, name: &str) -> Result<Option<Class>, KnowledgeBaseError> {
+    async fn get_class(&self, name: &str) -> Result<Option<CoCoClass>, KnowledgeBaseError> {
         let (resp_tx, resp_rx) = oneshot::channel();
         self.command_tx.send(KBCommand::GetClass(name.to_owned(), resp_tx)).map_err(|_| KnowledgeBaseError::KBError("Failed to send GetClass command to CLIPS knowledge base actor".to_owned()))?;
         resp_rx.await.map_err(|_| KnowledgeBaseError::KBError("Failed to receive response for GetClass command from CLIPS knowledge base actor".to_owned()))?
     }
-    async fn create_class(&self, class: Class) -> Result<(), KnowledgeBaseError> {
+    async fn create_class(&self, class: CoCoClass) -> Result<(), KnowledgeBaseError> {
         let (resp_tx, resp_rx) = oneshot::channel();
         self.command_tx.send(KBCommand::CreateClass(class, resp_tx)).map_err(|_| KnowledgeBaseError::KBError("Failed to send CreateClass command to CLIPS knowledge base actor".to_owned()))?;
         resp_rx.await.map_err(|_| KnowledgeBaseError::KBError("Failed to receive response for CreateClass command from CLIPS knowledge base actor".to_owned()))?
     }
-    async fn get_static_properties(&self, class_names: HashSet<String>) -> Result<HashMap<String, HashMap<String, Property>>, KnowledgeBaseError> {
+    async fn get_static_properties(&self, class_names: HashSet<String>) -> Result<HashMap<String, HashMap<String, CoCoProperty>>, KnowledgeBaseError> {
         let (resp_tx, resp_rx) = oneshot::channel();
         self.command_tx.send(KBCommand::GetStaticProperties(class_names, resp_tx)).map_err(|_| KnowledgeBaseError::KBError("Failed to send GetStaticProperties command to CLIPS knowledge base actor".to_owned()))?;
         resp_rx.await.map_err(|_| KnowledgeBaseError::KBError("Failed to receive response for GetStaticProperties command from CLIPS knowledge base actor".to_owned()))?
     }
-    async fn get_dynamic_properties(&self, class_names: HashSet<String>) -> Result<HashMap<String, HashMap<String, Property>>, KnowledgeBaseError> {
+    async fn get_dynamic_properties(&self, class_names: HashSet<String>) -> Result<HashMap<String, HashMap<String, CoCoProperty>>, KnowledgeBaseError> {
         let (resp_tx, resp_rx) = oneshot::channel();
         self.command_tx.send(KBCommand::GetDynamicProperties(class_names, resp_tx)).map_err(|_| KnowledgeBaseError::KBError("Failed to send GetDynamicProperties command to CLIPS knowledge base actor".to_owned()))?;
         resp_rx.await.map_err(|_| KnowledgeBaseError::KBError("Failed to receive response for GetDynamicProperties command from CLIPS knowledge base actor".to_owned()))?
     }
 
-    async fn get_rules(&self) -> Result<Vec<Rule>, KnowledgeBaseError> {
+    async fn get_rules(&self) -> Result<Vec<CoCoRule>, KnowledgeBaseError> {
         let (resp_tx, resp_rx) = oneshot::channel();
         self.command_tx.send(KBCommand::GetRules(resp_tx)).map_err(|_| KnowledgeBaseError::KBError("Failed to send GetRules command to CLIPS knowledge base actor".to_owned()))?;
         resp_rx.await.map_err(|_| KnowledgeBaseError::KBError("Failed to receive response for GetRules command from CLIPS knowledge base actor".to_owned()))?
     }
-    async fn get_rule(&self, name: &str) -> Result<Option<Rule>, KnowledgeBaseError> {
+    async fn get_rule(&self, name: &str) -> Result<Option<CoCoRule>, KnowledgeBaseError> {
         let (resp_tx, resp_rx) = oneshot::channel();
         self.command_tx.send(KBCommand::GetRule(name.to_owned(), resp_tx)).map_err(|_| KnowledgeBaseError::KBError("Failed to send GetRule command to CLIPS knowledge base actor".to_owned()))?;
         resp_rx.await.map_err(|_| KnowledgeBaseError::KBError("Failed to receive response for GetRule command from CLIPS knowledge base actor".to_owned()))?
     }
-    async fn create_rule(&self, rule: Rule) -> Result<(), KnowledgeBaseError> {
+    async fn create_rule(&self, rule: CoCoRule) -> Result<(), KnowledgeBaseError> {
         let (resp_tx, resp_rx) = oneshot::channel();
         self.command_tx.send(KBCommand::CreateRule(rule, resp_tx)).map_err(|_| KnowledgeBaseError::KBError("Failed to send CreateRule command to CLIPS knowledge base actor".to_owned()))?;
         resp_rx.await.map_err(|_| KnowledgeBaseError::KBError("Failed to receive response for CreateRule command from CLIPS knowledge base actor".to_owned()))?
     }
 
-    async fn get_objects(&self) -> Result<Vec<Object>, KnowledgeBaseError> {
+    async fn get_objects(&self) -> Result<Vec<CoCoObject>, KnowledgeBaseError> {
         let (resp_tx, resp_rx) = oneshot::channel();
         self.command_tx.send(KBCommand::GetObjects(resp_tx)).map_err(|_| KnowledgeBaseError::KBError("Failed to send GetObjects command to CLIPS knowledge base actor".to_owned()))?;
         resp_rx.await.map_err(|_| KnowledgeBaseError::KBError("Failed to receive response for GetObjects command from CLIPS knowledge base actor".to_owned()))?
     }
-    async fn get_object(&self, object_id: String) -> Result<Option<Object>, KnowledgeBaseError> {
+    async fn get_object(&self, object_id: String) -> Result<Option<CoCoObject>, KnowledgeBaseError> {
         let (resp_tx, resp_rx) = oneshot::channel();
         self.command_tx.send(KBCommand::GetObject(object_id, resp_tx)).map_err(|_| KnowledgeBaseError::KBError("Failed to send GetObject command to CLIPS knowledge base actor".to_owned()))?;
         resp_rx.await.map_err(|_| KnowledgeBaseError::KBError("Failed to receive response for GetObject command from CLIPS knowledge base actor".to_owned()))?
     }
-    async fn create_object(&self, object: Object) -> Result<(), KnowledgeBaseError> {
+    async fn create_object(&self, object: CoCoObject) -> Result<(), KnowledgeBaseError> {
         let (resp_tx, resp_rx) = oneshot::channel();
         self.command_tx.send(KBCommand::CreateObject(object, resp_tx)).map_err(|_| KnowledgeBaseError::KBError("Failed to send CreateObject command to CLIPS knowledge base actor".to_owned()))?;
         resp_rx.await.map_err(|_| KnowledgeBaseError::KBError("Failed to receive response for CreateObject command from CLIPS knowledge base actor".to_owned()))?
@@ -708,22 +708,22 @@ impl KnowledgeBase for CLIPSKnowledgeBase {
         self.command_tx.send(KBCommand::GetObjectClasses(object_id, resp_tx)).map_err(|_| KnowledgeBaseError::KBError("Failed to send GetObjectClasses command to CLIPS knowledge base actor".to_owned()))?;
         resp_rx.await.map_err(|_| KnowledgeBaseError::KBError("Failed to receive response for GetObjectClasses command from CLIPS knowledge base actor".to_owned()))?
     }
-    async fn set_properties(&self, object_id: String, properties: HashMap<String, Value>) -> Result<(), KnowledgeBaseError> {
+    async fn set_properties(&self, object_id: String, properties: HashMap<String, CoCoValue>) -> Result<(), KnowledgeBaseError> {
         let (resp_tx, resp_rx) = oneshot::channel();
         self.command_tx.send(KBCommand::SetProperties(object_id, properties, resp_tx)).map_err(|_| KnowledgeBaseError::KBError("Failed to send SetProperties command to CLIPS knowledge base actor".to_owned()))?;
         resp_rx.await.map_err(|_| KnowledgeBaseError::KBError("Failed to receive response for SetProperties command from CLIPS knowledge base actor".to_owned()))?
     }
-    async fn add_values(&self, object_id: String, values: HashMap<String, Value>, date_time: DateTime<Utc>) -> Result<(), KnowledgeBaseError> {
+    async fn add_values(&self, object_id: String, values: HashMap<String, CoCoValue>, date_time: DateTime<Utc>) -> Result<(), KnowledgeBaseError> {
         let (resp_tx, resp_rx) = oneshot::channel();
         self.command_tx.send(KBCommand::AddValues(object_id, values, date_time, resp_tx)).map_err(|_| KnowledgeBaseError::KBError("Failed to send AddValues command to CLIPS knowledge base actor".to_owned()))?;
         resp_rx.await.map_err(|_| KnowledgeBaseError::KBError("Failed to receive response for AddValues command from CLIPS knowledge base actor".to_owned()))?
     }
 }
 
-fn prop_deftemplate(class: &Class, name: &str, property: &Property, is_static: bool) -> String {
+fn prop_deftemplate(class: &CoCoClass, name: &str, property: &CoCoProperty, is_static: bool) -> String {
     let mut def = format!("(deftemplate {}_{} (slot id (type SYMBOL))", class.name, name);
     match property {
-        Property::Bool { default, .. } => {
+        CoCoProperty::Bool { default, .. } => {
             def.push_str(" (slot value (type SYMBOL) (allowed-symbols TRUE FALSE nil)");
             if let Some(def_val) = default {
                 def.push_str(&format!(" (default {})", if *def_val { "TRUE" } else { "FALSE" }));
@@ -737,7 +737,7 @@ fn prop_deftemplate(class: &Class, name: &str, property: &Property, is_static: b
             def.push(')');
             def
         }
-        Property::Int { default, min, max, .. } => {
+        CoCoProperty::Int { default, min, max, .. } => {
             def.push_str(" (slot value (type INTEGER SYMBOL) (allowed-symbols nil)");
             if let Some(def_val) = default {
                 def.push_str(&format!(" (default {})", def_val));
@@ -756,7 +756,7 @@ fn prop_deftemplate(class: &Class, name: &str, property: &Property, is_static: b
             def.push(')');
             def
         }
-        Property::Float { default, min, max, .. } => {
+        CoCoProperty::Float { default, min, max, .. } => {
             def.push_str(" (slot value (type FLOAT SYMBOL) (allowed-symbols nil)");
             if let Some(def_val) = default {
                 let def_str = def_val.to_string();
@@ -787,7 +787,7 @@ fn prop_deftemplate(class: &Class, name: &str, property: &Property, is_static: b
             def.push(')');
             def
         }
-        Property::String { default, .. } => {
+        CoCoProperty::String { default, .. } => {
             def.push_str(" (slot value (type STRING SYMBOL) (allowed-symbols nil)");
             if let Some(def_val) = default {
                 def.push_str(&format!(" (default \"{}\")", def_val));
@@ -801,7 +801,7 @@ fn prop_deftemplate(class: &Class, name: &str, property: &Property, is_static: b
             def.push(')');
             def
         }
-        Property::Symbol { default, allowed_values, .. } => {
+        CoCoProperty::Symbol { default, allowed_values, .. } => {
             def.push_str(" (slot value (type SYMBOL)");
             if let Some(allowed) = allowed_values {
                 def.push_str(" (allowed-symbols nil");
@@ -823,7 +823,7 @@ fn prop_deftemplate(class: &Class, name: &str, property: &Property, is_static: b
             def.push(')');
             def
         }
-        Property::Object { default, .. } => {
+        CoCoProperty::Object { default, .. } => {
             def.push_str(" (slot value (type SYMBOL)");
             if let Some(def_val) = default {
                 def.push_str(&format!(" (default {})", def_val));
@@ -837,7 +837,7 @@ fn prop_deftemplate(class: &Class, name: &str, property: &Property, is_static: b
             def.push(')');
             def
         }
-        Property::BoolArray { default, .. } => {
+        CoCoProperty::BoolArray { default, .. } => {
             def.push_str(" (multislot value (type SYMBOL) (allowed-symbols TRUE FALSE nil)");
             if let Some(def_val) = default {
                 let def_str = def_val.iter().map(|b| if *b { "TRUE" } else { "FALSE" }).collect::<Vec<_>>().join(" ");
@@ -850,7 +850,7 @@ fn prop_deftemplate(class: &Class, name: &str, property: &Property, is_static: b
             def.push(')');
             def
         }
-        Property::IntArray { default, min, max, .. } => {
+        CoCoProperty::IntArray { default, min, max, .. } => {
             def.push_str(" (multislot value (type INTEGER SYMBOL) (allowed-symbols nil)");
             if let Some(def_val) = default {
                 let def_str = def_val.iter().map(|i| i.to_string()).collect::<Vec<_>>().join(" ");
@@ -868,7 +868,7 @@ fn prop_deftemplate(class: &Class, name: &str, property: &Property, is_static: b
             def.push(')');
             def
         }
-        Property::FloatArray { default, min, max, .. } => {
+        CoCoProperty::FloatArray { default, min, max, .. } => {
             def.push_str(" (multislot value (type FLOAT SYMBOL) (allowed-symbols nil)");
             if let Some(def_val) = default {
                 let def_str = def_val
@@ -903,7 +903,7 @@ fn prop_deftemplate(class: &Class, name: &str, property: &Property, is_static: b
             def.push(')');
             def
         }
-        Property::StringArray { default, .. } => {
+        CoCoProperty::StringArray { default, .. } => {
             def.push_str(" (multislot value (type STRING SYMBOL) (allowed-symbols nil)");
             if let Some(def_val) = default {
                 let def_str = def_val.iter().map(|s| format!("\"{}\"", s)).collect::<Vec<_>>().join(" ");
@@ -916,7 +916,7 @@ fn prop_deftemplate(class: &Class, name: &str, property: &Property, is_static: b
             def.push(')');
             def
         }
-        Property::SymbolArray { default, allowed_values, .. } => {
+        CoCoProperty::SymbolArray { default, allowed_values, .. } => {
             def.push_str(" (multislot value (type SYMBOL)");
             if let Some(allowed) = allowed_values {
                 def.push_str(" (allowed-symbols nil");
@@ -936,7 +936,7 @@ fn prop_deftemplate(class: &Class, name: &str, property: &Property, is_static: b
             def.push(')');
             def
         }
-        Property::ObjectArray { default, .. } => {
+        CoCoProperty::ObjectArray { default, .. } => {
             def.push_str(" (multislot value (type SYMBOL)");
             if let Some(def_val) = default {
                 let def_str = def_val.iter().map(|o| o.as_str()).collect::<Vec<_>>().join(" ");
@@ -954,130 +954,130 @@ fn prop_deftemplate(class: &Class, name: &str, property: &Property, is_static: b
     }
 }
 
-fn set_prop(env: &Environment, fb: FactBuilder, property: &Property, value: Value, time: Option<DateTime<Utc>>) -> Result<FactBuilder, KnowledgeBaseError> {
+fn set_prop(env: &Environment, fb: FactBuilder, property: &CoCoProperty, value: CoCoValue, time: Option<DateTime<Utc>>) -> Result<FactBuilder, KnowledgeBaseError> {
     let builder = match (property, value) {
-        (Property::Bool { .. }, Value::Bool(b)) => fb.put_symbol("value", if b { "TRUE" } else { "FALSE" }).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set bool property value: {}", e))),
-        (Property::Bool { .. }, Value::Null) => fb.put_symbol("value", "nil").map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set null value for bool property: {}", e))),
-        (Property::Int { .. }, Value::Int(i)) => fb.put_int("value", i).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set int property value: {}", e))),
-        (Property::Int { .. }, Value::Null) => fb.put_symbol("value", "nil").map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set null value for int property: {}", e))),
-        (Property::Float { .. }, Value::Float(f)) => fb.put_float("value", f).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set float property value: {}", e))),
-        (Property::Float { .. }, Value::Null) => fb.put_symbol("value", "nil").map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set null value for float property: {}", e))),
-        (Property::String { .. }, Value::String(s)) => fb.put_string("value", s.as_str()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set string property value: {}", e))),
-        (Property::String { .. }, Value::Null) => fb.put_symbol("value", "nil").map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set null value for string property: {}", e))),
-        (Property::Symbol { .. }, Value::Symbol(s)) => fb.put_symbol("value", s.as_str()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set symbol property value: {}", e))),
-        (Property::Symbol { .. }, Value::Null) => fb.put_symbol("value", "nil").map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set null value for symbol property: {}", e))),
-        (Property::Object { .. }, Value::Object(o)) => fb.put_symbol("value", o.as_str()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set object property value: {}", e))),
-        (Property::Object { .. }, Value::Null) => fb.put_symbol("value", "nil").map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set null value for object property: {}", e))),
-        (Property::BoolArray { .. }, Value::BoolArray(arr)) => {
+        (CoCoProperty::Bool { .. }, CoCoValue::Bool(b)) => fb.put_symbol("value", if b { "TRUE" } else { "FALSE" }).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set bool property value: {}", e))),
+        (CoCoProperty::Bool { .. }, CoCoValue::Null) => fb.put_symbol("value", "nil").map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set null value for bool property: {}", e))),
+        (CoCoProperty::Int { .. }, CoCoValue::Int(i)) => fb.put_int("value", i).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set int property value: {}", e))),
+        (CoCoProperty::Int { .. }, CoCoValue::Null) => fb.put_symbol("value", "nil").map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set null value for int property: {}", e))),
+        (CoCoProperty::Float { .. }, CoCoValue::Float(f)) => fb.put_float("value", f).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set float property value: {}", e))),
+        (CoCoProperty::Float { .. }, CoCoValue::Null) => fb.put_symbol("value", "nil").map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set null value for float property: {}", e))),
+        (CoCoProperty::String { .. }, CoCoValue::String(s)) => fb.put_string("value", s.as_str()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set string property value: {}", e))),
+        (CoCoProperty::String { .. }, CoCoValue::Null) => fb.put_symbol("value", "nil").map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set null value for string property: {}", e))),
+        (CoCoProperty::Symbol { .. }, CoCoValue::Symbol(s)) => fb.put_symbol("value", s.as_str()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set symbol property value: {}", e))),
+        (CoCoProperty::Symbol { .. }, CoCoValue::Null) => fb.put_symbol("value", "nil").map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set null value for symbol property: {}", e))),
+        (CoCoProperty::Object { .. }, CoCoValue::Object(o)) => fb.put_symbol("value", o.as_str()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set object property value: {}", e))),
+        (CoCoProperty::Object { .. }, CoCoValue::Null) => fb.put_symbol("value", "nil").map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set null value for object property: {}", e))),
+        (CoCoProperty::BoolArray { .. }, CoCoValue::BoolArray(arr)) => {
             let builder = env.multifield_builder(arr.len()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to create multifield for bool array: {}", e)))?;
             let builder = arr.iter().fold(builder, |bld, &b| bld.put_symbol(if b { "TRUE" } else { "FALSE" }));
             fb.put_multifield("value", builder.create()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set bool array property value: {}", e)))
         }
-        (Property::BoolArray { .. }, Value::Null) => fb.put_symbol("value", "nil").map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set null value for bool array property: {}", e))),
-        (Property::IntArray { .. }, Value::IntArray(arr)) => {
+        (CoCoProperty::BoolArray { .. }, CoCoValue::Null) => fb.put_symbol("value", "nil").map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set null value for bool array property: {}", e))),
+        (CoCoProperty::IntArray { .. }, CoCoValue::IntArray(arr)) => {
             let builder = env.multifield_builder(arr.len()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to create multifield for int array: {}", e)))?;
             let builder = arr.iter().fold(builder, |bld, &i| bld.put_int(i));
             fb.put_multifield("value", builder.create()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set int array property value: {}", e)))
         }
-        (Property::IntArray { .. }, Value::Null) => fb.put_symbol("value", "nil").map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set null value for int array property: {}", e))),
-        (Property::FloatArray { .. }, Value::FloatArray(arr)) => {
+        (CoCoProperty::IntArray { .. }, CoCoValue::Null) => fb.put_symbol("value", "nil").map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set null value for int array property: {}", e))),
+        (CoCoProperty::FloatArray { .. }, CoCoValue::FloatArray(arr)) => {
             let builder = env.multifield_builder(arr.len()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to create multifield for float array: {}", e)))?;
             let builder = arr.iter().fold(builder, |bld, &f| bld.put_float(f));
             fb.put_multifield("value", builder.create()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set float array property value: {}", e)))
         }
-        (Property::FloatArray { .. }, Value::Null) => fb.put_symbol("value", "nil").map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set null value for float array property: {}", e))),
-        (Property::StringArray { .. }, Value::StringArray(arr)) => {
+        (CoCoProperty::FloatArray { .. }, CoCoValue::Null) => fb.put_symbol("value", "nil").map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set null value for float array property: {}", e))),
+        (CoCoProperty::StringArray { .. }, CoCoValue::StringArray(arr)) => {
             let builder = env.multifield_builder(arr.len()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to create multifield for string array: {}", e)))?;
             let builder = arr.iter().fold(builder, |bld, s| bld.put_string(s.as_str()));
             fb.put_multifield("value", builder.create()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set string array property value: {}", e)))
         }
-        (Property::StringArray { .. }, Value::Null) => fb.put_symbol("value", "nil").map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set null value for string array property: {}", e))),
-        (Property::SymbolArray { .. }, Value::StringArray(arr)) => {
+        (CoCoProperty::StringArray { .. }, CoCoValue::Null) => fb.put_symbol("value", "nil").map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set null value for string array property: {}", e))),
+        (CoCoProperty::SymbolArray { .. }, CoCoValue::StringArray(arr)) => {
             let builder = env.multifield_builder(arr.len()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to create multifield for symbol array: {}", e)))?;
             let builder = arr.iter().fold(builder, |bld, s| bld.put_symbol(s.as_str()));
             fb.put_multifield("value", builder.create()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set symbol array property value: {}", e)))
         }
-        (Property::SymbolArray { .. }, Value::Null) => fb.put_symbol("value", "nil").map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set null value for symbol array property: {}", e))),
-        (Property::ObjectArray { .. }, Value::StringArray(arr)) => {
+        (CoCoProperty::SymbolArray { .. }, CoCoValue::Null) => fb.put_symbol("value", "nil").map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set null value for symbol array property: {}", e))),
+        (CoCoProperty::ObjectArray { .. }, CoCoValue::StringArray(arr)) => {
             let builder = env.multifield_builder(arr.len()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to create multifield for object array: {}", e)))?;
             let builder = arr.iter().fold(builder, |bld, o| bld.put_symbol(o.as_str()));
             fb.put_multifield("value", builder.create()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set object array property value: {}", e)))
         }
-        (Property::ObjectArray { .. }, Value::Null) => fb.put_symbol("value", "nil").map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set null value for object array property: {}", e))),
+        (CoCoProperty::ObjectArray { .. }, CoCoValue::Null) => fb.put_symbol("value", "nil").map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set null value for object array property: {}", e))),
         _ => Err(KnowledgeBaseError::KBError("Property type and value type do not match".to_owned())),
     };
     if let Some(t) = time { builder.and_then(|fb| fb.put_int("time", t.timestamp()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set time slot for property value: {}", e)))) } else { builder }
 }
 
-fn update_prop(env: &Environment, fm: FactModifier, property: &Property, value: Value, time: Option<DateTime<Utc>>) -> Result<FactModifier, KnowledgeBaseError> {
+fn update_prop(env: &Environment, fm: FactModifier, property: &CoCoProperty, value: CoCoValue, time: Option<DateTime<Utc>>) -> Result<FactModifier, KnowledgeBaseError> {
     let modifier = match (property, value) {
-        (Property::Bool { .. }, Value::Bool(b)) => fm.put_symbol("value", if b { "TRUE" } else { "FALSE" }).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set bool property value: {}", e))),
-        (Property::Bool { .. }, Value::Null) => fm.put_symbol("value", "nil").map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set null value for bool property: {}", e))),
-        (Property::Int { .. }, Value::Int(i)) => fm.put_int("value", i).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set int property value: {}", e))),
-        (Property::Int { .. }, Value::Null) => fm.put_symbol("value", "nil").map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set null value for int property: {}", e))),
-        (Property::Float { .. }, Value::Float(f)) => fm.put_float("value", f).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set float property value: {}", e))),
-        (Property::Float { .. }, Value::Null) => fm.put_symbol("value", "nil").map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set null value for float property: {}", e))),
-        (Property::String { .. }, Value::String(s)) => fm.put_string("value", s.as_str()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set string property value: {}", e))),
-        (Property::String { .. }, Value::Null) => fm.put_symbol("value", "nil").map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set null value for string property: {}", e))),
-        (Property::Symbol { .. }, Value::Symbol(s)) => fm.put_symbol("value", s.as_str()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set symbol property value: {}", e))),
-        (Property::Symbol { .. }, Value::Null) => fm.put_symbol("value", "nil").map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set null value for symbol property: {}", e))),
-        (Property::Object { .. }, Value::Object(o)) => fm.put_symbol("value", o.as_str()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set object property value: {}", e))),
-        (Property::Object { .. }, Value::Null) => fm.put_symbol("value", "nil").map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set null value for object property: {}", e))),
-        (Property::BoolArray { .. }, Value::BoolArray(arr)) => {
+        (CoCoProperty::Bool { .. }, CoCoValue::Bool(b)) => fm.put_symbol("value", if b { "TRUE" } else { "FALSE" }).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set bool property value: {}", e))),
+        (CoCoProperty::Bool { .. }, CoCoValue::Null) => fm.put_symbol("value", "nil").map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set null value for bool property: {}", e))),
+        (CoCoProperty::Int { .. }, CoCoValue::Int(i)) => fm.put_int("value", i).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set int property value: {}", e))),
+        (CoCoProperty::Int { .. }, CoCoValue::Null) => fm.put_symbol("value", "nil").map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set null value for int property: {}", e))),
+        (CoCoProperty::Float { .. }, CoCoValue::Float(f)) => fm.put_float("value", f).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set float property value: {}", e))),
+        (CoCoProperty::Float { .. }, CoCoValue::Null) => fm.put_symbol("value", "nil").map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set null value for float property: {}", e))),
+        (CoCoProperty::String { .. }, CoCoValue::String(s)) => fm.put_string("value", s.as_str()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set string property value: {}", e))),
+        (CoCoProperty::String { .. }, CoCoValue::Null) => fm.put_symbol("value", "nil").map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set null value for string property: {}", e))),
+        (CoCoProperty::Symbol { .. }, CoCoValue::Symbol(s)) => fm.put_symbol("value", s.as_str()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set symbol property value: {}", e))),
+        (CoCoProperty::Symbol { .. }, CoCoValue::Null) => fm.put_symbol("value", "nil").map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set null value for symbol property: {}", e))),
+        (CoCoProperty::Object { .. }, CoCoValue::Object(o)) => fm.put_symbol("value", o.as_str()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set object property value: {}", e))),
+        (CoCoProperty::Object { .. }, CoCoValue::Null) => fm.put_symbol("value", "nil").map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set null value for object property: {}", e))),
+        (CoCoProperty::BoolArray { .. }, CoCoValue::BoolArray(arr)) => {
             let builder = env.multifield_builder(arr.len()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to create multifield for bool array: {}", e)))?;
             let builder = arr.iter().fold(builder, |bld, &b| bld.put_symbol(if b { "TRUE" } else { "FALSE" }));
             fm.put_multifield("value", builder.create()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set bool array property value: {}", e)))
         }
-        (Property::BoolArray { .. }, Value::Null) => fm.put_symbol("value", "nil").map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set null value for bool array property: {}", e))),
-        (Property::IntArray { .. }, Value::IntArray(arr)) => {
+        (CoCoProperty::BoolArray { .. }, CoCoValue::Null) => fm.put_symbol("value", "nil").map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set null value for bool array property: {}", e))),
+        (CoCoProperty::IntArray { .. }, CoCoValue::IntArray(arr)) => {
             let builder = env.multifield_builder(arr.len()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to create multifield for int array: {}", e)))?;
             let builder = arr.iter().fold(builder, |bld, &i| bld.put_int(i));
             fm.put_multifield("value", builder.create()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set int array property value: {}", e)))
         }
-        (Property::IntArray { .. }, Value::Null) => fm.put_symbol("value", "nil").map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set null value for int array property: {}", e))),
-        (Property::FloatArray { .. }, Value::FloatArray(arr)) => {
+        (CoCoProperty::IntArray { .. }, CoCoValue::Null) => fm.put_symbol("value", "nil").map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set null value for int array property: {}", e))),
+        (CoCoProperty::FloatArray { .. }, CoCoValue::FloatArray(arr)) => {
             let builder = env.multifield_builder(arr.len()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to create multifield for float array: {}", e)))?;
             let builder = arr.iter().fold(builder, |bld, &f| bld.put_float(f));
             fm.put_multifield("value", builder.create()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set float array property value: {}", e)))
         }
-        (Property::FloatArray { .. }, Value::Null) => fm.put_symbol("value", "nil").map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set null value for float array property: {}", e))),
-        (Property::StringArray { .. }, Value::StringArray(arr)) => {
+        (CoCoProperty::FloatArray { .. }, CoCoValue::Null) => fm.put_symbol("value", "nil").map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set null value for float array property: {}", e))),
+        (CoCoProperty::StringArray { .. }, CoCoValue::StringArray(arr)) => {
             let builder = env.multifield_builder(arr.len()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to create multifield for string array: {}", e)))?;
             let builder = arr.iter().fold(builder, |bld, s| bld.put_string(s.as_str()));
             fm.put_multifield("value", builder.create()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set string array property value: {}", e)))
         }
-        (Property::StringArray { .. }, Value::Null) => fm.put_symbol("value", "nil").map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set null value for string array property: {}", e))),
-        (Property::SymbolArray { .. }, Value::StringArray(arr)) => {
+        (CoCoProperty::StringArray { .. }, CoCoValue::Null) => fm.put_symbol("value", "nil").map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set null value for string array property: {}", e))),
+        (CoCoProperty::SymbolArray { .. }, CoCoValue::StringArray(arr)) => {
             let builder = env.multifield_builder(arr.len()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to create multifield for symbol array: {}", e)))?;
             let builder = arr.iter().fold(builder, |bld, s| bld.put_symbol(s.as_str()));
             fm.put_multifield("value", builder.create()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set symbol array property value: {}", e)))
         }
-        (Property::SymbolArray { .. }, Value::Null) => fm.put_symbol("value", "nil").map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set null value for symbol array property: {}", e))),
-        (Property::ObjectArray { .. }, Value::StringArray(arr)) => {
+        (CoCoProperty::SymbolArray { .. }, CoCoValue::Null) => fm.put_symbol("value", "nil").map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set null value for symbol array property: {}", e))),
+        (CoCoProperty::ObjectArray { .. }, CoCoValue::StringArray(arr)) => {
             let builder = env.multifield_builder(arr.len()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to create multifield for object array: {}", e)))?;
             let builder = arr.iter().fold(builder, |bld, o| bld.put_symbol(o.as_str()));
             fm.put_multifield("value", builder.create()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set object array property value: {}", e)))
         }
-        (Property::ObjectArray { .. }, Value::Null) => fm.put_symbol("value", "nil").map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set null value for object array property: {}", e))),
+        (CoCoProperty::ObjectArray { .. }, CoCoValue::Null) => fm.put_symbol("value", "nil").map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set null value for object array property: {}", e))),
         _ => Err(KnowledgeBaseError::KBError("Property type and value type do not match".to_owned())),
     };
     if let Some(t) = time { modifier.and_then(|fm| fm.put_int("time", t.timestamp()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set time slot for property value: {}", e)))) } else { modifier }
 }
 
-fn get_default(property: &Property) -> Value {
+fn get_default(property: &CoCoProperty) -> CoCoValue {
     match property {
-        Property::Bool { default, .. } => default.map(Value::Bool).unwrap_or(Value::Null),
-        Property::Int { default, .. } => default.map(Value::Int).unwrap_or(Value::Null),
-        Property::Float { default, .. } => default.map(Value::Float).unwrap_or(Value::Null),
-        Property::String { default, .. } => default.clone().map(Value::String).unwrap_or(Value::Null),
-        Property::Symbol { default, .. } => default.clone().map(Value::Symbol).unwrap_or(Value::Null),
-        Property::Object { default, .. } => default.clone().map(Value::Object).unwrap_or(Value::Null),
-        Property::BoolArray { default, .. } => default.clone().map(Value::BoolArray).unwrap_or(Value::Null),
-        Property::IntArray { default, .. } => default.clone().map(Value::IntArray).unwrap_or(Value::Null),
-        Property::FloatArray { default, .. } => default.clone().map(Value::FloatArray).unwrap_or(Value::Null),
-        Property::StringArray { default, .. } => default.clone().map(Value::StringArray).unwrap_or(Value::Null),
-        Property::SymbolArray { default, .. } => default.clone().map(Value::StringArray).unwrap_or(Value::Null),
-        Property::ObjectArray { default, .. } => default.clone().map(Value::StringArray).unwrap_or(Value::Null),
+        CoCoProperty::Bool { default, .. } => default.map(CoCoValue::Bool).unwrap_or(CoCoValue::Null),
+        CoCoProperty::Int { default, .. } => default.map(CoCoValue::Int).unwrap_or(CoCoValue::Null),
+        CoCoProperty::Float { default, .. } => default.map(CoCoValue::Float).unwrap_or(CoCoValue::Null),
+        CoCoProperty::String { default, .. } => default.clone().map(CoCoValue::String).unwrap_or(CoCoValue::Null),
+        CoCoProperty::Symbol { default, .. } => default.clone().map(CoCoValue::Symbol).unwrap_or(CoCoValue::Null),
+        CoCoProperty::Object { default, .. } => default.clone().map(CoCoValue::Object).unwrap_or(CoCoValue::Null),
+        CoCoProperty::BoolArray { default, .. } => default.clone().map(CoCoValue::BoolArray).unwrap_or(CoCoValue::Null),
+        CoCoProperty::IntArray { default, .. } => default.clone().map(CoCoValue::IntArray).unwrap_or(CoCoValue::Null),
+        CoCoProperty::FloatArray { default, .. } => default.clone().map(CoCoValue::FloatArray).unwrap_or(CoCoValue::Null),
+        CoCoProperty::StringArray { default, .. } => default.clone().map(CoCoValue::StringArray).unwrap_or(CoCoValue::Null),
+        CoCoProperty::SymbolArray { default, .. } => default.clone().map(CoCoValue::StringArray).unwrap_or(CoCoValue::Null),
+        CoCoProperty::ObjectArray { default, .. } => default.clone().map(CoCoValue::StringArray).unwrap_or(CoCoValue::Null),
     }
 }
 
@@ -1085,8 +1085,8 @@ fn get_default(property: &Property) -> Value {
 mod tests {
     use super::*;
 
-    fn test_class() -> Class {
-        Class {
+    fn test_class() -> CoCoClass {
+        CoCoClass {
             name: "device".to_owned(),
             parents: None,
             static_properties: None,
@@ -1098,32 +1098,32 @@ mod tests {
     fn prop_deftemplate_covers_scalar_variants() {
         let class = test_class();
 
-        let bool_def = prop_deftemplate(&class, "enabled", &Property::Bool { default: Some(true), description: None }, true);
+        let bool_def = prop_deftemplate(&class, "enabled", &CoCoProperty::Bool { default: Some(true), description: None }, true);
         assert!(bool_def.contains("(slot value (type SYMBOL) (allowed-symbols TRUE FALSE nil)"));
         assert!(bool_def.contains("(default TRUE)"));
         assert!(!bool_def.contains("(slot time (type INTEGER))"));
 
-        let int_def = prop_deftemplate(&class, "level", &Property::Int { default: Some(5), min: Some(0), max: Some(10), description: None }, false);
+        let int_def = prop_deftemplate(&class, "level", &CoCoProperty::Int { default: Some(5), min: Some(0), max: Some(10), description: None }, false);
         assert!(int_def.contains("(default 5)"));
         assert!(int_def.contains("(range 0 10)"));
         assert!(int_def.contains("(slot time (type INTEGER))"));
 
-        let float_def = prop_deftemplate(&class, "temperature", &Property::Float { default: Some(42.0), min: Some(1.0), max: Some(99.0), description: None }, true);
+        let float_def = prop_deftemplate(&class, "temperature", &CoCoProperty::Float { default: Some(42.0), min: Some(1.0), max: Some(99.0), description: None }, true);
         assert!(float_def.contains("(default 42.0)"));
         assert!(float_def.contains("(range 1.0 99.0)"));
 
-        let string_def = prop_deftemplate(&class, "name", &Property::String { default: Some("sensor".to_owned()), description: None }, false);
+        let string_def = prop_deftemplate(&class, "name", &CoCoProperty::String { default: Some("sensor".to_owned()), description: None }, false);
         assert!(string_def.contains("(default \"sensor\")"));
         assert!(string_def.contains("(slot time (type INTEGER))"));
 
         let mut allowed_symbols = HashSet::new();
         allowed_symbols.insert("ok".to_owned());
         allowed_symbols.insert("error".to_owned());
-        let symbol_def = prop_deftemplate(&class, "status", &Property::Symbol { default: Some("ok".to_owned()), allowed_values: Some(allowed_symbols), description: None }, true);
+        let symbol_def = prop_deftemplate(&class, "status", &CoCoProperty::Symbol { default: Some("ok".to_owned()), allowed_values: Some(allowed_symbols), description: None }, true);
         assert!(symbol_def.contains("(allowed-symbols nil"));
         assert!(symbol_def.contains("(default ok)"));
 
-        let object_def = prop_deftemplate(&class, "owner", &Property::Object { default: Some("obj_1".to_owned()), classes: vec!["user".to_owned()], description: None }, false);
+        let object_def = prop_deftemplate(&class, "owner", &CoCoProperty::Object { default: Some("obj_1".to_owned()), classes: vec!["user".to_owned()], description: None }, false);
         assert!(object_def.contains("(default obj_1)"));
         assert!(object_def.contains("(slot time (type INTEGER))"));
     }
@@ -1132,20 +1132,20 @@ mod tests {
     fn prop_deftemplate_covers_array_variants() {
         let class = test_class();
 
-        let bool_array_def = prop_deftemplate(&class, "flags", &Property::BoolArray { default: Some(vec![true, false]), description: None }, true);
+        let bool_array_def = prop_deftemplate(&class, "flags", &CoCoProperty::BoolArray { default: Some(vec![true, false]), description: None }, true);
         assert!(bool_array_def.contains("(multislot value (type SYMBOL) (allowed-symbols TRUE FALSE nil)"));
         assert!(bool_array_def.contains("(default TRUE FALSE)"));
 
-        let int_array_def = prop_deftemplate(&class, "samples", &Property::IntArray { default: Some(vec![1, 2, 3]), min: Some(0), max: Some(100), description: None }, false);
+        let int_array_def = prop_deftemplate(&class, "samples", &CoCoProperty::IntArray { default: Some(vec![1, 2, 3]), min: Some(0), max: Some(100), description: None }, false);
         assert!(int_array_def.contains("(default 1 2 3)"));
         assert!(int_array_def.contains("(range 0 100)"));
         assert!(int_array_def.contains("(slot time (type INTEGER))"));
 
-        let float_array_def = prop_deftemplate(&class, "weights", &Property::FloatArray { default: Some(vec![1.0, 2.5]), min: Some(0.0), max: Some(10.0), description: None }, true);
+        let float_array_def = prop_deftemplate(&class, "weights", &CoCoProperty::FloatArray { default: Some(vec![1.0, 2.5]), min: Some(0.0), max: Some(10.0), description: None }, true);
         assert!(float_array_def.contains("(default 1.0 2.5)"));
         assert!(float_array_def.contains("(range 0.0 10.0)"));
 
-        let string_array_def = prop_deftemplate(&class, "labels", &Property::StringArray { default: Some(vec!["a".to_owned(), "b".to_owned()]), description: None }, false);
+        let string_array_def = prop_deftemplate(&class, "labels", &CoCoProperty::StringArray { default: Some(vec!["a".to_owned(), "b".to_owned()]), description: None }, false);
         assert!(string_array_def.contains("(default \"a\" \"b\")"));
         assert!(string_array_def.contains("(slot time (type INTEGER))"));
 
@@ -1155,7 +1155,7 @@ mod tests {
         let symbol_array_def = prop_deftemplate(
             &class,
             "states",
-            &Property::SymbolArray {
+            &CoCoProperty::SymbolArray {
                 default: Some(vec!["x".to_owned(), "y".to_owned()]),
                 allowed_values: Some(allowed_symbols),
                 description: None,
@@ -1168,7 +1168,7 @@ mod tests {
         let object_array_def = prop_deftemplate(
             &class,
             "related",
-            &Property::ObjectArray {
+            &CoCoProperty::ObjectArray {
                 default: Some(vec!["obj_a".to_owned(), "obj_b".to_owned()]),
                 classes: vec!["device".to_owned()],
                 description: None,
@@ -1182,54 +1182,54 @@ mod tests {
     #[test]
     fn get_default_covers_all_none_defaults() {
         let properties = vec![
-            Property::Bool { default: None, description: None },
-            Property::Int { default: None, min: None, max: None, description: None },
-            Property::Float { default: None, min: None, max: None, description: None },
-            Property::String { default: None, description: None },
-            Property::Symbol { default: None, allowed_values: None, description: None },
-            Property::Object { default: None, classes: vec!["device".to_owned()], description: None },
-            Property::BoolArray { default: None, description: None },
-            Property::IntArray { default: None, min: None, max: None, description: None },
-            Property::FloatArray { default: None, min: None, max: None, description: None },
-            Property::StringArray { default: None, description: None },
-            Property::SymbolArray { default: None, allowed_values: None, description: None },
-            Property::ObjectArray { default: None, classes: vec!["device".to_owned()], description: None },
+            CoCoProperty::Bool { default: None, description: None },
+            CoCoProperty::Int { default: None, min: None, max: None, description: None },
+            CoCoProperty::Float { default: None, min: None, max: None, description: None },
+            CoCoProperty::String { default: None, description: None },
+            CoCoProperty::Symbol { default: None, allowed_values: None, description: None },
+            CoCoProperty::Object { default: None, classes: vec!["device".to_owned()], description: None },
+            CoCoProperty::BoolArray { default: None, description: None },
+            CoCoProperty::IntArray { default: None, min: None, max: None, description: None },
+            CoCoProperty::FloatArray { default: None, min: None, max: None, description: None },
+            CoCoProperty::StringArray { default: None, description: None },
+            CoCoProperty::SymbolArray { default: None, allowed_values: None, description: None },
+            CoCoProperty::ObjectArray { default: None, classes: vec!["device".to_owned()], description: None },
         ];
 
         for property in properties {
-            assert_eq!(get_default(&property), Value::Null);
+            assert_eq!(get_default(&property), CoCoValue::Null);
         }
     }
 
     #[test]
     fn get_default_covers_all_some_defaults() {
-        assert_eq!(get_default(&Property::Bool { default: Some(true), description: None }), Value::Bool(true));
-        assert_eq!(get_default(&Property::Int { default: Some(7), min: None, max: None, description: None }), Value::Int(7));
-        assert_eq!(get_default(&Property::Float { default: Some(3.5), min: None, max: None, description: None }), Value::Float(3.5));
-        assert_eq!(get_default(&Property::String { default: Some("abc".to_owned()), description: None }), Value::String("abc".to_owned()));
-        assert_eq!(get_default(&Property::Symbol { default: Some("ok".to_owned()), allowed_values: None, description: None }), Value::Symbol("ok".to_owned()));
-        assert_eq!(get_default(&Property::Object { default: Some("obj_1".to_owned()), classes: vec!["device".to_owned()], description: None }), Value::Object("obj_1".to_owned()));
-        assert_eq!(get_default(&Property::BoolArray { default: Some(vec![true, false]), description: None }), Value::BoolArray(vec![true, false]));
-        assert_eq!(get_default(&Property::IntArray { default: Some(vec![1, 2]), min: None, max: None, description: None }), Value::IntArray(vec![1, 2]));
-        assert_eq!(get_default(&Property::FloatArray { default: Some(vec![1.0, 2.5]), min: None, max: None, description: None }), Value::FloatArray(vec![1.0, 2.5]));
-        assert_eq!(get_default(&Property::StringArray { default: Some(vec!["a".to_owned(), "b".to_owned()]), description: None }), Value::StringArray(vec!["a".to_owned(), "b".to_owned()]));
+        assert_eq!(get_default(&CoCoProperty::Bool { default: Some(true), description: None }), CoCoValue::Bool(true));
+        assert_eq!(get_default(&CoCoProperty::Int { default: Some(7), min: None, max: None, description: None }), CoCoValue::Int(7));
+        assert_eq!(get_default(&CoCoProperty::Float { default: Some(3.5), min: None, max: None, description: None }), CoCoValue::Float(3.5));
+        assert_eq!(get_default(&CoCoProperty::String { default: Some("abc".to_owned()), description: None }), CoCoValue::String("abc".to_owned()));
+        assert_eq!(get_default(&CoCoProperty::Symbol { default: Some("ok".to_owned()), allowed_values: None, description: None }), CoCoValue::Symbol("ok".to_owned()));
+        assert_eq!(get_default(&CoCoProperty::Object { default: Some("obj_1".to_owned()), classes: vec!["device".to_owned()], description: None }), CoCoValue::Object("obj_1".to_owned()));
+        assert_eq!(get_default(&CoCoProperty::BoolArray { default: Some(vec![true, false]), description: None }), CoCoValue::BoolArray(vec![true, false]));
+        assert_eq!(get_default(&CoCoProperty::IntArray { default: Some(vec![1, 2]), min: None, max: None, description: None }), CoCoValue::IntArray(vec![1, 2]));
+        assert_eq!(get_default(&CoCoProperty::FloatArray { default: Some(vec![1.0, 2.5]), min: None, max: None, description: None }), CoCoValue::FloatArray(vec![1.0, 2.5]));
+        assert_eq!(get_default(&CoCoProperty::StringArray { default: Some(vec!["a".to_owned(), "b".to_owned()]), description: None }), CoCoValue::StringArray(vec!["a".to_owned(), "b".to_owned()]));
 
         // get_default currently maps SymbolArray/ObjectArray defaults to Value::StringArray.
         assert_eq!(
-            get_default(&Property::SymbolArray {
+            get_default(&CoCoProperty::SymbolArray {
                 default: Some(vec!["x".to_owned(), "y".to_owned()]),
                 allowed_values: None,
                 description: None,
             }),
-            Value::StringArray(vec!["x".to_owned(), "y".to_owned()])
+            CoCoValue::StringArray(vec!["x".to_owned(), "y".to_owned()])
         );
         assert_eq!(
-            get_default(&Property::ObjectArray {
+            get_default(&CoCoProperty::ObjectArray {
                 default: Some(vec!["obj_a".to_owned(), "obj_b".to_owned()]),
                 classes: vec!["device".to_owned()],
                 description: None,
             }),
-            Value::StringArray(vec!["obj_a".to_owned(), "obj_b".to_owned()])
+            CoCoValue::StringArray(vec!["obj_a".to_owned(), "obj_b".to_owned()])
         );
     }
 }

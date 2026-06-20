@@ -1,7 +1,7 @@
 use crate::{
     db::Database,
     kb::{KnowledgeBase, KnowledgeBaseEvent},
-    model::{Class, CoCoError, CoCoEvent, Object, Property, Rule, Value},
+    model::{CoCoClass, CoCoError, CoCoEvent, CoCoObject, CoCoProperty, CoCoRule, CoCoValue},
 };
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
@@ -20,7 +20,7 @@ pub mod mqtt;
 pub mod server;
 
 type CommandResult<T> = oneshot::Sender<Result<T, CoCoError>>;
-type Pulse = (HashMap<String, Value>, DateTime<Utc>);
+type Pulse = (HashMap<String, CoCoValue>, DateTime<Utc>);
 
 #[async_trait]
 pub trait CoCoModule<DB: Database, KB: KnowledgeBase>: Send + Sync {
@@ -29,22 +29,22 @@ pub trait CoCoModule<DB: Database, KB: KnowledgeBase>: Send + Sync {
 
 #[derive(Debug)]
 enum CoCoCommand {
-    Init(Vec<Class>, Vec<Rule>, Vec<Object>, CommandResult<()>),
-    GetClasses(CommandResult<Vec<Class>>),
-    GetClass(String, CommandResult<Option<Class>>),
-    GetStaticProperties(HashSet<String>, CommandResult<HashMap<String, HashMap<String, Property>>>),
-    GetDynamicProperties(HashSet<String>, CommandResult<HashMap<String, HashMap<String, Property>>>),
-    CreateClass(Class, CommandResult<()>),
-    GetRules(CommandResult<Vec<Rule>>),
-    GetRule(String, CommandResult<Option<Rule>>),
-    CreateRule(Rule, CommandResult<()>),
-    GetObjects(CommandResult<Vec<Object>>),
-    GetObject(String, CommandResult<Option<Object>>),
+    Init(Vec<CoCoClass>, Vec<CoCoRule>, Vec<CoCoObject>, CommandResult<()>),
+    GetClasses(CommandResult<Vec<CoCoClass>>),
+    GetClass(String, CommandResult<Option<CoCoClass>>),
+    GetStaticProperties(HashSet<String>, CommandResult<HashMap<String, HashMap<String, CoCoProperty>>>),
+    GetDynamicProperties(HashSet<String>, CommandResult<HashMap<String, HashMap<String, CoCoProperty>>>),
+    CreateClass(CoCoClass, CommandResult<()>),
+    GetRules(CommandResult<Vec<CoCoRule>>),
+    GetRule(String, CommandResult<Option<CoCoRule>>),
+    CreateRule(CoCoRule, CommandResult<()>),
+    GetObjects(CommandResult<Vec<CoCoObject>>),
+    GetObject(String, CommandResult<Option<CoCoObject>>),
     GetObjectClasses(String, CommandResult<HashSet<String>>),
-    CreateObject(Object, CommandResult<String>),
+    CreateObject(CoCoObject, CommandResult<String>),
     AddClass(String, String, CommandResult<()>),
-    SetProperties(String, HashMap<String, Value>, CommandResult<()>),
-    AddValues(String, HashMap<String, Value>, DateTime<Utc>, CommandResult<()>),
+    SetProperties(String, HashMap<String, CoCoValue>, CommandResult<()>),
+    AddValues(String, HashMap<String, CoCoValue>, DateTime<Utc>, CommandResult<()>),
     GetValues(String, Option<DateTime<Utc>>, Option<DateTime<Utc>>, CommandResult<Vec<Pulse>>),
 }
 
@@ -210,7 +210,7 @@ impl CoCo {
                     CoCoCommand::CreateObject(object, response_tx) => {
                         let result = async {
                             let id = command_db.create_object(object.clone()).await.map_err(|e| CoCoError::DatabaseError(e.to_string()))?;
-                            let object = Object { id: Some(id.clone()), ..object };
+                            let object = CoCoObject { id: Some(id.clone()), ..object };
                             command_kb.create_object(object).await.map_err(|e| CoCoError::KnowledgeBaseError(e.to_string()))?;
                             Ok::<String, CoCoError>(id)
                         }
@@ -261,7 +261,7 @@ impl CoCo {
                     CoCoCommand::GetValues(object_id, start_time, end_time, response_tx) => {
                         let result = async {
                             let values = command_db.get_values(object_id.clone(), start_time, end_time).await.map_err(|e| CoCoError::DatabaseError(e.to_string()))?;
-                            Ok::<Vec<(HashMap<String, Value>, DateTime<Utc>)>, CoCoError>(values)
+                            Ok::<Vec<(HashMap<String, CoCoValue>, DateTime<Utc>)>, CoCoError>(values)
                         }
                         .await;
                         let _ = response_tx.send(result);
@@ -294,67 +294,67 @@ impl CoCo {
         coco
     }
 
-    async fn init(&self, classes: Vec<Class>, rules: Vec<Rule>, objects: Vec<Object>) -> Result<(), CoCoError> {
+    async fn init(&self, classes: Vec<CoCoClass>, rules: Vec<CoCoRule>, objects: Vec<CoCoObject>) -> Result<(), CoCoError> {
         let (response_tx, response_rx) = oneshot::channel();
         self.tx.send(CoCoCommand::Init(classes, rules, objects, response_tx)).await.map_err(|e| CoCoError::KnowledgeBaseError(format!("Failed to send command to CoCo: {}", e)))?;
         response_rx.await.map_err(|e| CoCoError::KnowledgeBaseError(format!("Failed to receive response from CoCo: {}", e)))?
     }
 
-    pub async fn get_classes(&self) -> Result<Vec<Class>, CoCoError> {
+    pub async fn get_classes(&self) -> Result<Vec<CoCoClass>, CoCoError> {
         let (response_tx, response_rx) = oneshot::channel();
         self.tx.send(CoCoCommand::GetClasses(response_tx)).await.map_err(|e| CoCoError::KnowledgeBaseError(format!("Failed to send command to CoCo: {}", e)))?;
         response_rx.await.map_err(|e| CoCoError::KnowledgeBaseError(format!("Failed to receive response from CoCo: {}", e)))?
     }
 
-    pub async fn get_class(&self, name: String) -> Result<Option<Class>, CoCoError> {
+    pub async fn get_class(&self, name: String) -> Result<Option<CoCoClass>, CoCoError> {
         let (response_tx, response_rx) = oneshot::channel();
         self.tx.send(CoCoCommand::GetClass(name, response_tx)).await.map_err(|e| CoCoError::KnowledgeBaseError(format!("Failed to send command to CoCo: {}", e)))?;
         response_rx.await.map_err(|e| CoCoError::KnowledgeBaseError(format!("Failed to receive response from CoCo: {}", e)))?
     }
 
-    pub async fn get_static_properties(&self, classe_names: HashSet<String>) -> Result<HashMap<String, HashMap<String, Property>>, CoCoError> {
+    pub async fn get_static_properties(&self, classe_names: HashSet<String>) -> Result<HashMap<String, HashMap<String, CoCoProperty>>, CoCoError> {
         let (response_tx, response_rx) = oneshot::channel();
         self.tx.send(CoCoCommand::GetStaticProperties(classe_names, response_tx)).await.map_err(|e| CoCoError::KnowledgeBaseError(format!("Failed to send command to CoCo: {}", e)))?;
         response_rx.await.map_err(|e| CoCoError::KnowledgeBaseError(format!("Failed to receive response from CoCo: {}", e)))?
     }
 
-    pub async fn get_dynamic_properties(&self, classe_names: HashSet<String>) -> Result<HashMap<String, HashMap<String, Property>>, CoCoError> {
+    pub async fn get_dynamic_properties(&self, classe_names: HashSet<String>) -> Result<HashMap<String, HashMap<String, CoCoProperty>>, CoCoError> {
         let (response_tx, response_rx) = oneshot::channel();
         self.tx.send(CoCoCommand::GetDynamicProperties(classe_names, response_tx)).await.map_err(|e| CoCoError::KnowledgeBaseError(format!("Failed to send command to CoCo: {}", e)))?;
         response_rx.await.map_err(|e| CoCoError::KnowledgeBaseError(format!("Failed to receive response from CoCo: {}", e)))?
     }
 
-    pub async fn create_class(&self, class: Class) -> Result<(), CoCoError> {
+    pub async fn create_class(&self, class: CoCoClass) -> Result<(), CoCoError> {
         let (response_tx, response_rx) = oneshot::channel();
         self.tx.send(CoCoCommand::CreateClass(class, response_tx)).await.map_err(|e| CoCoError::KnowledgeBaseError(format!("Failed to send command to CoCo: {}", e)))?;
         response_rx.await.map_err(|e| CoCoError::KnowledgeBaseError(format!("Failed to receive response from CoCo: {}", e)))?
     }
 
-    pub async fn get_rules(&self) -> Result<Vec<Rule>, CoCoError> {
+    pub async fn get_rules(&self) -> Result<Vec<CoCoRule>, CoCoError> {
         let (response_tx, response_rx) = oneshot::channel();
         self.tx.send(CoCoCommand::GetRules(response_tx)).await.map_err(|e| CoCoError::KnowledgeBaseError(format!("Failed to send command to CoCo: {}", e)))?;
         response_rx.await.map_err(|e| CoCoError::KnowledgeBaseError(format!("Failed to receive response from CoCo: {}", e)))?
     }
 
-    pub async fn get_rule(&self, name: String) -> Result<Option<Rule>, CoCoError> {
+    pub async fn get_rule(&self, name: String) -> Result<Option<CoCoRule>, CoCoError> {
         let (response_tx, response_rx) = oneshot::channel();
         self.tx.send(CoCoCommand::GetRule(name, response_tx)).await.map_err(|e| CoCoError::KnowledgeBaseError(format!("Failed to send command to CoCo: {}", e)))?;
         response_rx.await.map_err(|e| CoCoError::KnowledgeBaseError(format!("Failed to receive response from CoCo: {}", e)))?
     }
 
-    pub async fn create_rule(&self, rule: Rule) -> Result<(), CoCoError> {
+    pub async fn create_rule(&self, rule: CoCoRule) -> Result<(), CoCoError> {
         let (response_tx, response_rx) = oneshot::channel();
         self.tx.send(CoCoCommand::CreateRule(rule, response_tx)).await.map_err(|e| CoCoError::KnowledgeBaseError(format!("Failed to send command to CoCo: {}", e)))?;
         response_rx.await.map_err(|e| CoCoError::KnowledgeBaseError(format!("Failed to receive response from CoCo: {}", e)))?
     }
 
-    pub async fn get_objects(&self) -> Result<Vec<Object>, CoCoError> {
+    pub async fn get_objects(&self) -> Result<Vec<CoCoObject>, CoCoError> {
         let (response_tx, response_rx) = oneshot::channel();
         self.tx.send(CoCoCommand::GetObjects(response_tx)).await.map_err(|e| CoCoError::KnowledgeBaseError(format!("Failed to send command to CoCo: {}", e)))?;
         response_rx.await.map_err(|e| CoCoError::KnowledgeBaseError(format!("Failed to receive response from CoCo: {}", e)))?
     }
 
-    pub async fn get_object(&self, object_id: String) -> Result<Option<Object>, CoCoError> {
+    pub async fn get_object(&self, object_id: String) -> Result<Option<CoCoObject>, CoCoError> {
         let (response_tx, response_rx) = oneshot::channel();
         self.tx.send(CoCoCommand::GetObject(object_id, response_tx)).await.map_err(|e| CoCoError::KnowledgeBaseError(format!("Failed to send command to CoCo: {}", e)))?;
         response_rx.await.map_err(|e| CoCoError::KnowledgeBaseError(format!("Failed to receive response from CoCo: {}", e)))?
@@ -366,7 +366,7 @@ impl CoCo {
         response_rx.await.map_err(|e| CoCoError::KnowledgeBaseError(format!("Failed to receive response from CoCo: {}", e)))?
     }
 
-    pub async fn create_object(&self, object: Object) -> Result<String, CoCoError> {
+    pub async fn create_object(&self, object: CoCoObject) -> Result<String, CoCoError> {
         let (response_tx, response_rx) = oneshot::channel();
         self.tx.send(CoCoCommand::CreateObject(object, response_tx)).await.map_err(|e| CoCoError::KnowledgeBaseError(format!("Failed to send command to CoCo: {}", e)))?;
         response_rx.await.map_err(|e| CoCoError::KnowledgeBaseError(format!("Failed to receive response from CoCo: {}", e)))?
@@ -378,19 +378,19 @@ impl CoCo {
         response_rx.await.map_err(|e| CoCoError::KnowledgeBaseError(format!("Failed to receive response from CoCo: {}", e)))?
     }
 
-    pub async fn set_properties(&self, object_id: String, properties: HashMap<String, Value>) -> Result<(), CoCoError> {
+    pub async fn set_properties(&self, object_id: String, properties: HashMap<String, CoCoValue>) -> Result<(), CoCoError> {
         let (response_tx, response_rx) = oneshot::channel();
         self.tx.send(CoCoCommand::SetProperties(object_id, properties.clone(), response_tx)).await.map_err(|e| CoCoError::KnowledgeBaseError(format!("Failed to send command to CoCo: {}", e)))?;
         response_rx.await.map_err(|e| CoCoError::KnowledgeBaseError(format!("Failed to receive response from CoCo: {}", e)))?
     }
 
-    pub async fn add_values(&self, object_id: String, values: HashMap<String, Value>, date_time: DateTime<Utc>) -> Result<(), CoCoError> {
+    pub async fn add_values(&self, object_id: String, values: HashMap<String, CoCoValue>, date_time: DateTime<Utc>) -> Result<(), CoCoError> {
         let (response_tx, response_rx) = oneshot::channel();
         self.tx.send(CoCoCommand::AddValues(object_id, values.clone(), date_time, response_tx)).await.map_err(|e| CoCoError::KnowledgeBaseError(format!("Failed to send command to CoCo: {}", e)))?;
         response_rx.await.map_err(|e| CoCoError::KnowledgeBaseError(format!("Failed to receive response from CoCo: {}", e)))?
     }
 
-    pub async fn get_values(&self, object_id: String, start_time: Option<DateTime<Utc>>, end_time: Option<DateTime<Utc>>) -> Result<Vec<(HashMap<String, Value>, DateTime<Utc>)>, CoCoError> {
+    pub async fn get_values(&self, object_id: String, start_time: Option<DateTime<Utc>>, end_time: Option<DateTime<Utc>>) -> Result<Vec<(HashMap<String, CoCoValue>, DateTime<Utc>)>, CoCoError> {
         let (response_tx, response_rx) = oneshot::channel();
         self.tx.send(CoCoCommand::GetValues(object_id, start_time, end_time, response_tx)).await.map_err(|e| CoCoError::KnowledgeBaseError(format!("Failed to send command to CoCo: {}", e)))?;
         response_rx.await.map_err(|e| CoCoError::KnowledgeBaseError(format!("Failed to receive response from CoCo: {}", e)))?

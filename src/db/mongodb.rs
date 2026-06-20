@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::db::{Database, DatabaseError};
-use crate::model::{Class, Object, Rule, TimedValue, Value};
+use crate::model::{CoCoClass, CoCoObject, CoCoRule, CoCoValue, TimedValue};
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use futures::TryStreamExt;
@@ -107,46 +107,46 @@ impl Database for MongoDB {
         &self.name
     }
 
-    async fn get_classes(&self) -> Result<Vec<Class>, DatabaseError> {
+    async fn get_classes(&self) -> Result<Vec<CoCoClass>, DatabaseError> {
         let db = self.client.database(&self.name);
-        let collection = db.collection::<Class>("classes");
+        let collection = db.collection::<CoCoClass>("classes");
         let cursor = collection.find(doc! {}).await.map_err(|e| DatabaseError::ConnectionError(e.to_string()))?;
-        let classes: Vec<Class> = cursor.try_collect().await.map_err(|e| DatabaseError::ConnectionError(e.to_string()))?;
+        let classes: Vec<CoCoClass> = cursor.try_collect().await.map_err(|e| DatabaseError::ConnectionError(e.to_string()))?;
         Ok(classes)
     }
 
-    async fn create_class(&self, class: Class) -> Result<(), DatabaseError> {
+    async fn create_class(&self, class: CoCoClass) -> Result<(), DatabaseError> {
         let db = self.client.database(&self.name);
-        let collection = db.collection::<Class>("classes");
+        let collection = db.collection::<CoCoClass>("classes");
         collection.insert_one(&class).await.map_err(|e| if e.to_string().contains("duplicate key error") { DatabaseError::Exists(class.name.clone()) } else { DatabaseError::ConnectionError(e.to_string()) })?;
         Ok(())
     }
 
-    async fn get_rules(&self) -> Result<Vec<Rule>, DatabaseError> {
+    async fn get_rules(&self) -> Result<Vec<CoCoRule>, DatabaseError> {
         let db = self.client.database(&self.name);
-        let collection = db.collection::<Rule>("rules");
+        let collection = db.collection::<CoCoRule>("rules");
         let cursor = collection.find(doc! {}).await.map_err(|e| DatabaseError::ConnectionError(e.to_string()))?;
-        let rules: Vec<Rule> = cursor.try_collect().await.map_err(|e| DatabaseError::ConnectionError(e.to_string()))?;
+        let rules: Vec<CoCoRule> = cursor.try_collect().await.map_err(|e| DatabaseError::ConnectionError(e.to_string()))?;
         Ok(rules)
     }
 
-    async fn create_rule(&self, rule: Rule) -> Result<(), DatabaseError> {
+    async fn create_rule(&self, rule: CoCoRule) -> Result<(), DatabaseError> {
         let db = self.client.database(&self.name);
-        let collection = db.collection::<Rule>("rules");
+        let collection = db.collection::<CoCoRule>("rules");
         collection.insert_one(&rule).await.map_err(|e| if e.to_string().contains("duplicate key error") { DatabaseError::Exists(rule.name.clone()) } else { DatabaseError::ConnectionError(e.to_string()) })?;
         Ok(())
     }
 
-    async fn get_objects(&self) -> Result<Vec<Object>, DatabaseError> {
+    async fn get_objects(&self) -> Result<Vec<CoCoObject>, DatabaseError> {
         let db = self.client.database(&self.name);
         let collection = db.collection::<MongoObject>("objects");
         let cursor = collection.find(doc! {}).await.map_err(|e| DatabaseError::ConnectionError(e.to_string()))?;
         let mongo_objects: Vec<MongoObject> = cursor.try_collect().await.map_err(|e| DatabaseError::ConnectionError(e.to_string()))?;
-        let objects = mongo_objects.into_iter().map(Object::from).collect();
+        let objects = mongo_objects.into_iter().map(CoCoObject::from).collect();
         Ok(objects)
     }
 
-    async fn create_object(&self, object: Object) -> Result<String, DatabaseError> {
+    async fn create_object(&self, object: CoCoObject) -> Result<String, DatabaseError> {
         let db = self.client.database(&self.name);
         let collection = db.collection::<MongoObject>("objects");
         let object_id = match object.id.as_deref() {
@@ -171,7 +171,7 @@ impl Database for MongoDB {
         Ok(())
     }
 
-    async fn set_properties(&self, object_id: String, properties: &HashMap<String, Value>) -> Result<(), DatabaseError> {
+    async fn set_properties(&self, object_id: String, properties: &HashMap<String, CoCoValue>) -> Result<(), DatabaseError> {
         let db = self.client.database(&self.name);
         let collection = db.collection::<MongoObject>("objects");
         let mut update_doc = doc! {};
@@ -183,7 +183,7 @@ impl Database for MongoDB {
         Ok(())
     }
 
-    async fn add_values(&self, object_id: String, values: HashMap<String, Value>, date_time: DateTime<Utc>) -> Result<(), DatabaseError> {
+    async fn add_values(&self, object_id: String, values: HashMap<String, CoCoValue>, date_time: DateTime<Utc>) -> Result<(), DatabaseError> {
         let db = self.client.database(&self.name);
         let collection = db.collection::<MongoObject>("objects");
         let oid = ObjectId::parse_str(object_id.clone()).map_err(|e| DatabaseError::InvalidInput(format!("Invalid object id: {e}")))?;
@@ -201,7 +201,7 @@ impl Database for MongoDB {
         Ok(())
     }
 
-    async fn get_values(&self, object_id: String, start_time: Option<DateTime<Utc>>, end_time: Option<DateTime<Utc>>) -> Result<Vec<(HashMap<String, Value>, DateTime<Utc>)>, DatabaseError> {
+    async fn get_values(&self, object_id: String, start_time: Option<DateTime<Utc>>, end_time: Option<DateTime<Utc>>) -> Result<Vec<(HashMap<String, CoCoValue>, DateTime<Utc>)>, DatabaseError> {
         let db = self.client.database(&self.name);
         let collection = db.collection::<ObjectData>("object_data");
         let mut filter = doc! { "object_id": object_id };
@@ -217,7 +217,7 @@ impl Database for MongoDB {
         }
         let cursor = collection.find(filter).await.map_err(|e| DatabaseError::ConnectionError(e.to_string()))?;
         let data: Vec<ObjectData> = cursor.try_collect().await.map_err(|e| DatabaseError::ConnectionError(e.to_string()))?;
-        let data = data.into_iter().map(|d| (d.values.into_iter().map(|(k, v)| (k, Value::from(v))).collect(), d.timestamp)).collect();
+        let data = data.into_iter().map(|d| (d.values.into_iter().map(|(k, v)| (k, CoCoValue::from(v))).collect(), d.timestamp)).collect();
         Ok(data)
     }
 
@@ -227,42 +227,42 @@ impl Database for MongoDB {
     }
 }
 
-impl From<&Value> for MongoValue {
-    fn from(v: &Value) -> Self {
+impl From<&CoCoValue> for MongoValue {
+    fn from(v: &CoCoValue) -> Self {
         match v {
-            Value::Null => MongoValue::Null,
-            Value::Bool(b) => MongoValue::Bool(*b),
-            Value::Int(i) => MongoValue::Int(*i),
-            Value::Float(f) => MongoValue::Float(*f),
-            Value::String(s) => MongoValue::String(s.clone()),
-            Value::Symbol(s) => MongoValue::Symbol(s.clone()),
-            Value::Object(o) => MongoValue::Object(o.clone()),
-            Value::BoolArray(a) => MongoValue::BoolArray(a.clone()),
-            Value::IntArray(a) => MongoValue::IntArray(a.clone()),
-            Value::FloatArray(a) => MongoValue::FloatArray(a.clone()),
-            Value::StringArray(a) => MongoValue::StringArray(a.clone()),
-            Value::SymbolArray(a) => MongoValue::SymbolArray(a.clone()),
-            Value::ObjectArray(a) => MongoValue::ObjectArray(a.clone()),
+            CoCoValue::Null => MongoValue::Null,
+            CoCoValue::Bool(b) => MongoValue::Bool(*b),
+            CoCoValue::Int(i) => MongoValue::Int(*i),
+            CoCoValue::Float(f) => MongoValue::Float(*f),
+            CoCoValue::String(s) => MongoValue::String(s.clone()),
+            CoCoValue::Symbol(s) => MongoValue::Symbol(s.clone()),
+            CoCoValue::Object(o) => MongoValue::Object(o.clone()),
+            CoCoValue::BoolArray(a) => MongoValue::BoolArray(a.clone()),
+            CoCoValue::IntArray(a) => MongoValue::IntArray(a.clone()),
+            CoCoValue::FloatArray(a) => MongoValue::FloatArray(a.clone()),
+            CoCoValue::StringArray(a) => MongoValue::StringArray(a.clone()),
+            CoCoValue::SymbolArray(a) => MongoValue::SymbolArray(a.clone()),
+            CoCoValue::ObjectArray(a) => MongoValue::ObjectArray(a.clone()),
         }
     }
 }
 
-impl From<MongoValue> for Value {
+impl From<MongoValue> for CoCoValue {
     fn from(v: MongoValue) -> Self {
         match v {
-            MongoValue::Null => Value::Null,
-            MongoValue::Bool(b) => Value::Bool(b),
-            MongoValue::Int(i) => Value::Int(i),
-            MongoValue::Float(f) => Value::Float(f),
-            MongoValue::String(s) => Value::String(s),
-            MongoValue::Symbol(s) => Value::Symbol(s),
-            MongoValue::Object(o) => Value::Object(o),
-            MongoValue::BoolArray(a) => Value::BoolArray(a),
-            MongoValue::IntArray(a) => Value::IntArray(a),
-            MongoValue::FloatArray(a) => Value::FloatArray(a),
-            MongoValue::StringArray(a) => Value::StringArray(a),
-            MongoValue::SymbolArray(a) => Value::SymbolArray(a),
-            MongoValue::ObjectArray(a) => Value::ObjectArray(a),
+            MongoValue::Null => CoCoValue::Null,
+            MongoValue::Bool(b) => CoCoValue::Bool(b),
+            MongoValue::Int(i) => CoCoValue::Int(i),
+            MongoValue::Float(f) => CoCoValue::Float(f),
+            MongoValue::String(s) => CoCoValue::String(s),
+            MongoValue::Symbol(s) => CoCoValue::Symbol(s),
+            MongoValue::Object(o) => CoCoValue::Object(o),
+            MongoValue::BoolArray(a) => CoCoValue::BoolArray(a),
+            MongoValue::IntArray(a) => CoCoValue::IntArray(a),
+            MongoValue::FloatArray(a) => CoCoValue::FloatArray(a),
+            MongoValue::StringArray(a) => CoCoValue::StringArray(a),
+            MongoValue::SymbolArray(a) => CoCoValue::SymbolArray(a),
+            MongoValue::ObjectArray(a) => CoCoValue::ObjectArray(a),
         }
     }
 }
@@ -275,16 +275,16 @@ impl From<&TimedValue> for MongoTimedValue {
 
 impl From<MongoTimedValue> for TimedValue {
     fn from(tv: MongoTimedValue) -> Self {
-        TimedValue { value: Value::from(tv.value), timestamp: tv.timestamp }
+        TimedValue { value: CoCoValue::from(tv.value), timestamp: tv.timestamp }
     }
 }
 
-impl From<MongoObject> for Object {
+impl From<MongoObject> for CoCoObject {
     fn from(o: MongoObject) -> Self {
-        Object {
+        CoCoObject {
             id: o.id.map(|oid| oid.to_hex()),
             classes: o.classes,
-            properties: o.properties.map(|p| p.into_iter().map(|(k, v)| (k, Value::from(v))).collect()),
+            properties: o.properties.map(|p| p.into_iter().map(|(k, v)| (k, CoCoValue::from(v))).collect()),
             values: o.values.map(|v| v.into_iter().map(|(k, tv)| (k, TimedValue::from(tv))).collect()),
         }
     }
@@ -322,7 +322,7 @@ mod tests {
     async fn create_class_persists_class() {
         let db = MongoDB::new(unique_db_name("coco_test_class"), mongo_uri_from_env()).await.expect("MongoDB connection should succeed");
 
-        let class = Class {
+        let class = CoCoClass {
             name: "sensor".to_owned(),
             parents: None,
             static_properties: None,
@@ -342,7 +342,7 @@ mod tests {
     async fn create_rule_persists_rule() {
         let db = MongoDB::new(unique_db_name("coco_test_rule"), mongo_uri_from_env()).await.expect("MongoDB connection should succeed");
 
-        let rule = Rule {
+        let rule = CoCoRule {
             name: "temperature_alert".to_owned(),
             content: "(defrule temperature_alert => (assert (alert)))".to_owned(),
         };
@@ -360,7 +360,7 @@ mod tests {
     async fn create_object_persists_object() {
         let db = MongoDB::new(unique_db_name("coco_test_object"), mongo_uri_from_env()).await.expect("MongoDB connection should succeed");
 
-        let object = Object { id: None, classes: HashSet::from(["sensor".to_owned()]), properties: None, values: None };
+        let object = CoCoObject { id: None, classes: HashSet::from(["sensor".to_owned()]), properties: None, values: None };
 
         let object_id = Database::create_object(&db, object).await.expect("object creation should succeed");
 
@@ -377,7 +377,7 @@ mod tests {
 
         Database::create_class(
             &db,
-            Class {
+            CoCoClass {
                 name: "sensor".to_owned(),
                 parents: None,
                 static_properties: None,
@@ -389,7 +389,7 @@ mod tests {
 
         Database::create_class(
             &db,
-            Class {
+            CoCoClass {
                 name: "actuator".to_owned(),
                 parents: None,
                 static_properties: None,
@@ -412,9 +412,9 @@ mod tests {
     async fn get_rules_returns_created_rules() {
         let db = MongoDB::new(unique_db_name("coco_test_get_rules"), mongo_uri_from_env()).await.expect("MongoDB connection should succeed");
 
-        Database::create_rule(&db, Rule { name: "r1".to_owned(), content: "(defrule r1 => (assert (ok-1)))".to_owned() }).await.expect("first rule creation should succeed");
+        Database::create_rule(&db, CoCoRule { name: "r1".to_owned(), content: "(defrule r1 => (assert (ok-1)))".to_owned() }).await.expect("first rule creation should succeed");
 
-        Database::create_rule(&db, Rule { name: "r2".to_owned(), content: "(defrule r2 => (assert (ok-2)))".to_owned() }).await.expect("second rule creation should succeed");
+        Database::create_rule(&db, CoCoRule { name: "r2".to_owned(), content: "(defrule r2 => (assert (ok-2)))".to_owned() }).await.expect("second rule creation should succeed");
 
         let rules = Database::get_rules(&db).await.expect("rules retrieval should succeed");
         let names: HashSet<String> = rules.into_iter().map(|r| r.name).collect();
@@ -429,9 +429,9 @@ mod tests {
     async fn get_objects_returns_created_objects() {
         let db = MongoDB::new(unique_db_name("coco_test_get_objects"), mongo_uri_from_env()).await.expect("MongoDB connection should succeed");
 
-        Database::create_object(&db, Object { id: None, classes: HashSet::from(["sensor".to_owned()]), properties: None, values: None }).await.expect("first object creation should succeed");
+        Database::create_object(&db, CoCoObject { id: None, classes: HashSet::from(["sensor".to_owned()]), properties: None, values: None }).await.expect("first object creation should succeed");
 
-        Database::create_object(&db, Object { id: None, classes: HashSet::from(["actuator".to_owned()]), properties: None, values: None }).await.expect("second object creation should succeed");
+        Database::create_object(&db, CoCoObject { id: None, classes: HashSet::from(["actuator".to_owned()]), properties: None, values: None }).await.expect("second object creation should succeed");
 
         let objects = Database::get_objects(&db).await.expect("objects retrieval should succeed");
 

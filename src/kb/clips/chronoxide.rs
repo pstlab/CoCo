@@ -3,7 +3,7 @@ use crate::{
     db::Database,
     kb::KnowledgeBase,
     kb::clips::CLIPSKnowledgeBase,
-    model::{Class, CoCoError, Object, Property, Value},
+    model::{CoCoClass, CoCoError, CoCoObject, CoCoProperty, CoCoValue},
 };
 use async_trait::async_trait;
 use clips::{ClipsValue, Type, UDFContext};
@@ -28,18 +28,18 @@ impl Default for ChronoxideModule {
 impl<DB: Database> CoCoModule<DB, CLIPSKnowledgeBase> for ChronoxideModule {
     async fn init(&self, _db: DB, kb: CLIPSKnowledgeBase, coco: CoCo) -> Result<(), CoCoError> {
         if kb.get_class("Class").await.map_err(|_| CoCoError::DatabaseError("Failed to retrieve 'Class' class from database".to_string()))?.is_none() {
-            coco.create_class(Class {
+            coco.create_class(CoCoClass {
                 name: "Class".to_string(),
                 static_properties: Some(HashMap::from([
                     (
                         "name".to_string(),
-                        Property::Symbol {
+                        CoCoProperty::Symbol {
                             default: None,
                             allowed_values: None,
                             description: Some("The name of the class".to_string()),
                         },
                     ),
-                    ("content".to_string(), Property::String { default: None, description: Some("The content of the class, in RiDDLe format".to_string()) }),
+                    ("content".to_string(), CoCoProperty::String { default: None, description: Some("The content of the class, in RiDDLe format".to_string()) }),
                 ])),
                 dynamic_properties: None,
                 parents: None,
@@ -49,12 +49,12 @@ impl<DB: Database> CoCoModule<DB, CLIPSKnowledgeBase> for ChronoxideModule {
             info!("Successfully created 'Class' class in database");
         }
         if kb.get_class("Predicate").await.map_err(|_| CoCoError::DatabaseError("Failed to retrieve 'Predicate' class from database".to_string()))?.is_none() {
-            coco.create_class(Class {
+            coco.create_class(CoCoClass {
                 name: "Predicate".to_string(),
                 static_properties: Some(HashMap::from([
                     (
                         "name".to_string(),
-                        Property::Symbol {
+                        CoCoProperty::Symbol {
                             default: None,
                             allowed_values: None,
                             description: Some("The name of the predicate".to_string()),
@@ -62,16 +62,16 @@ impl<DB: Database> CoCoModule<DB, CLIPSKnowledgeBase> for ChronoxideModule {
                     ),
                     (
                         "class".to_string(),
-                        Property::Object {
+                        CoCoProperty::Object {
                             default: None,
                             classes: vec!["Class".to_string()],
                             description: Some("The class this predicate belongs to".to_string()),
                         },
                     ),
-                    ("parameters".to_string(), Property::StringArray { default: None, description: Some("The parameters of the predicate".to_string()) }),
+                    ("parameters".to_string(), CoCoProperty::StringArray { default: None, description: Some("The parameters of the predicate".to_string()) }),
                     (
                         "content".to_string(),
-                        Property::String {
+                        CoCoProperty::String {
                             default: None,
                             description: Some("The content of the predicate, in RiDDLe format".to_string()),
                         },
@@ -85,11 +85,11 @@ impl<DB: Database> CoCoModule<DB, CLIPSKnowledgeBase> for ChronoxideModule {
             info!("Successfully created 'Predicate' class in database");
         }
         if kb.get_class("Impulse").await.map_err(|_| CoCoError::DatabaseError("Failed to retrieve 'Impulse' class from database".to_string()))?.is_none() {
-            coco.create_class(Class {
+            coco.create_class(CoCoClass {
                 name: "Impulse".to_string(),
                 static_properties: Some(HashMap::from([(
                     "at".to_string(),
-                    Property::Float {
+                    CoCoProperty::Float {
                         default: None,
                         min: Some(0.0),
                         max: None,
@@ -104,12 +104,12 @@ impl<DB: Database> CoCoModule<DB, CLIPSKnowledgeBase> for ChronoxideModule {
             info!("Successfully created 'Impulse' class in database");
         }
         if kb.get_class("Interval").await.map_err(|_| CoCoError::DatabaseError("Failed to retrieve 'Interval' class from database".to_string()))?.is_none() {
-            coco.create_class(Class {
+            coco.create_class(CoCoClass {
                 name: "Interval".to_string(),
                 static_properties: Some(HashMap::from([
                     (
                         "start".to_string(),
-                        Property::Float {
+                        CoCoProperty::Float {
                             default: None,
                             min: Some(0.0),
                             max: None,
@@ -118,7 +118,7 @@ impl<DB: Database> CoCoModule<DB, CLIPSKnowledgeBase> for ChronoxideModule {
                     ),
                     (
                         "end".to_string(),
-                        Property::Float {
+                        CoCoProperty::Float {
                             default: None,
                             min: Some(0.0),
                             max: None,
@@ -135,7 +135,7 @@ impl<DB: Database> CoCoModule<DB, CLIPSKnowledgeBase> for ChronoxideModule {
         }
 
         if kb.get_class("StateVariable").await.map_err(|_| CoCoError::DatabaseError("Failed to retrieve 'StateVariable' class from database".to_string()))?.is_none() {
-            coco.create_class(Class {
+            coco.create_class(CoCoClass {
                 name: "StateVariable".to_string(),
                 static_properties: None,
                 dynamic_properties: None,
@@ -146,11 +146,11 @@ impl<DB: Database> CoCoModule<DB, CLIPSKnowledgeBase> for ChronoxideModule {
             info!("Successfully created 'StateVariable' class in database");
         }
         if kb.get_class("ReusableResource").await.map_err(|_| CoCoError::DatabaseError("Failed to retrieve 'ReusableResource' class from database".to_string()))?.is_none() {
-            coco.create_class(Class {
+            coco.create_class(CoCoClass {
                 name: "ReusableResource".to_string(),
                 static_properties: Some(HashMap::from([(
                     "capacity".to_string(),
-                    Property::Float {
+                    CoCoProperty::Float {
                         default: None,
                         min: Some(0.0),
                         max: None,
@@ -161,10 +161,10 @@ impl<DB: Database> CoCoModule<DB, CLIPSKnowledgeBase> for ChronoxideModule {
                 parents: Some(HashSet::from(["Class".to_string()])),
             })
             .await?;
-            coco.create_object(Object {
+            coco.create_object(CoCoObject {
                 id: None,
                 classes: HashSet::from(["Interval".to_string()]),
-                properties: Some(HashMap::from([("name".to_string(), Value::Symbol("Use".to_string())), ("parameters".to_string(), Value::StringArray(vec!["real amount".to_string()])), ("content".to_string(), Value::String("".to_string()))])),
+                properties: Some(HashMap::from([("name".to_string(), CoCoValue::Symbol("Use".to_string())), ("parameters".to_string(), CoCoValue::StringArray(vec!["real amount".to_string()])), ("content".to_string(), CoCoValue::String("".to_string()))])),
                 values: None,
             })
             .await?;
@@ -172,12 +172,12 @@ impl<DB: Database> CoCoModule<DB, CLIPSKnowledgeBase> for ChronoxideModule {
             info!("Successfully created 'ReusableResource' class in database");
         }
         if kb.get_class("ConsumableResource").await.map_err(|_| CoCoError::DatabaseError("Failed to retrieve 'ConsumableResource' class from database".to_string()))?.is_none() {
-            coco.create_class(Class {
+            coco.create_class(CoCoClass {
                 name: "ConsumableResource".to_string(),
                 static_properties: Some(HashMap::from([
                     (
                         "capacity".to_string(),
-                        Property::Float {
+                        CoCoProperty::Float {
                             default: None,
                             min: Some(0.0),
                             max: None,
@@ -186,7 +186,7 @@ impl<DB: Database> CoCoModule<DB, CLIPSKnowledgeBase> for ChronoxideModule {
                     ),
                     (
                         "initial_amount".to_string(),
-                        Property::Float {
+                        CoCoProperty::Float {
                             default: Some(0.0),
                             min: Some(0.0),
                             max: None,
@@ -198,17 +198,17 @@ impl<DB: Database> CoCoModule<DB, CLIPSKnowledgeBase> for ChronoxideModule {
                 parents: Some(HashSet::from(["Class".to_string()])),
             })
             .await?;
-            coco.create_object(Object {
+            coco.create_object(CoCoObject {
                 id: None,
                 classes: HashSet::from(["Interval".to_string()]),
-                properties: Some(HashMap::from([("name".to_string(), Value::Symbol("Produce".to_string())), ("parameters".to_string(), Value::StringArray(vec!["real amount".to_string()])), ("content".to_string(), Value::String("".to_string()))])),
+                properties: Some(HashMap::from([("name".to_string(), CoCoValue::Symbol("Produce".to_string())), ("parameters".to_string(), CoCoValue::StringArray(vec!["real amount".to_string()])), ("content".to_string(), CoCoValue::String("".to_string()))])),
                 values: None,
             })
             .await?;
-            coco.create_object(Object {
+            coco.create_object(CoCoObject {
                 id: None,
                 classes: HashSet::from(["Interval".to_string()]),
-                properties: Some(HashMap::from([("name".to_string(), Value::Symbol("Consume".to_string())), ("parameters".to_string(), Value::StringArray(vec!["real amount".to_string()])), ("content".to_string(), Value::String("".to_string()))])),
+                properties: Some(HashMap::from([("name".to_string(), CoCoValue::Symbol("Consume".to_string())), ("parameters".to_string(), CoCoValue::StringArray(vec!["real amount".to_string()])), ("content".to_string(), CoCoValue::String("".to_string()))])),
                 values: None,
             })
             .await?;

@@ -13,7 +13,7 @@ use utoipa::ToSchema;
 #[derive(Clone, Serialize, Deserialize, Debug, PartialEq)]
 #[cfg_attr(feature = "server", derive(ToSchema))]
 #[serde(tag = "type")]
-pub enum Property {
+pub enum CoCoProperty {
     #[serde(rename = "bool")]
     Bool {
         #[serde(skip_serializing_if = "Option::is_none")]
@@ -122,114 +122,114 @@ pub enum Property {
     },
 }
 
-pub fn value_from_json(property: &Property, raw: &JsonValue) -> Result<Value, CoCoError> {
+pub fn value_from_json(property: &CoCoProperty, raw: &JsonValue) -> Result<CoCoValue, CoCoError> {
     match property {
-        Property::Bool { .. } => raw.as_bool().map(Value::Bool).ok_or_else(|| CoCoError::JsonParseError(format!("Expected bool, got: {}", raw))),
-        Property::Int { .. } => raw.as_i64().map(Value::Int).ok_or_else(|| CoCoError::JsonParseError(format!("Expected int, got: {}", raw))),
-        Property::Float { .. } => raw.as_f64().map(Value::Float).ok_or_else(|| CoCoError::JsonParseError(format!("Expected float, got: {}", raw))),
-        Property::String { .. } => raw.as_str().map(|s| Value::String(s.to_string())).ok_or_else(|| CoCoError::JsonParseError(format!("Expected string, got: {}", raw))),
-        Property::Symbol { .. } => raw.as_str().map(|s| Value::Symbol(s.to_string())).ok_or_else(|| CoCoError::JsonParseError(format!("Expected symbol, got: {}", raw))),
-        Property::Object { .. } => raw.as_str().map(|s| Value::Object(s.to_string())).ok_or_else(|| CoCoError::JsonParseError(format!("Expected object reference, got: {}", raw))),
-        Property::BoolArray { .. } => raw
+        CoCoProperty::Bool { .. } => raw.as_bool().map(CoCoValue::Bool).ok_or_else(|| CoCoError::JsonParseError(format!("Expected bool, got: {}", raw))),
+        CoCoProperty::Int { .. } => raw.as_i64().map(CoCoValue::Int).ok_or_else(|| CoCoError::JsonParseError(format!("Expected int, got: {}", raw))),
+        CoCoProperty::Float { .. } => raw.as_f64().map(CoCoValue::Float).ok_or_else(|| CoCoError::JsonParseError(format!("Expected float, got: {}", raw))),
+        CoCoProperty::String { .. } => raw.as_str().map(|s| CoCoValue::String(s.to_string())).ok_or_else(|| CoCoError::JsonParseError(format!("Expected string, got: {}", raw))),
+        CoCoProperty::Symbol { .. } => raw.as_str().map(|s| CoCoValue::Symbol(s.to_string())).ok_or_else(|| CoCoError::JsonParseError(format!("Expected symbol, got: {}", raw))),
+        CoCoProperty::Object { .. } => raw.as_str().map(|s| CoCoValue::Object(s.to_string())).ok_or_else(|| CoCoError::JsonParseError(format!("Expected object reference, got: {}", raw))),
+        CoCoProperty::BoolArray { .. } => raw
             .as_array()
             .and_then(|arr| {
                 if !arr.iter().all(JsonValue::is_boolean) {
                     error!("Expected bool array, but found non-boolean value in array: {}", raw);
                     return None;
                 }
-                Some(Value::BoolArray(arr.iter().filter_map(JsonValue::as_bool).collect()))
+                Some(CoCoValue::BoolArray(arr.iter().filter_map(JsonValue::as_bool).collect()))
             })
             .ok_or_else(|| CoCoError::JsonParseError(format!("Expected bool array, got: {}", raw))),
-        Property::IntArray { .. } => raw
+        CoCoProperty::IntArray { .. } => raw
             .as_array()
             .and_then(|arr| {
                 if !arr.iter().all(JsonValue::is_i64) {
                     error!("Expected int array, but found non-integer value in array: {}", raw);
                     return None;
                 }
-                Some(Value::IntArray(arr.iter().filter_map(JsonValue::as_i64).collect()))
+                Some(CoCoValue::IntArray(arr.iter().filter_map(JsonValue::as_i64).collect()))
             })
             .ok_or_else(|| CoCoError::JsonParseError(format!("Expected int array, got: {}", raw))),
-        Property::FloatArray { .. } => raw
+        CoCoProperty::FloatArray { .. } => raw
             .as_array()
             .and_then(|arr| {
                 if !arr.iter().all(JsonValue::is_f64) {
                     error!("Expected float array, but found non-float value in array: {}", raw);
                     return None;
                 }
-                Some(Value::FloatArray(arr.iter().filter_map(JsonValue::as_f64).collect()))
+                Some(CoCoValue::FloatArray(arr.iter().filter_map(JsonValue::as_f64).collect()))
             })
             .ok_or_else(|| CoCoError::JsonParseError(format!("Expected float array, got: {}", raw))),
-        Property::StringArray { .. } => raw
+        CoCoProperty::StringArray { .. } => raw
             .as_array()
             .and_then(|arr| {
                 if !arr.iter().all(JsonValue::is_string) {
                     error!("Expected string array, but found non-string value in array: {}", raw);
                     return None;
                 }
-                Some(Value::StringArray(arr.iter().filter_map(JsonValue::as_str).map(ToOwned::to_owned).collect()))
+                Some(CoCoValue::StringArray(arr.iter().filter_map(JsonValue::as_str).map(ToOwned::to_owned).collect()))
             })
             .ok_or_else(|| CoCoError::JsonParseError(format!("Expected string array, got: {}", raw))),
-        Property::SymbolArray { .. } => raw
+        CoCoProperty::SymbolArray { .. } => raw
             .as_array()
             .and_then(|arr| {
                 if !arr.iter().all(JsonValue::is_string) {
                     error!("Expected symbol array, but found non-string value in array: {}", raw);
                     return None;
                 }
-                Some(Value::SymbolArray(arr.iter().filter_map(JsonValue::as_str).map(ToOwned::to_owned).collect()))
+                Some(CoCoValue::SymbolArray(arr.iter().filter_map(JsonValue::as_str).map(ToOwned::to_owned).collect()))
             })
             .ok_or_else(|| CoCoError::JsonParseError(format!("Expected symbol array, got: {}", raw))),
-        Property::ObjectArray { .. } => raw
+        CoCoProperty::ObjectArray { .. } => raw
             .as_array()
             .and_then(|arr| {
                 if !arr.iter().all(JsonValue::is_string) {
                     error!("Expected object array, but found non-string value in array: {}", raw);
                     return None;
                 }
-                Some(Value::ObjectArray(arr.iter().filter_map(JsonValue::as_str).map(ToOwned::to_owned).collect()))
+                Some(CoCoValue::ObjectArray(arr.iter().filter_map(JsonValue::as_str).map(ToOwned::to_owned).collect()))
             })
             .ok_or_else(|| CoCoError::JsonParseError(format!("Expected object array, got: {}", raw))),
     }
 }
 
-impl fmt::Display for Property {
+impl fmt::Display for CoCoProperty {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Property::Bool { default, description } => {
+            CoCoProperty::Bool { default, description } => {
                 write!(f, "bool(default: {:?}, description: {:?})", default, description)
             }
-            Property::Int { default, min, max, description } => {
+            CoCoProperty::Int { default, min, max, description } => {
                 write!(f, "int(default: {:?}, min: {:?}, max: {:?}, description: {:?})", default, min, max, description)
             }
-            Property::Float { default, min, max, description } => {
+            CoCoProperty::Float { default, min, max, description } => {
                 write!(f, "float(default: {:?}, min: {:?}, max: {:?}, description: {:?})", default, min, max, description)
             }
-            Property::String { default, description } => {
+            CoCoProperty::String { default, description } => {
                 write!(f, "string(default: {:?}, description: {:?})", default, description)
             }
-            Property::Symbol { default, allowed_values, description } => {
+            CoCoProperty::Symbol { default, allowed_values, description } => {
                 write!(f, "symbol(default: {:?}, allowed_values: {:?}, description: {:?})", default, allowed_values, description)
             }
-            Property::Object { default, classes, description } => {
+            CoCoProperty::Object { default, classes, description } => {
                 write!(f, "object(default: {:?}, classes: {:?}, description: {:?})", default, classes, description)
             }
-            Property::BoolArray { default, description } => {
+            CoCoProperty::BoolArray { default, description } => {
                 write!(f, "bool-array(default: {:?}, description: {:?})", default, description)
             }
-            Property::IntArray { default, min, max, description } => {
+            CoCoProperty::IntArray { default, min, max, description } => {
                 write!(f, "int-array(default: {:?}, min: {:?}, max: {:?}, description: {:?})", default, min, max, description)
             }
-            Property::FloatArray { default, min, max, description } => {
+            CoCoProperty::FloatArray { default, min, max, description } => {
                 write!(f, "float-array(default: {:?}, min: {:?}, max: {:?}, description: {:?})", default, min, max, description)
             }
-            Property::StringArray { default, description } => {
+            CoCoProperty::StringArray { default, description } => {
                 write!(f, "string-array(default: {:?}, description: {:?})", default, description)
             }
-            Property::SymbolArray { default, allowed_values, description } => {
+            CoCoProperty::SymbolArray { default, allowed_values, description } => {
                 write!(f, "symbol-array(default: {:?}, allowed_values: {:?}, description: {:?})", default, allowed_values, description)
             }
-            Property::ObjectArray { default, classes, description } => {
+            CoCoProperty::ObjectArray { default, classes, description } => {
                 write!(f, "object-array(default: {:?}, classes: {:?}, description: {:?})", default, classes, description)
             }
         }
@@ -239,7 +239,7 @@ impl fmt::Display for Property {
 #[derive(Clone, Serialize, Deserialize, Debug, PartialEq)]
 #[cfg_attr(feature = "server", derive(ToSchema))]
 #[serde(untagged)]
-pub enum Value {
+pub enum CoCoValue {
     Null,
     Bool(bool),
     Int(i64),
@@ -258,80 +258,80 @@ pub enum Value {
 #[derive(Clone, Serialize, Deserialize, Debug, PartialEq)]
 #[cfg_attr(feature = "server", derive(ToSchema))]
 pub struct TimedValue {
-    pub value: Value,
+    pub value: CoCoValue,
     pub timestamp: DateTime<Utc>,
 }
 
-impl PartialEq<&str> for Value {
+impl PartialEq<&str> for CoCoValue {
     fn eq(&self, other: &&str) -> bool {
         match self {
-            Value::Null => *other == "null",
-            Value::Bool(b) => other == &b.to_string(),
-            Value::Int(i) => other == &i.to_string(),
-            Value::Float(f) => other == &f.to_string(),
-            Value::String(s) => other == s,
-            Value::Symbol(s) => other == s,
-            Value::Object(o) => other == o,
-            Value::BoolArray(arr) => other == &format!("{:?}", arr),
-            Value::IntArray(arr) => other == &format!("{:?}", arr),
-            Value::FloatArray(arr) => other == &format!("{:?}", arr),
-            Value::StringArray(arr) => other == &format!("{:?}", arr),
-            Value::SymbolArray(arr) => other == &format!("{:?}", arr),
-            Value::ObjectArray(arr) => other == &format!("{:?}", arr),
+            CoCoValue::Null => *other == "null",
+            CoCoValue::Bool(b) => other == &b.to_string(),
+            CoCoValue::Int(i) => other == &i.to_string(),
+            CoCoValue::Float(f) => other == &f.to_string(),
+            CoCoValue::String(s) => other == s,
+            CoCoValue::Symbol(s) => other == s,
+            CoCoValue::Object(o) => other == o,
+            CoCoValue::BoolArray(arr) => other == &format!("{:?}", arr),
+            CoCoValue::IntArray(arr) => other == &format!("{:?}", arr),
+            CoCoValue::FloatArray(arr) => other == &format!("{:?}", arr),
+            CoCoValue::StringArray(arr) => other == &format!("{:?}", arr),
+            CoCoValue::SymbolArray(arr) => other == &format!("{:?}", arr),
+            CoCoValue::ObjectArray(arr) => other == &format!("{:?}", arr),
         }
     }
 }
 
-impl PartialEq<String> for Value {
+impl PartialEq<String> for CoCoValue {
     fn eq(&self, other: &String) -> bool {
         match self {
-            Value::Null => other == "null",
-            Value::Bool(b) => other == &b.to_string(),
-            Value::Int(i) => other == &i.to_string(),
-            Value::Float(f) => other == &f.to_string(),
-            Value::String(s) => other == s,
-            Value::Symbol(s) => other == s,
-            Value::Object(o) => other == o,
-            Value::BoolArray(arr) => other == &format!("{:?}", arr),
-            Value::IntArray(arr) => other == &format!("{:?}", arr),
-            Value::FloatArray(arr) => other == &format!("{:?}", arr),
-            Value::StringArray(arr) => other == &format!("{:?}", arr),
-            Value::SymbolArray(arr) => other == &format!("{:?}", arr),
-            Value::ObjectArray(arr) => other == &format!("{:?}", arr),
+            CoCoValue::Null => other == "null",
+            CoCoValue::Bool(b) => other == &b.to_string(),
+            CoCoValue::Int(i) => other == &i.to_string(),
+            CoCoValue::Float(f) => other == &f.to_string(),
+            CoCoValue::String(s) => other == s,
+            CoCoValue::Symbol(s) => other == s,
+            CoCoValue::Object(o) => other == o,
+            CoCoValue::BoolArray(arr) => other == &format!("{:?}", arr),
+            CoCoValue::IntArray(arr) => other == &format!("{:?}", arr),
+            CoCoValue::FloatArray(arr) => other == &format!("{:?}", arr),
+            CoCoValue::StringArray(arr) => other == &format!("{:?}", arr),
+            CoCoValue::SymbolArray(arr) => other == &format!("{:?}", arr),
+            CoCoValue::ObjectArray(arr) => other == &format!("{:?}", arr),
         }
     }
 }
 
-impl fmt::Display for Value {
+impl fmt::Display for CoCoValue {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Value::Null => write!(f, "null"),
-            Value::Bool(b) => write!(f, "{}", b),
-            Value::Int(i) => write!(f, "{}", i),
-            Value::Float(fl) => write!(f, "{}", fl),
-            Value::String(s) => write!(f, "\"{}\"", s),
-            Value::Symbol(s) => write!(f, "'{}'", s),
-            Value::Object(o) => write!(f, "object_id: {}", o),
-            Value::BoolArray(arr) => write!(f, "bool_array: {:?}", arr),
-            Value::IntArray(arr) => write!(f, "int_array: {:?}", arr),
-            Value::FloatArray(arr) => write!(f, "float_array: {:?}", arr),
-            Value::StringArray(arr) => write!(f, "string_array: {:?}", arr),
-            Value::SymbolArray(arr) => write!(f, "symbol_array: {:?}", arr),
-            Value::ObjectArray(arr) => write!(f, "object_array: {:?}", arr),
+            CoCoValue::Null => write!(f, "null"),
+            CoCoValue::Bool(b) => write!(f, "{}", b),
+            CoCoValue::Int(i) => write!(f, "{}", i),
+            CoCoValue::Float(fl) => write!(f, "{}", fl),
+            CoCoValue::String(s) => write!(f, "\"{}\"", s),
+            CoCoValue::Symbol(s) => write!(f, "'{}'", s),
+            CoCoValue::Object(o) => write!(f, "object_id: {}", o),
+            CoCoValue::BoolArray(arr) => write!(f, "bool_array: {:?}", arr),
+            CoCoValue::IntArray(arr) => write!(f, "int_array: {:?}", arr),
+            CoCoValue::FloatArray(arr) => write!(f, "float_array: {:?}", arr),
+            CoCoValue::StringArray(arr) => write!(f, "string_array: {:?}", arr),
+            CoCoValue::SymbolArray(arr) => write!(f, "symbol_array: {:?}", arr),
+            CoCoValue::ObjectArray(arr) => write!(f, "object_array: {:?}", arr),
         }
     }
 }
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
 #[cfg_attr(feature = "server", derive(ToSchema))]
-pub struct Class {
+pub struct CoCoClass {
     pub name: String,
     pub parents: Option<HashSet<String>>,
-    pub static_properties: Option<HashMap<String, Property>>,
-    pub dynamic_properties: Option<HashMap<String, Property>>,
+    pub static_properties: Option<HashMap<String, CoCoProperty>>,
+    pub dynamic_properties: Option<HashMap<String, CoCoProperty>>,
 }
 
-impl fmt::Display for Class {
+impl fmt::Display for CoCoClass {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "class {} parents: {:?} static_properties: {:?} dynamic_properties: {:?}", self.name, self.parents, self.static_properties, self.dynamic_properties)
     }
@@ -339,16 +339,16 @@ impl fmt::Display for Class {
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
 #[cfg_attr(feature = "server", derive(ToSchema))]
-pub struct Object {
+pub struct CoCoObject {
     pub id: Option<String>,
     pub classes: HashSet<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub properties: Option<HashMap<String, Value>>,
+    pub properties: Option<HashMap<String, CoCoValue>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub values: Option<HashMap<String, TimedValue>>,
 }
 
-pub async fn object_from_json(coco: CoCo, mut obj: JsonValue) -> Result<Object, CoCoError> {
+pub async fn object_from_json(coco: CoCo, mut obj: JsonValue) -> Result<CoCoObject, CoCoError> {
     let classes = obj.get("classes").and_then(|v| v.as_array()).ok_or_else(|| CoCoError::JsonParseError("Missing or invalid 'classes' field".to_string()))?.iter().filter_map(JsonValue::as_str).map(ToOwned::to_owned).collect::<HashSet<String>>();
     let obj_map = obj.as_object_mut().ok_or_else(|| CoCoError::JsonParseError("Object payload must be a JSON object".to_string()))?;
 
@@ -362,7 +362,7 @@ pub async fn object_from_json(coco: CoCo, mut obj: JsonValue) -> Result<Object, 
         None => None,
     };
 
-    Ok(Object {
+    Ok(CoCoObject {
         id: obj.get("id").and_then(JsonValue::as_str).map(ToOwned::to_owned),
         classes,
         properties,
@@ -370,7 +370,7 @@ pub async fn object_from_json(coco: CoCo, mut obj: JsonValue) -> Result<Object, 
     })
 }
 
-pub async fn properties_from_json(coco: CoCo, class_names: HashSet<String>, obj: JsonValue) -> Result<HashMap<String, Value>, CoCoError> {
+pub async fn properties_from_json(coco: CoCo, class_names: HashSet<String>, obj: JsonValue) -> Result<HashMap<String, CoCoValue>, CoCoError> {
     match coco.get_static_properties(class_names).await {
         Ok(static_props) => {
             let mut properties = HashMap::new();
@@ -387,7 +387,7 @@ pub async fn properties_from_json(coco: CoCo, class_names: HashSet<String>, obj:
     }
 }
 
-pub async fn values_from_json(coco: CoCo, class_names: HashSet<String>, obj: JsonValue) -> Result<HashMap<String, Value>, CoCoError> {
+pub async fn values_from_json(coco: CoCo, class_names: HashSet<String>, obj: JsonValue) -> Result<HashMap<String, CoCoValue>, CoCoError> {
     match coco.get_dynamic_properties(class_names).await {
         Ok(dynamic_props) => {
             let mut properties = HashMap::new();
@@ -422,7 +422,7 @@ pub async fn timed_values_from_json(coco: CoCo, class_names: HashSet<String>, ob
     }
 }
 
-impl fmt::Display for Object {
+impl fmt::Display for CoCoObject {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "object {} classes: {:?} properties: {:?} values: {:?}", self.id.as_deref().unwrap_or(""), self.classes, self.properties, self.values)
     }
@@ -430,12 +430,12 @@ impl fmt::Display for Object {
 
 #[derive(Clone, Serialize, Deserialize, Debug)]
 #[cfg_attr(feature = "server", derive(ToSchema))]
-pub struct Rule {
+pub struct CoCoRule {
     pub name: String,
     pub content: String,
 }
 
-impl fmt::Display for Rule {
+impl fmt::Display for CoCoRule {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "rule {} content: {}", self.name, self.content)
     }
@@ -443,12 +443,12 @@ impl fmt::Display for Rule {
 
 #[derive(Clone, Debug, Serialize)]
 pub enum CoCoEvent {
-    ClassCreated(String),                                       // class_name
-    ObjectCreated(String),                                      // object_id
-    ClassesUpdated(String, HashSet<String>),                    // (object_id, classes)
-    PropertiesUpdated(String, HashMap<String, Value>),          // (object_id, properties)
-    ValuesAdded(String, HashMap<String, Value>, DateTime<Utc>), // (object_id, value, date_time)
-    RuleCreated(String),                                        // rule_name
+    ClassCreated(String),                                           // class_name
+    ObjectCreated(String),                                          // object_id
+    ClassesUpdated(String, HashSet<String>),                        // (object_id, classes)
+    PropertiesUpdated(String, HashMap<String, CoCoValue>),          // (object_id, properties)
+    ValuesAdded(String, HashMap<String, CoCoValue>, DateTime<Utc>), // (object_id, value, date_time)
+    RuleCreated(String),                                            // rule_name
 }
 
 impl fmt::Display for CoCoEvent {

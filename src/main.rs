@@ -10,12 +10,12 @@ use coco::kb::clips::chronoxide::ChronoxideModule;
 use coco::kb::clips::ollama::OllamaModule;
 #[cfg(feature = "mqtt")]
 use coco::mqtt::MQTTModule;
-#[cfg(not(feature = "auth"))]
-use coco::server::public::public_coco_router;
 #[cfg(feature = "auth")]
 use coco::server::auth::auth_coco_router;
 #[cfg(feature = "auth")]
 use coco::server::auth_db::UsersDB;
+#[cfg(not(feature = "auth"))]
+use coco::server::public::public_coco_router;
 use tower_http::services::{ServeDir, ServeFile};
 use tracing::{Level, error, info, subscriber};
 

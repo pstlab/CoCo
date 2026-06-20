@@ -2,7 +2,7 @@ use crate::{
     CoCo, CoCoModule,
     db::Database,
     kb::{KnowledgeBase, clips::CLIPSKnowledgeBase},
-    model::{CoCoError, Property, Value},
+    model::{CoCoError, CoCoProperty, CoCoValue},
 };
 use async_trait::async_trait;
 use chrono::Utc;
@@ -21,8 +21,8 @@ pub struct OllamaModule {
 }
 
 enum OllamaMessage {
-    AddValues { object_id: String, text: String, values: HashMap<String, Value> },
-    GetPromptContext { object_id: String, resp_tx: oneshot::Sender<Result<HashMap<String, Property>, CoCoError>> },
+    AddValues { object_id: String, text: String, values: HashMap<String, CoCoValue> },
+    GetPromptContext { object_id: String, resp_tx: oneshot::Sender<Result<HashMap<String, CoCoProperty>, CoCoError>> },
 }
 
 impl OllamaModule {
@@ -273,7 +273,7 @@ fn flush_values(object_id: &str, full_text: &mut String, done: bool, values_tx: 
                         let key = key_val.next().unwrap_or("").trim();
                         let val = key_val.next().unwrap_or("").trim_matches(|ch| ch == '"' || ch == '\'').trim();
                         if !key.is_empty() && !val.is_empty() {
-                            values.insert(key.to_string(), Value::String(val.to_string()));
+                            values.insert(key.to_string(), CoCoValue::String(val.to_string()));
                         }
                     }
 
@@ -300,18 +300,18 @@ fn flush_values(object_id: &str, full_text: &mut String, done: bool, values_tx: 
     full_text.drain(..safe_cut_index);
 }
 
-fn property_description(property: &Property) -> String {
+fn property_description(property: &CoCoProperty) -> String {
     match property {
-        Property::Bool { description: Some(description), .. } => format!("Bool property, {}", description),
-        Property::String { description: Some(description), .. } => format!("String property, {}", description),
-        Property::Symbol { allowed_values: Some(allowed_values), description: Some(description), .. } => format!("Symbol property (allowed values: {}), {}", allowed_values.iter().cloned().collect::<Vec<_>>().join(", "), description),
-        Property::Int { min, max, description: Some(description), .. } => format!("Int property (min: {}, max: {}), {}", min.map_or("-∞".to_string(), |v| v.to_string()), max.map_or("∞".to_string(), |v| v.to_string()), description),
-        Property::Float { min, max, description: Some(description), .. } => format!("Float property (min: {}, max: {}), {}", min.map_or("-∞".to_string(), |v| v.to_string()), max.map_or("∞".to_string(), |v| v.to_string()), description),
+        CoCoProperty::Bool { description: Some(description), .. } => format!("Bool property, {}", description),
+        CoCoProperty::String { description: Some(description), .. } => format!("String property, {}", description),
+        CoCoProperty::Symbol { allowed_values: Some(allowed_values), description: Some(description), .. } => format!("Symbol property (allowed values: {}), {}", allowed_values.iter().cloned().collect::<Vec<_>>().join(", "), description),
+        CoCoProperty::Int { min, max, description: Some(description), .. } => format!("Int property (min: {}, max: {}), {}", min.map_or("-∞".to_string(), |v| v.to_string()), max.map_or("∞".to_string(), |v| v.to_string()), description),
+        CoCoProperty::Float { min, max, description: Some(description), .. } => format!("Float property (min: {}, max: {}), {}", min.map_or("-∞".to_string(), |v| v.to_string()), max.map_or("∞".to_string(), |v| v.to_string()), description),
         _ => "No description".to_string(),
     }
 }
 
-fn build_tagged_prompt(user_prompt: &str, properties: &HashMap<String, Property>) -> String {
+fn build_tagged_prompt(user_prompt: &str, properties: &HashMap<String, CoCoProperty>) -> String {
     let allowed_keys = properties.keys().filter(|name| name.as_str() != "text").cloned().collect::<Vec<_>>();
 
     if allowed_keys.is_empty() {
@@ -344,7 +344,7 @@ mod tests {
     use super::*;
     use crate::{
         kb::KnowledgeBase,
-        model::{Class, Object, Property},
+        model::{CoCoClass, CoCoObject, CoCoProperty},
     };
     use std::collections::{HashMap, HashSet};
     use tokio::sync::mpsc;
@@ -384,19 +384,19 @@ mod tests {
         while let Ok(update) = values_rx.try_recv() {
             if let OllamaMessage::AddValues { object_id: _, text, values } = update {
                 let mut combined_values = values.clone();
-                combined_values.insert("text".to_string(), Value::String(text));
+                combined_values.insert("text".to_string(), CoCoValue::String(text));
                 received_values.push(combined_values);
             }
         }
 
         assert_eq!(received_values.len(), 3);
-        assert_eq!(received_values[0].get("text").unwrap(), &Value::String("Hello world.".to_string()));
-        assert_eq!(received_values[1].get("facial").unwrap(), &Value::String("happy".to_string()));
-        assert_eq!(received_values[1].get("arms").unwrap(), &Value::String("opened".to_string()));
-        assert_eq!(received_values[1].get("text").unwrap(), &Value::String("How are you?".to_string()));
-        assert_eq!(received_values[2].get("facial").unwrap(), &Value::String("sad".to_string()));
-        assert_eq!(received_values[2].get("arms").unwrap(), &Value::String("crossed".to_string()));
-        assert_eq!(received_values[2].get("text").unwrap(), &Value::String("Goodbye!".to_string()));
+        assert_eq!(received_values[0].get("text").unwrap(), &CoCoValue::String("Hello world.".to_string()));
+        assert_eq!(received_values[1].get("facial").unwrap(), &CoCoValue::String("happy".to_string()));
+        assert_eq!(received_values[1].get("arms").unwrap(), &CoCoValue::String("opened".to_string()));
+        assert_eq!(received_values[1].get("text").unwrap(), &CoCoValue::String("How are you?".to_string()));
+        assert_eq!(received_values[2].get("facial").unwrap(), &CoCoValue::String("sad".to_string()));
+        assert_eq!(received_values[2].get("arms").unwrap(), &CoCoValue::String("crossed".to_string()));
+        assert_eq!(received_values[2].get("text").unwrap(), &CoCoValue::String("Goodbye!".to_string()));
     }
 
     #[tokio::test]
@@ -411,13 +411,13 @@ mod tests {
         while let Ok(update) = values_rx.try_recv() {
             if let OllamaMessage::AddValues { object_id: _, text, values } = update {
                 let mut combined_values = values.clone();
-                combined_values.insert("text".to_string(), Value::String(text));
+                combined_values.insert("text".to_string(), CoCoValue::String(text));
                 received_values.push(combined_values);
             }
         }
 
         assert_eq!(received_values.len(), 1);
-        assert_eq!(received_values[0].get("text").unwrap(), &Value::String("Solo testo senza punteggiatura finale".to_string()));
+        assert_eq!(received_values[0].get("text").unwrap(), &CoCoValue::String("Solo testo senza punteggiatura finale".to_string()));
         assert!(full_text.is_empty());
     }
 
@@ -440,15 +440,15 @@ mod tests {
         while let Ok(update) = values_rx.try_recv() {
             if let OllamaMessage::AddValues { object_id: _, text, values } = update {
                 let mut combined_values = values.clone();
-                combined_values.insert("text".to_string(), Value::String(text));
+                combined_values.insert("text".to_string(), CoCoValue::String(text));
                 received_values.push(combined_values);
             }
         }
 
         assert_eq!(received_values.len(), 2);
-        assert_eq!(received_values[0].get("text").unwrap(), &Value::String("Hello".to_string()));
-        assert_eq!(received_values[1].get("facial").unwrap(), &Value::String("happy".to_string()));
-        assert_eq!(received_values[1].get("text").unwrap(), &Value::String("world!".to_string()));
+        assert_eq!(received_values[0].get("text").unwrap(), &CoCoValue::String("Hello".to_string()));
+        assert_eq!(received_values[1].get("facial").unwrap(), &CoCoValue::String("happy".to_string()));
+        assert_eq!(received_values[1].get("text").unwrap(), &CoCoValue::String("world!".to_string()));
     }
 
     #[tokio::test]
@@ -457,14 +457,14 @@ mod tests {
         subscriber::set_global_default(subscriber).expect("Failed to set global default subscriber");
 
         let (kb, _) = CLIPSKnowledgeBase::new();
-        kb.create_class(Class {
+        kb.create_class(CoCoClass {
             name: "TestClass".to_string(),
             static_properties: None,
             dynamic_properties: Some(HashMap::from([
-                ("text".to_string(), Property::String { default: None, description: None }),
+                ("text".to_string(), CoCoProperty::String { default: None, description: None }),
                 (
                     "facial".to_string(),
-                    Property::Symbol {
+                    CoCoProperty::Symbol {
                         default: Some("neutral".to_string()),
                         allowed_values: Some(HashSet::from(["neutral".to_string(), "happy".to_string(), "sad".to_string()])),
                         description: Some("Facial expression of the object".to_string()),
@@ -475,7 +475,7 @@ mod tests {
         })
         .await
         .unwrap();
-        kb.create_object(Object {
+        kb.create_object(CoCoObject {
             id: Some("test_object".to_string()),
             classes: HashSet::from(["TestClass".to_string()]),
             properties: None,
@@ -484,7 +484,7 @@ mod tests {
         .await
         .unwrap();
 
-        let props = kb.get_dynamic_properties(HashSet::from(["TestClass".to_string()])).await.expect("Failed to get dynamic properties").into_values().flat_map(|m| m).collect::<HashMap<String, Property>>();
+        let props = kb.get_dynamic_properties(HashSet::from(["TestClass".to_string()])).await.expect("Failed to get dynamic properties").into_values().flat_map(|m| m).collect::<HashMap<String, CoCoProperty>>();
 
         let host = std::env::var("OLLAMA_HOST").unwrap_or_else(|_| "localhost".to_string());
         let port = std::env::var("OLLAMA_PORT").unwrap_or_else(|_| "11434".to_string()).parse::<u16>().unwrap_or(11434);

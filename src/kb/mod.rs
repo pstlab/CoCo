@@ -1,4 +1,4 @@
-use crate::model::{Class, Object, Property, Rule, Value};
+use crate::model::{CoCoClass, CoCoObject, CoCoProperty, CoCoRule, CoCoValue};
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use std::{
@@ -42,9 +42,9 @@ impl fmt::Display for KnowledgeBaseError {
 
 #[derive(Debug)]
 pub enum KnowledgeBaseEvent {
-    AddedClass(String, String),                                 // (object_id, class_name)
-    UpdatedProperties(String, HashMap<String, Value>),          // (object_id, properties)
-    AddedValues(String, HashMap<String, Value>, DateTime<Utc>), // (object_id, value, date_time)
+    AddedClass(String, String),                                     // (object_id, class_name)
+    UpdatedProperties(String, HashMap<String, CoCoValue>),          // (object_id, properties)
+    AddedValues(String, HashMap<String, CoCoValue>, DateTime<Utc>), // (object_id, value, date_time)
 }
 
 impl fmt::Display for KnowledgeBaseEvent {
@@ -59,21 +59,21 @@ impl fmt::Display for KnowledgeBaseEvent {
 
 #[async_trait]
 pub trait KnowledgeBase: Clone + Send + Sync + 'static {
-    async fn get_classes(&self) -> Result<Vec<Class>, KnowledgeBaseError>;
-    async fn get_class(&self, name: &str) -> Result<Option<Class>, KnowledgeBaseError>;
-    async fn create_class(&self, class: Class) -> Result<(), KnowledgeBaseError>;
-    async fn get_static_properties(&self, classe_names: HashSet<String>) -> Result<HashMap<String, HashMap<String, Property>>, KnowledgeBaseError>;
-    async fn get_dynamic_properties(&self, classe_names: HashSet<String>) -> Result<HashMap<String, HashMap<String, Property>>, KnowledgeBaseError>;
+    async fn get_classes(&self) -> Result<Vec<CoCoClass>, KnowledgeBaseError>;
+    async fn get_class(&self, name: &str) -> Result<Option<CoCoClass>, KnowledgeBaseError>;
+    async fn create_class(&self, class: CoCoClass) -> Result<(), KnowledgeBaseError>;
+    async fn get_static_properties(&self, classe_names: HashSet<String>) -> Result<HashMap<String, HashMap<String, CoCoProperty>>, KnowledgeBaseError>;
+    async fn get_dynamic_properties(&self, classe_names: HashSet<String>) -> Result<HashMap<String, HashMap<String, CoCoProperty>>, KnowledgeBaseError>;
 
-    async fn get_rules(&self) -> Result<Vec<Rule>, KnowledgeBaseError>;
-    async fn get_rule(&self, name: &str) -> Result<Option<Rule>, KnowledgeBaseError>;
-    async fn create_rule(&self, rule: Rule) -> Result<(), KnowledgeBaseError>;
+    async fn get_rules(&self) -> Result<Vec<CoCoRule>, KnowledgeBaseError>;
+    async fn get_rule(&self, name: &str) -> Result<Option<CoCoRule>, KnowledgeBaseError>;
+    async fn create_rule(&self, rule: CoCoRule) -> Result<(), KnowledgeBaseError>;
 
-    async fn get_objects(&self) -> Result<Vec<Object>, KnowledgeBaseError>;
-    async fn get_object(&self, object_id: String) -> Result<Option<Object>, KnowledgeBaseError>;
-    async fn create_object(&self, object: Object) -> Result<(), KnowledgeBaseError>;
+    async fn get_objects(&self) -> Result<Vec<CoCoObject>, KnowledgeBaseError>;
+    async fn get_object(&self, object_id: String) -> Result<Option<CoCoObject>, KnowledgeBaseError>;
+    async fn create_object(&self, object: CoCoObject) -> Result<(), KnowledgeBaseError>;
     async fn add_class(&self, object_id: String, class_name: String) -> Result<(), KnowledgeBaseError>;
     async fn get_object_classes(&self, object_id: String) -> Result<HashSet<String>, KnowledgeBaseError>;
-    async fn set_properties(&self, object_id: String, properties: HashMap<String, Value>) -> Result<(), KnowledgeBaseError>;
-    async fn add_values(&self, object_id: String, values: HashMap<String, Value>, date_time: DateTime<Utc>) -> Result<(), KnowledgeBaseError>;
+    async fn set_properties(&self, object_id: String, properties: HashMap<String, CoCoValue>) -> Result<(), KnowledgeBaseError>;
+    async fn add_values(&self, object_id: String, values: HashMap<String, CoCoValue>, date_time: DateTime<Utc>) -> Result<(), KnowledgeBaseError>;
 }

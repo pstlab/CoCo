@@ -1,4 +1,4 @@
-use crate::model::{Class, Object, Rule, Value};
+use crate::model::{CoCoClass, CoCoObject, CoCoRule, CoCoValue};
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use std::{collections::HashMap, fmt};
@@ -32,18 +32,18 @@ impl fmt::Display for DatabaseError {
 pub trait Database: Clone + Send + Sync + 'static {
     fn name(&self) -> &str;
 
-    async fn get_classes(&self) -> Result<Vec<Class>, DatabaseError>;
-    async fn create_class(&self, class: Class) -> Result<(), DatabaseError>;
+    async fn get_classes(&self) -> Result<Vec<CoCoClass>, DatabaseError>;
+    async fn create_class(&self, class: CoCoClass) -> Result<(), DatabaseError>;
 
-    async fn get_rules(&self) -> Result<Vec<Rule>, DatabaseError>;
-    async fn create_rule(&self, rule: Rule) -> Result<(), DatabaseError>;
+    async fn get_rules(&self) -> Result<Vec<CoCoRule>, DatabaseError>;
+    async fn create_rule(&self, rule: CoCoRule) -> Result<(), DatabaseError>;
 
-    async fn get_objects(&self) -> Result<Vec<Object>, DatabaseError>;
-    async fn create_object(&self, object: Object) -> Result<String, DatabaseError>;
+    async fn get_objects(&self) -> Result<Vec<CoCoObject>, DatabaseError>;
+    async fn create_object(&self, object: CoCoObject) -> Result<String, DatabaseError>;
     async fn add_class(&self, object_id: String, class_name: String) -> Result<(), DatabaseError>;
-    async fn set_properties(&self, object_id: String, properties: &HashMap<String, Value>) -> Result<(), DatabaseError>;
-    async fn add_values(&self, object_id: String, values: HashMap<String, Value>, date_time: DateTime<Utc>) -> Result<(), DatabaseError>;
-    async fn get_values(&self, object_id: String, start_time: Option<DateTime<Utc>>, end_time: Option<DateTime<Utc>>) -> Result<Vec<(HashMap<String, Value>, DateTime<Utc>)>, DatabaseError>;
+    async fn set_properties(&self, object_id: String, properties: &HashMap<String, CoCoValue>) -> Result<(), DatabaseError>;
+    async fn add_values(&self, object_id: String, values: HashMap<String, CoCoValue>, date_time: DateTime<Utc>) -> Result<(), DatabaseError>;
+    async fn get_values(&self, object_id: String, start_time: Option<DateTime<Utc>>, end_time: Option<DateTime<Utc>>) -> Result<Vec<(HashMap<String, CoCoValue>, DateTime<Utc>)>, DatabaseError>;
 
     async fn drop_database(&self) -> Result<(), DatabaseError>;
 }

@@ -11,7 +11,7 @@ use coco::{
     CoCo, CoCoModule,
     db::{Database, mongodb::MongoDB},
     kb::clips::CLIPSKnowledgeBase,
-    model::{Class, Object, Property, Rule, Value},
+    model::{CoCoClass, CoCoObject, CoCoProperty, CoCoRule, CoCoValue},
 };
 use tracing::{Level, error, subscriber};
 
@@ -45,7 +45,7 @@ async fn create_objects() {
 
     let (coco, db) = create_coco().await;
 
-    coco.create_class(Class {
+    coco.create_class(CoCoClass {
         name: "Sensor".to_string(),
         parents: None,
         static_properties: None,
@@ -54,13 +54,13 @@ async fn create_objects() {
     .await
     .unwrap();
 
-    coco.create_class(Class {
+    coco.create_class(CoCoClass {
         name: "TemperatureSensor".to_string(),
         parents: Some(HashSet::from(["Sensor".to_string()])),
         static_properties: None,
         dynamic_properties: Some(HashMap::from([(
             "temperature".to_string(),
-            Property::Float {
+            CoCoProperty::Float {
                 default: None,
                 min: Some(-10.0),
                 max: Some(50.0),
@@ -71,14 +71,14 @@ async fn create_objects() {
     .await
     .unwrap();
 
-    coco.create_class(Class {
+    coco.create_class(CoCoClass {
         name: "Patient".to_string(),
         parents: None,
         static_properties: None,
         dynamic_properties: Some(HashMap::from([
             (
                 "sbp".to_string(),
-                Property::Float {
+                CoCoProperty::Float {
                     default: None,
                     min: Some(80.0),
                     max: Some(200.0),
@@ -87,7 +87,7 @@ async fn create_objects() {
             ),
             (
                 "dbp".to_string(),
-                Property::Float {
+                CoCoProperty::Float {
                     default: None,
                     min: Some(60.0),
                     max: Some(120.0),
@@ -99,13 +99,13 @@ async fn create_objects() {
     .await
     .unwrap();
 
-    coco.create_class(Class {
+    coco.create_class(CoCoClass {
         name: "PhysiologicalSensor".to_string(),
         parents: Some(HashSet::from(["Sensor".to_string()])),
         static_properties: None,
         dynamic_properties: Some(HashMap::from([(
             "patient".to_string(),
-            Property::Object {
+            CoCoProperty::Object {
                 default: None,
                 classes: vec!["Patient".to_string()],
                 description: Some("The patient associated with this sensor".to_string()),
@@ -115,14 +115,14 @@ async fn create_objects() {
     .await
     .unwrap();
 
-    coco.create_class(Class {
+    coco.create_class(CoCoClass {
         name: "BloodPressureSensor".to_string(),
         parents: Some(HashSet::from(["PhysiologicalSensor".to_string()])),
         static_properties: None,
         dynamic_properties: Some(HashMap::from([
             (
                 "sbp".to_string(),
-                Property::Float {
+                CoCoProperty::Float {
                     default: None,
                     min: Some(80.0),
                     max: Some(200.0),
@@ -131,7 +131,7 @@ async fn create_objects() {
             ),
             (
                 "dbp".to_string(),
-                Property::Float {
+                CoCoProperty::Float {
                     default: None,
                     min: Some(60.0),
                     max: Some(120.0),
@@ -143,7 +143,7 @@ async fn create_objects() {
     .await
     .unwrap();
 
-    coco.create_rule(Rule {
+    coco.create_rule(CoCoRule {
         name: "BloodPressureMeasurement".to_string(),
         content: r#"(defrule BloodPressureMeasurement
                         (PhysiologicalSensor_patient (id ?id) (value ?patient&~nil))
@@ -158,7 +158,7 @@ async fn create_objects() {
     .unwrap();
 
     let temperature_sensor_id = coco
-        .create_object(Object {
+        .create_object(CoCoObject {
             id: None,
             classes: HashSet::from(["TemperatureSensor".to_string()]),
             properties: None,
@@ -167,12 +167,12 @@ async fn create_objects() {
         .await
         .unwrap();
 
-    coco.add_values(temperature_sensor_id.clone(), HashMap::from([("temperature".to_string(), coco::model::Value::Float(22.5))]), Utc::now()).await.unwrap();
+    coco.add_values(temperature_sensor_id.clone(), HashMap::from([("temperature".to_string(), coco::model::CoCoValue::Float(22.5))]), Utc::now()).await.unwrap();
 
-    let patient_id = coco.create_object(Object { id: None, classes: HashSet::from(["Patient".to_string()]), properties: None, values: None }).await.unwrap();
+    let patient_id = coco.create_object(CoCoObject { id: None, classes: HashSet::from(["Patient".to_string()]), properties: None, values: None }).await.unwrap();
 
     let bp_sensor_id = coco
-        .create_object(Object {
+        .create_object(CoCoObject {
             id: None,
             classes: HashSet::from(["BloodPressureSensor".to_string()]),
             properties: None,
@@ -181,7 +181,7 @@ async fn create_objects() {
         .await
         .unwrap();
 
-    coco.add_values(bp_sensor_id.clone(), HashMap::from([("patient".to_string(), Value::Object(patient_id.clone())), ("sbp".to_string(), Value::Float(120.0)), ("dbp".to_string(), Value::Float(80.0))]), Utc::now()).await.unwrap();
+    coco.add_values(bp_sensor_id.clone(), HashMap::from([("patient".to_string(), CoCoValue::Object(patient_id.clone())), ("sbp".to_string(), CoCoValue::Float(120.0)), ("dbp".to_string(), CoCoValue::Float(80.0))]), Utc::now()).await.unwrap();
 
     db.drop_database().await.unwrap();
 }
