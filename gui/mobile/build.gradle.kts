@@ -1,5 +1,6 @@
 plugins {
     kotlin("jvm") version "2.4.0"
+    kotlin("plugin.serialization") version "2.4.0"
 }
 
 repositories {
@@ -11,4 +12,6 @@ dependencies {
     implementation("io.ktor:ktor-client-cio:3.5.0")
     implementation("io.ktor:ktor-client-content-negotiation:3.5.0")
     implementation("io.ktor:ktor-serialization-kotlinx-json:3.5.0")
-}
+    testImplementation(kotlin("test"))
+    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.11.0")
+ }
