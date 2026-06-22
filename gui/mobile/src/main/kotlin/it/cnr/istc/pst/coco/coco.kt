@@ -13,7 +13,7 @@ import kotlinx.serialization.json.Json
 
 class CoCo(private val baseUrl: String) {
 
-    private var authToken: String? = null
+    private var accessToken: String? = null
     private val client = HttpClient(CIO) {
         install(ContentNegotiation) {
             json(Json {
@@ -30,7 +30,7 @@ class CoCo(private val baseUrl: String) {
                 setBody(LoginRequest(username, password))
             }.body<LoginResponse>()
 
-            authToken = response.token
+            accessToken = response.accessToken
             true
         } catch (e: Exception) {
             e.printStackTrace()
