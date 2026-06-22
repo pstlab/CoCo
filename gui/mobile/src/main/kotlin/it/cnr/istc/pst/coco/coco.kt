@@ -4,6 +4,7 @@ import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.engine.cio.CIO
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
+import io.ktor.client.plugins.websocket.WebSockets
 import io.ktor.client.request.header
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
@@ -22,6 +23,7 @@ class CoCo(private val baseUrl: String) {
                 isLenient = true
             })
         }
+        install(WebSockets)
     }
 
     suspend fun login(username: String, password: String): Boolean {
