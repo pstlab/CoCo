@@ -9,14 +9,14 @@ class CoCoIntegrationTest {
     @Test
     fun testLogin() = runTest {
         val coco = CoCo("https://coco.pst.istc.cnr.it")
-        val loginSuccess = coco.login("username", "password")
+        val loginSuccess = coco.login("admin", "admin")
         assertTrue(loginSuccess)
     }
 
     @Test
     fun testGetClasses() = runTest {
         val coco = CoCo("https://coco.pst.istc.cnr.it")
-        val loginSuccess = coco.login("username", "password")
+        val loginSuccess = coco.login("admin", "admin")
         assertTrue(loginSuccess)
 
         val classes = coco.getClasses()
