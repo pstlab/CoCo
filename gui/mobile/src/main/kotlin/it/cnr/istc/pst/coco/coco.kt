@@ -6,6 +6,7 @@ import io.ktor.client.engine.cio.CIO
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.client.plugins.websocket.WebSockets
 import io.ktor.client.plugins.websocket.webSocket
+import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
@@ -16,12 +17,13 @@ import io.ktor.http.path
 import io.ktor.serialization.kotlinx.json.json
 import io.ktor.websocket.Frame
 import io.ktor.websocket.readText
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
 
 class CoCo(private val baseUrl: String) {
 
     private val parsedUrl = Url(baseUrl)
-    private var accessToken: String? = null
     private val client = HttpClient(CIO) {
         install(ContentNegotiation) {
             json(Json {
@@ -31,8 +33,9 @@ class CoCo(private val baseUrl: String) {
         }
         install(WebSockets)
     }
+    private var accessToken: String? = null
 
-    suspend fun login(username: String, password: String): Boolean {
+    suspend fun login(username: String, password: String, scope: CoroutineScope): Boolean {
         return try {
             val response = client.post("$baseUrl/login") {
                 contentType(ContentType.Application.Json)
@@ -47,22 +50,25 @@ class CoCo(private val baseUrl: String) {
                     parameters.append("token", accessToken ?: "")
                 }
             }) {
-                for (frame in incoming) {
-                    when (frame) {
-                        is Frame.Text -> {
-                            val text = frame.readText()
-                            when (val event = Json.decodeFromString<CoCoEvent>(text)) {
-                                is CoCoEvent.CoCo -> println(event)
+                val receiveJob = scope.launch {
+                    for (frame in incoming) {
+                        when (frame) {
+                            is Frame.Text -> {
+                                val text = frame.readText()
+                                when (val event = Json.decodeFromString<CoCoEvent>(text)) {
+                                    is CoCoEvent.CoCo -> println(event)
+                                }
                             }
-                        }
 
-                        is Frame.Close -> {
-                        }
+                            is Frame.Close -> {
+                            }
 
-                        else -> {
+                            else -> {
+                            }
                         }
                     }
                 }
+                receiveJob.join()
             }
             true
         } catch (e: Exception) {
@@ -77,7 +83,7 @@ class CoCo(private val baseUrl: String) {
         }
 
         return try {
-            client.post("$baseUrl/classes") {
+            client.get("$baseUrl/classes") {
                 contentType(ContentType.Application.Json)
                 header("Authorization", "Bearer $accessToken")
             }.body()
@@ -93,7 +99,7 @@ class CoCo(private val baseUrl: String) {
         }
 
         return try {
-            client.post("$baseUrl/classes/$className") {
+            client.get("$baseUrl/classes/$className") {
                 contentType(ContentType.Application.Json)
                 header("Authorization", "Bearer $accessToken")
             }.body()
@@ -109,7 +115,7 @@ class CoCo(private val baseUrl: String) {
         }
 
         return try {
-            client.post("$baseUrl/rules") {
+            client.get("$baseUrl/rules") {
                 contentType(ContentType.Application.Json)
                 header("Authorization", "Bearer $accessToken")
             }.body()
@@ -125,7 +131,7 @@ class CoCo(private val baseUrl: String) {
         }
 
         return try {
-            client.post("$baseUrl/rules/$ruleName") {
+            client.get("$baseUrl/rules/$ruleName") {
                 contentType(ContentType.Application.Json)
                 header("Authorization", "Bearer $accessToken")
             }.body()
@@ -141,7 +147,7 @@ class CoCo(private val baseUrl: String) {
         }
 
         return try {
-            client.post("$baseUrl/objects") {
+            client.get("$baseUrl/objects") {
                 contentType(ContentType.Application.Json)
                 header("Authorization", "Bearer $accessToken")
             }.body()
@@ -157,7 +163,7 @@ class CoCo(private val baseUrl: String) {
         }
 
         return try {
-            client.post("$baseUrl/objects/$objectId") {
+            client.get("$baseUrl/objects/$objectId") {
                 contentType(ContentType.Application.Json)
                 header("Authorization", "Bearer $accessToken")
             }.body()
@@ -167,7 +173,9 @@ class CoCo(private val baseUrl: String) {
         }
     }
 
-    fun close() {
+    suspend fun close() {
+        println("closing..")
         client.close()
+        println("closed")
     }
 }

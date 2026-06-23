@@ -1,7 +1,9 @@
 package it.cnr.istc.pst.coco
 
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
+import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 class CoCoIntegrationTest {
@@ -9,33 +11,40 @@ class CoCoIntegrationTest {
     private val cocoUser = System.getenv("COCO_USER") ?: "username"
     private val cocoPass = System.getenv("COCO_PASS") ?: "password"
 
-    private suspend fun createLoggedInClient(): CoCo {
+    private suspend fun createLoggedInClient(scope: CoroutineScope): CoCo {
         val coco = CoCo(cocoUrl)
-        val loginSuccess = coco.login(cocoUser, cocoPass)
+        val loginSuccess = coco.login(cocoUser, cocoPass, scope)
         assertTrue(loginSuccess)
         return coco
     }
 
     @Test
     fun testLogin() = runTest {
-        createLoggedInClient()
+        val coco = createLoggedInClient(this)
+        coco.close()
     }
 
     @Test
     fun testGetClasses() = runTest {
-        val coco = createLoggedInClient()
+        val coco = createLoggedInClient(this)
         val classes = coco.getClasses()
+        assertNotNull(classes)
+        coco.close()
     }
 
     @Test
     fun testGetRules() = runTest {
-        val coco = createLoggedInClient()
+        val coco = createLoggedInClient(this)
         val rules = coco.getRules()
+        assertNotNull(rules)
+        coco.close()
     }
 
     @Test
     fun testGetObjects() = runTest {
-        val coco = createLoggedInClient()
+        val coco = createLoggedInClient(this)
         val objects = coco.getObjects()
+        assertNotNull(objects)
+        coco.close()
     }
 }
