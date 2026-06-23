@@ -4,6 +4,7 @@ import io.ktor.client.HttpClient
 import io.ktor.client.call.body
 import io.ktor.client.engine.cio.CIO
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
+import io.ktor.client.plugins.websocket.DefaultClientWebSocketSession
 import io.ktor.client.plugins.websocket.WebSockets
 import io.ktor.client.plugins.websocket.webSocket
 import io.ktor.client.request.get
@@ -15,13 +16,22 @@ import io.ktor.http.Url
 import io.ktor.http.contentType
 import io.ktor.http.path
 import io.ktor.serialization.kotlinx.json.json
+import io.ktor.websocket.CloseReason
 import io.ktor.websocket.Frame
+import io.ktor.websocket.close
 import io.ktor.websocket.readText
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
+import java.util.concurrent.atomic.AtomicBoolean
+import kotlin.coroutines.CoroutineContext
 
-class CoCo(private val baseUrl: String) {
+class CoCo(private val baseUrl: String) : CoroutineScope {
+
+    private val supervisor = SupervisorJob()
+    override val coroutineContext: CoroutineContext = Dispatchers.Default + supervisor
 
     private val parsedUrl = Url(baseUrl)
     private val client = HttpClient(CIO) {
@@ -34,8 +44,11 @@ class CoCo(private val baseUrl: String) {
         install(WebSockets)
     }
     private var accessToken: String? = null
+    private var webSocketSession: DefaultClientWebSocketSession? = null
+    private var webSocketJob: kotlinx.coroutines.Job? = null
+    private val isRunning = AtomicBoolean(false)
 
-    suspend fun login(username: String, password: String, scope: CoroutineScope): Boolean {
+    suspend fun login(username: String, password: String): Boolean {
         return try {
             val response = client.post("$baseUrl/login") {
                 contentType(ContentType.Application.Json)
@@ -43,32 +56,44 @@ class CoCo(private val baseUrl: String) {
             }.body<LoginResponse>()
 
             accessToken = response.accessToken
-            client.webSocket(request = {
-                url {
-                    host = parsedUrl.host
-                    path("/ws")
-                    parameters.append("token", accessToken ?: "")
-                }
-            }) {
-                val receiveJob = scope.launch {
-                    for (frame in incoming) {
-                        when (frame) {
-                            is Frame.Text -> {
-                                val text = frame.readText()
-                                when (val event = Json.decodeFromString<CoCoEvent>(text)) {
-                                    is CoCoEvent.CoCo -> println(event)
+            isRunning.set(true)
+            webSocketJob = launch {
+                try {
+                    client.webSocket(request = {
+                        url {
+                            host = parsedUrl.host
+                            path("/ws")
+                            parameters.append("token", accessToken ?: "")
+                        }
+                    }) {
+                        webSocketSession = this
+                        while (isRunning.get()) {
+                            val result = incoming.receiveCatching()
+                            if (result.isClosed) {
+                                break
+                            }
+
+                            val frame = result.getOrNull() ?: continue
+                            when (frame) {
+                                is Frame.Text -> {
+                                    val text = frame.readText()
+                                    when (val event = Json.decodeFromString<CoCoEvent>(text)) {
+                                        is CoCoEvent.CoCo -> println(event)
+                                    }
+                                }
+
+                                else -> {
                                 }
                             }
-
-                            is Frame.Close -> {
-                            }
-
-                            else -> {
-                            }
                         }
+                        println("WebSocket disconnected gracefully via protocol handshake.")
                     }
+                } catch (e: Exception) {
+                    System.err.println("WebSocket disconnected: ${e.localizedMessage}")
+                } finally {
+                    webSocketSession = null
+                    println("WebSocket loop terminated.")
                 }
-                receiveJob.join()
             }
             true
         } catch (e: Exception) {
@@ -174,8 +199,14 @@ class CoCo(private val baseUrl: String) {
     }
 
     suspend fun close() {
-        println("closing..")
+        isRunning.set(false)
+        webSocketSession?.close(
+            CloseReason(
+                CloseReason.Codes.NORMAL, "Client closing connection"
+            )
+        )
+
+        webSocketJob?.join()
         client.close()
-        println("closed")
     }
 }
