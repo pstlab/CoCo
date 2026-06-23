@@ -87,6 +87,86 @@ class CoCo(private val baseUrl: String) {
         }
     }
 
+    suspend fun getClass(className: String): CoCoClass? {
+        if (accessToken == null) {
+            throw IllegalStateException("Not logged in")
+        }
+
+        return try {
+            client.post("$baseUrl/classes/$className") {
+                contentType(ContentType.Application.Json)
+                header("Authorization", "Bearer $accessToken")
+            }.body()
+        } catch (e: Exception) {
+            e.printStackTrace()
+            null
+        }
+    }
+
+    suspend fun getRules(): List<CoCoRule> {
+        if (accessToken == null) {
+            throw IllegalStateException("Not logged in")
+        }
+
+        return try {
+            client.post("$baseUrl/rules") {
+                contentType(ContentType.Application.Json)
+                header("Authorization", "Bearer $accessToken")
+            }.body()
+        } catch (e: Exception) {
+            e.printStackTrace()
+            emptyList()
+        }
+    }
+
+    suspend fun getRule(ruleName: String): CoCoRule? {
+        if (accessToken == null) {
+            throw IllegalStateException("Not logged in")
+        }
+
+        return try {
+            client.post("$baseUrl/rules/$ruleName") {
+                contentType(ContentType.Application.Json)
+                header("Authorization", "Bearer $accessToken")
+            }.body()
+        } catch (e: Exception) {
+            e.printStackTrace()
+            null
+        }
+    }
+
+    suspend fun getObjects(): List<CoCoObject> {
+        if (accessToken == null) {
+            throw IllegalStateException("Not logged in")
+        }
+
+        return try {
+            client.post("$baseUrl/objects") {
+                contentType(ContentType.Application.Json)
+                header("Authorization", "Bearer $accessToken")
+            }.body()
+        } catch (e: Exception) {
+            e.printStackTrace()
+            emptyList()
+        }
+    }
+
+    suspend fun getObject(objectId: String): CoCoObject? {
+        if (accessToken == null) {
+            throw IllegalStateException("Not logged in")
+        }
+
+        return try {
+            client.post("$baseUrl/objects/$objectId") {
+                contentType(ContentType.Application.Json)
+                header("Authorization", "Bearer $accessToken")
+            }.body()
+        } catch (e: Exception) {
+            e.printStackTrace()
+            null
+        }
+    }
+
     fun close() {
         client.close()
     }
