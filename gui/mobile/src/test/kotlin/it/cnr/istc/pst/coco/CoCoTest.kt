@@ -1,6 +1,5 @@
 package it.cnr.istc.pst.coco
 
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.test.runTest
 import kotlin.test.Test
 import kotlin.test.assertNotNull

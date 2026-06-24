@@ -25,10 +25,14 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
+import org.slf4j.Logger
+import org.slf4j.LoggerFactory
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.coroutines.CoroutineContext
 
 class CoCo(private val baseUrl: String) : CoroutineScope {
+
+    val Any.logger: Logger get() = LoggerFactory.getLogger(this.javaClass)
 
     private val supervisor = SupervisorJob()
     override val coroutineContext: CoroutineContext = Dispatchers.Default + supervisor
@@ -49,6 +53,7 @@ class CoCo(private val baseUrl: String) : CoroutineScope {
     private val isRunning = AtomicBoolean(false)
 
     suspend fun login(username: String, password: String): Boolean {
+        logger.info("")
         return try {
             val response = client.post("$baseUrl/login") {
                 contentType(ContentType.Application.Json)
@@ -56,49 +61,55 @@ class CoCo(private val baseUrl: String) : CoroutineScope {
             }.body<LoginResponse>()
 
             accessToken = response.accessToken
-            isRunning.set(true)
-            webSocketJob = launch {
-                try {
-                    client.webSocket(request = {
-                        url {
-                            host = parsedUrl.host
-                            path("/ws")
-                            parameters.append("token", accessToken ?: "")
-                        }
-                    }) {
-                        webSocketSession = this
-                        while (isRunning.get()) {
-                            val result = incoming.receiveCatching()
-                            if (result.isClosed) {
-                                break
-                            }
-
-                            val frame = result.getOrNull() ?: continue
-                            when (frame) {
-                                is Frame.Text -> {
-                                    val text = frame.readText()
-                                    when (val event = Json.decodeFromString<CoCoEvent>(text)) {
-                                        is CoCoEvent.CoCo -> println(event)
-                                    }
-                                }
-
-                                else -> {
-                                }
-                            }
-                        }
-                        println("WebSocket disconnected gracefully via protocol handshake.")
-                    }
-                } catch (e: Exception) {
-                    System.err.println("WebSocket disconnected: ${e.localizedMessage}")
-                } finally {
-                    webSocketSession = null
-                    println("WebSocket loop terminated.")
-                }
-            }
             true
         } catch (e: Exception) {
             e.printStackTrace()
             false
+        }
+    }
+
+    suspend fun connect() {
+        if (accessToken == null) {
+            throw IllegalStateException("Not logged in")
+        }
+
+        isRunning.set(true)
+        webSocketJob = launch {
+            try {
+                client.webSocket(request = {
+                    url {
+                        host = parsedUrl.host
+                        path("/ws")
+                        parameters.append("token", accessToken ?: "")
+                    }
+                }) {
+                    webSocketSession = this
+                    while (isRunning.get()) {
+                        val result = incoming.receiveCatching()
+                        if (result.isClosed) {
+                            break
+                        }
+
+                        val frame = result.getOrNull() ?: continue
+                        when (frame) {
+                            is Frame.Text -> {
+                                val text = frame.readText()
+                                when (val event = Json.decodeFromString<CoCoEvent>(text)) {
+                                    is CoCoEvent.CoCo -> println(event)
+                                }
+                            }
+
+                            else -> {
+                            }
+                        }
+                    }
+                    logger.info("WebSocket disconnected gracefully via protocol handshake.")
+                }
+            } catch (e: Exception) {
+                logger.error("WebSocket disconnected: {}", e.localizedMessage)
+            } finally {
+                webSocketSession = null
+            }
         }
     }
 
