@@ -151,6 +151,54 @@ class CoCo(private val baseUrl: String) : CoroutineScope {
                                         objects[event.id] = obj
                                         listeners.forEach { l -> l.onObjectCreated(obj) }
                                     }
+
+                                    is CoCoEvent.ClassesUpdated -> {
+                                        val obj = objects[event.objectId]
+                                        if (obj != null) {
+                                            val obj = objects[event.objectId]
+                                            if (obj != null) {
+                                                val updatedObj = obj.copy(classes = event.classes)
+                                                objects[event.objectId] = updatedObj
+                                                objectListeners[event.objectId]?.forEach { l ->
+                                                    l.onClassesUpdated(event.classes)
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                    is CoCoEvent.PropertiesUpdated -> {
+                                        val obj = objects[event.objectId]
+                                        if (obj != null) {
+                                            val obj = objects[event.objectId]
+                                            if (obj != null) {
+                                                val updatedObj =
+                                                    obj.copy(properties = event.properties)
+                                                objects[event.objectId] = updatedObj
+                                                objectListeners[event.objectId]?.forEach { l ->
+                                                    l.onPropertiesUpdated(event.properties)
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                    is CoCoEvent.ValuesUpdated -> {
+                                        val obj = objects[event.objectId]
+                                        if (obj != null) {
+                                            val obj = objects[event.objectId]
+                                            if (obj != null) {
+                                                val updatedObj =
+                                                    obj.copy(values = event.values.mapValues { (_, v) ->
+                                                        TimeValue(
+                                                            v, event.timestamp
+                                                        )
+                                                    })
+                                                objects[event.objectId] = updatedObj
+                                                objectListeners[event.objectId]?.forEach { l ->
+                                                    l.onValuesUpdated(event.values, event.timestamp)
+                                                }
+                                            }
+                                        }
+                                    }
                                 }
                             }
 

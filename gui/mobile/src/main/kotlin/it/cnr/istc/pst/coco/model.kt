@@ -112,9 +112,9 @@ data class CoCoRule(
 )
 
 interface CoCoObjectListener {
-    fun onClassesUpdated(classes: List<CoCoClass>)
+    fun onClassesUpdated(classes: List<String>)
     fun onPropertiesUpdated(properties: Map<String, CoCoValue>)
-    fun onValuesUpdated(values: Map<String, TimeValue>)
+    fun onValuesUpdated(values: Map<String, CoCoValue>, timestamp: String)
 }
 
 @Serializable
@@ -159,6 +159,26 @@ sealed class CoCoEvent {
         val classes: List<String>,
         val properties: Map<String, CoCoValue>? = null,
         val values: Map<String, TimeValue>? = null
+    ) : CoCoEvent()
+
+    @Serializable
+    @SerialName("classes-updated")
+    data class ClassesUpdated(
+        @SerialName("object_id") val objectId: String, val classes: List<String>
+    ) : CoCoEvent()
+
+    @Serializable
+    @SerialName("properties-updated")
+    data class PropertiesUpdated(
+        @SerialName("object_id") val objectId: String, val properties: Map<String, CoCoValue>
+    ) : CoCoEvent()
+
+    @Serializable
+    @SerialName("values-updated")
+    data class ValuesUpdated(
+        @SerialName("object_id") val objectId: String,
+        val values: Map<String, CoCoValue>,
+        val timestamp: String
     ) : CoCoEvent()
 }
 
