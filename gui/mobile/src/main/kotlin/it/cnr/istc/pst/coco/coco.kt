@@ -20,15 +20,15 @@ import io.ktor.websocket.CloseReason
 import io.ktor.websocket.Frame
 import io.ktor.websocket.close
 import io.ktor.websocket.readText
-import kotlin.coroutines.CoroutineContext
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
-import java.util.concurrent.atomic.AtomicBoolean
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
+import java.util.concurrent.atomic.AtomicBoolean
+import kotlin.coroutines.CoroutineContext
 
 class CoCo(private val baseUrl: String) : CoroutineScope {
 
@@ -53,7 +53,7 @@ class CoCo(private val baseUrl: String) : CoroutineScope {
     private val isRunning = AtomicBoolean(false)
 
     suspend fun login(username: String, password: String): Boolean {
-        logger.debug("Logging in with username: {}", username)
+        logger.trace("Logging in with username: {}", username)
         return try {
             val response = client.post("$baseUrl/login") {
                 contentType(ContentType.Application.Json)
@@ -69,7 +69,7 @@ class CoCo(private val baseUrl: String) : CoroutineScope {
     }
 
     suspend fun connect() {
-        logger.debug("Connecting to WebSocket at: {}", baseUrl)
+        logger.trace("Connecting to WebSocket at: {}", baseUrl)
         if (accessToken == null) {
             throw IllegalStateException("Not logged in")
         }
@@ -115,7 +115,7 @@ class CoCo(private val baseUrl: String) : CoroutineScope {
     }
 
     suspend fun getClasses(): List<CoCoClass> {
-        logger.debug("Fetching all classes")
+        logger.trace("Fetching all classes")
         if (accessToken == null) {
             throw IllegalStateException("Not logged in")
         }
@@ -132,7 +132,7 @@ class CoCo(private val baseUrl: String) : CoroutineScope {
     }
 
     suspend fun getClass(className: String): CoCoClass? {
-        logger.debug("Fetching class with name: {}", className)
+        logger.trace("Fetching class with name: {}", className)
         if (accessToken == null) {
             throw IllegalStateException("Not logged in")
         }
@@ -149,7 +149,7 @@ class CoCo(private val baseUrl: String) : CoroutineScope {
     }
 
     suspend fun getRules(): List<CoCoRule> {
-        logger.debug("Fetching all rules")
+        logger.trace("Fetching all rules")
         if (accessToken == null) {
             throw IllegalStateException("Not logged in")
         }
@@ -166,7 +166,7 @@ class CoCo(private val baseUrl: String) : CoroutineScope {
     }
 
     suspend fun getRule(ruleName: String): CoCoRule? {
-        logger.debug("Fetching rule with name: {}", ruleName)
+        logger.trace("Fetching rule with name: {}", ruleName)
         if (accessToken == null) {
             throw IllegalStateException("Not logged in")
         }
@@ -183,7 +183,7 @@ class CoCo(private val baseUrl: String) : CoroutineScope {
     }
 
     suspend fun getObjects(): List<CoCoObject> {
-        logger.debug("Fetching all objects")
+        logger.trace("Fetching all objects")
         if (accessToken == null) {
             throw IllegalStateException("Not logged in")
         }
@@ -200,7 +200,7 @@ class CoCo(private val baseUrl: String) : CoroutineScope {
     }
 
     suspend fun getObject(objectId: String): CoCoObject? {
-        logger.debug("Fetching object with ID: {}", objectId)
+        logger.trace("Fetching object with ID: {}", objectId)
         if (accessToken == null) {
             throw IllegalStateException("Not logged in")
         }
@@ -217,7 +217,7 @@ class CoCo(private val baseUrl: String) : CoroutineScope {
     }
 
     suspend fun close() {
-        logger.info("Closing CoCo connection")
+        logger.trace("Closing CoCo connection")
         isRunning.set(false)
         webSocketSession?.close(
             CloseReason(
