@@ -111,6 +111,12 @@ data class CoCoRule(
     val content: String? = null,
 )
 
+interface CoCoObjectListener {
+    fun onClassesUpdated(classes: List<CoCoClass>)
+    fun onPropertiesUpdated(properties: Map<String, CoCoProperty>)
+    fun onValuesUpdated(values: Map<String, TimeValue>)
+}
+
 @Serializable
 data class CoCoObject(
     val id: String? = null,

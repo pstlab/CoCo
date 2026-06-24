@@ -27,8 +27,16 @@ import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.coroutines.CoroutineContext
+
+interface CoCoListener {
+    fun onClassCreated(cls: CoCoClass)
+    fun onRuleCreated(rl: CoCoRule)
+    fun onObjectCreated(obj: CoCoObject)
+}
 
 class CoCo(private val baseUrl: String) : CoroutineScope {
 
@@ -51,6 +59,10 @@ class CoCo(private val baseUrl: String) : CoroutineScope {
     private var webSocketSession: DefaultClientWebSocketSession? = null
     private var webSocketJob: kotlinx.coroutines.Job? = null
     private val isRunning = AtomicBoolean(false)
+    private val objects = ConcurrentHashMap<String, CoCoObject>()
+    private val listeners = CopyOnWriteArrayList<CoCoListener>()
+    private val objectListeners =
+        ConcurrentHashMap<String, CopyOnWriteArrayList<CoCoObjectListener>>()
 
     suspend fun login(username: String, password: String): Boolean {
         logger.trace("Logging in with username: {}", username)
@@ -96,7 +108,8 @@ class CoCo(private val baseUrl: String) : CoroutineScope {
                             is Frame.Text -> {
                                 val text = frame.readText()
                                 when (val event = Json.decodeFromString<CoCoEvent>(text)) {
-                                    is CoCoEvent.CoCo -> println(event)
+                                    is CoCoEvent.CoCo -> {
+                                    }
                                 }
                             }
 
@@ -227,5 +240,24 @@ class CoCo(private val baseUrl: String) : CoroutineScope {
 
         webSocketJob?.join()
         client.close()
+    }
+
+    fun addListener(l: CoCoListener) {
+        listeners.add(l)
+    }
+
+    fun removeListener(l: CoCoListener) {
+        listeners.remove(l)
+    }
+
+    fun addListener(objectId: String, listener: CoCoObjectListener) {
+        objectListeners.computeIfAbsent(objectId) { CopyOnWriteArrayList() }.add(listener)
+    }
+
+    fun removeListener(objectId: String, listener: CoCoObjectListener) {
+        objectListeners[objectId]?.remove(listener)
+        if (objectListeners[objectId]?.isEmpty() == true) {
+            objectListeners.remove(objectId)
+        }
     }
 }
