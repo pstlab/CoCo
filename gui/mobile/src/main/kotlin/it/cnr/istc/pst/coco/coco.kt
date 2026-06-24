@@ -132,6 +132,25 @@ class CoCo(private val baseUrl: String) : CoroutineScope {
                                         classes[event.name] = cls
                                         listeners.forEach { l -> l.onClassCreated(cls) }
                                     }
+
+                                    is CoCoEvent.RuleCreated -> {
+                                        val rl = CoCoRule(
+                                            name = event.name, content = event.content
+                                        )
+                                        rules[event.name] = rl
+                                        listeners.forEach { l -> l.onRuleCreated(rl) }
+                                    }
+
+                                    is CoCoEvent.ObjectCreated -> {
+                                        val obj = CoCoObject(
+                                            id = event.id,
+                                            classes = event.classes,
+                                            properties = event.properties,
+                                            values = event.values
+                                        )
+                                        objects[event.id] = obj
+                                        listeners.forEach { l -> l.onObjectCreated(obj) }
+                                    }
                                 }
                             }
 
