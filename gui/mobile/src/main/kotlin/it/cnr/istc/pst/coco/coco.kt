@@ -59,6 +59,8 @@ class CoCo(private val baseUrl: String) : CoroutineScope {
     private var webSocketSession: DefaultClientWebSocketSession? = null
     private var webSocketJob: kotlinx.coroutines.Job? = null
     private val isRunning = AtomicBoolean(false)
+    private val classes = ConcurrentHashMap<String, CoCoClass>()
+    private val rules = ConcurrentHashMap<String, CoCoRule>()
     private val objects = ConcurrentHashMap<String, CoCoObject>()
     private val listeners = CopyOnWriteArrayList<CoCoListener>()
     private val objectListeners =
@@ -109,6 +111,26 @@ class CoCo(private val baseUrl: String) : CoroutineScope {
                                 val text = frame.readText()
                                 when (val event = Json.decodeFromString<CoCoEvent>(text)) {
                                     is CoCoEvent.CoCo -> {
+                                        event.classes?.forEach { (className, cls) ->
+                                            classes[className] = cls.copy(name = className)
+                                        }
+                                        event.rules?.forEach { (ruleName, rl) ->
+                                            rules[ruleName] = rl.copy(name = ruleName)
+                                        }
+                                        event.objects?.forEach { (objectId, obj) ->
+                                            objects[objectId] = obj.copy(id = objectId)
+                                        }
+                                    }
+
+                                    is CoCoEvent.ClassCreated -> {
+                                        val cls = CoCoClass(
+                                            name = event.name,
+                                            parents = event.parents,
+                                            staticProperties = event.staticProperties,
+                                            dynamicProperties = event.dynamicProperties
+                                        )
+                                        classes[event.name] = cls
+                                        listeners.forEach { l -> l.onClassCreated(cls) }
                                     }
                                 }
                             }

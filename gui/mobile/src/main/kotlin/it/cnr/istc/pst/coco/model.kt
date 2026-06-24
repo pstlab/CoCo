@@ -132,9 +132,18 @@ sealed class CoCoEvent {
     @Serializable
     @SerialName("coco")
     data class CoCo(
-        val classes: Map<String, CoCoClass>,
+        val classes: Map<String, CoCoClass>? = null,
         val rules: Map<String, CoCoRule>? = null,
         val objects: Map<String, CoCoObject>? = null
+    ) : CoCoEvent()
+
+    @Serializable
+    @SerialName("class-created")
+    data class ClassCreated(
+        val name: String,
+        val parents: List<String>? = null,
+        @SerialName("static_properties") val staticProperties: Map<String, CoCoProperty>?,
+        @SerialName("dynamic_properties") val dynamicProperties: Map<String, CoCoProperty>?
     ) : CoCoEvent()
 }
 
