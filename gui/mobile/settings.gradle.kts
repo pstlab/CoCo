@@ -1,1 +1,1 @@
-rootProject.name = "coco-library"
+rootProject.name = "coco-client"

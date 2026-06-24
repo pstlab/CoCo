@@ -2,3 +2,5 @@
 .kotlin
 bin
 build
+local.properties
+*.gpg
