@@ -23,20 +23,16 @@ import io.ktor.websocket.readText
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import java.util.concurrent.ConcurrentHashMap
-import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.coroutines.CoroutineContext
-
-interface CoCoListener {
-    fun onClassCreated(cls: CoCoClass)
-    fun onRuleCreated(rl: CoCoRule)
-    fun onObjectCreated(obj: CoCoObject)
-}
 
 class CoCo(private val baseUrl: String) : CoroutineScope {
 
@@ -62,9 +58,13 @@ class CoCo(private val baseUrl: String) : CoroutineScope {
     private val classes = ConcurrentHashMap<String, CoCoClass>()
     private val rules = ConcurrentHashMap<String, CoCoRule>()
     private val objects = ConcurrentHashMap<String, CoCoObject>()
-    private val listeners = CopyOnWriteArrayList<CoCoListener>()
-    private val objectListeners =
-        ConcurrentHashMap<String, CopyOnWriteArrayList<CoCoObjectListener>>()
+    private val _classEvents = MutableSharedFlow<CoCoClass>()
+    val classEvents = _classEvents.asSharedFlow()
+    private val _ruleEvents = MutableSharedFlow<CoCoRule>()
+    val ruleEvents = _ruleEvents.asSharedFlow()
+    private val _objectEvents = MutableSharedFlow<CoCoObject>()
+    val objectEvents = _objectEvents.asSharedFlow()
+    private val objectFlows = ConcurrentHashMap<String, MutableSharedFlow<CoCoObject>>()
 
     suspend fun login(username: String, password: String): Boolean {
         logger.trace("Logging in with username: {}", username)
@@ -130,7 +130,7 @@ class CoCo(private val baseUrl: String) : CoroutineScope {
                                             dynamicProperties = event.dynamicProperties
                                         )
                                         classes[event.name] = cls
-                                        listeners.forEach { l -> l.onClassCreated(cls) }
+                                        _classEvents.tryEmit(cls)
                                     }
 
                                     is CoCoEvent.RuleCreated -> {
@@ -138,7 +138,7 @@ class CoCo(private val baseUrl: String) : CoroutineScope {
                                             name = event.name, content = event.content
                                         )
                                         rules[event.name] = rl
-                                        listeners.forEach { l -> l.onRuleCreated(rl) }
+                                        _ruleEvents.tryEmit(rl)
                                     }
 
                                     is CoCoEvent.ObjectCreated -> {
@@ -149,7 +149,7 @@ class CoCo(private val baseUrl: String) : CoroutineScope {
                                             values = event.values
                                         )
                                         objects[event.id] = obj
-                                        listeners.forEach { l -> l.onObjectCreated(obj) }
+                                        _objectEvents.tryEmit(obj)
                                     }
 
                                     is CoCoEvent.ClassesUpdated -> {
@@ -157,9 +157,8 @@ class CoCo(private val baseUrl: String) : CoroutineScope {
                                         if (obj != null) {
                                             val updatedObj = obj.copy(classes = event.classes)
                                             objects[event.objectId] = updatedObj
-                                            objectListeners[event.objectId]?.forEach { l ->
-                                                l.onClassesUpdated(event.classes)
-                                            }
+                                            _objectEvents.tryEmit(updatedObj)
+                                            objectFlows[event.objectId]?.tryEmit(updatedObj)
                                         }
                                     }
 
@@ -168,9 +167,8 @@ class CoCo(private val baseUrl: String) : CoroutineScope {
                                         if (obj != null) {
                                             val updatedObj = obj.copy(properties = event.properties)
                                             objects[event.objectId] = updatedObj
-                                            objectListeners[event.objectId]?.forEach { l ->
-                                                l.onPropertiesUpdated(event.properties)
-                                            }
+                                            _objectEvents.tryEmit(updatedObj)
+                                            objectFlows[event.objectId]?.tryEmit(updatedObj)
                                         }
                                     }
 
@@ -184,9 +182,8 @@ class CoCo(private val baseUrl: String) : CoroutineScope {
                                                     )
                                                 })
                                             objects[event.objectId] = updatedObj
-                                            objectListeners[event.objectId]?.forEach { l ->
-                                                l.onValuesUpdated(event.values, event.timestamp)
-                                            }
+                                            _objectEvents.tryEmit(updatedObj)
+                                            objectFlows[event.objectId]?.tryEmit(updatedObj)
                                         }
                                     }
                                 }
@@ -328,22 +325,9 @@ class CoCo(private val baseUrl: String) : CoroutineScope {
         client.close()
     }
 
-    fun addListener(l: CoCoListener) {
-        listeners.add(l)
-    }
-
-    fun removeListener(l: CoCoListener) {
-        listeners.remove(l)
-    }
-
-    fun addListener(objectId: String, listener: CoCoObjectListener) {
-        objectListeners.computeIfAbsent(objectId) { CopyOnWriteArrayList() }.add(listener)
-    }
-
-    fun removeListener(objectId: String, listener: CoCoObjectListener) {
-        objectListeners[objectId]?.remove(listener)
-        if (objectListeners[objectId]?.isEmpty() == true) {
-            objectListeners.remove(objectId)
-        }
+    fun observeObject(objectId: String): SharedFlow<CoCoObject> {
+        return objectFlows.computeIfAbsent(objectId) {
+            MutableSharedFlow(replay = 1, extraBufferCapacity = 32)
+        }.asSharedFlow()
     }
 }
