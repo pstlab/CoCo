@@ -6,12 +6,11 @@ import kotlin.test.assertNotNull
 import kotlin.test.assertTrue
 
 class CoCoIntegrationTest {
-    private val cocoUrl = System.getenv("COCO_URL") ?: "https://coco.pst.istc.cnr.it"
     private val cocoUser = System.getenv("COCO_USER") ?: "username"
     private val cocoPass = System.getenv("COCO_PASS") ?: "password"
 
     private suspend fun createLoggedInClient(): CoCo {
-        val coco = CoCo(cocoUrl)
+        val coco = CoCo()
         val loginSuccess = coco.login(cocoUser, cocoPass)
         assertTrue(loginSuccess)
         return coco

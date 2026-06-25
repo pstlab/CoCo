@@ -34,7 +34,9 @@ import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.coroutines.CoroutineContext
 
-class CoCo(private val baseUrl: String) : CoroutineScope {
+class CoCo(
+    private val baseUrl: String = System.getenv("COCO_URL") ?: "https://coco.pst.istc.cnr.it"
+) : CoroutineScope {
 
     val Any.logger: Logger get() = LoggerFactory.getLogger(this.javaClass)
 
@@ -330,4 +332,8 @@ class CoCo(private val baseUrl: String) : CoroutineScope {
             MutableSharedFlow(replay = 1, extraBufferCapacity = 32)
         }.asSharedFlow()
     }
+}
+
+object CoCoProvider {
+    val instance: CoCo by lazy { CoCo() }
 }
