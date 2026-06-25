@@ -2,7 +2,6 @@ package it.cnr.istc.pst.coco
 
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
-import io.ktor.client.engine.cio.CIO
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.client.plugins.websocket.DefaultClientWebSocketSession
 import io.ktor.client.plugins.websocket.WebSockets
@@ -44,7 +43,7 @@ class CoCo(
     override val coroutineContext: CoroutineContext = Dispatchers.Default + supervisor
 
     private val parsedUrl = Url(baseUrl)
-    private val client = HttpClient(CIO) {
+    private val client = HttpClient {
         install(ContentNegotiation) {
             json(Json {
                 ignoreUnknownKeys = true
@@ -246,6 +245,25 @@ class CoCo(
         }
     }
 
+    suspend fun createClass(cls: CoCoClass): Boolean {
+        logger.trace("Creating class with name: {}", cls.name)
+        if (accessToken == null) {
+            throw IllegalStateException("Not logged in")
+        }
+
+        return try {
+            client.post("$baseUrl/classes") {
+                contentType(ContentType.Application.Json)
+                header("Authorization", "Bearer $accessToken")
+                setBody(cls)
+            }
+            true
+        } catch (e: Exception) {
+            e.printStackTrace()
+            false
+        }
+    }
+
     suspend fun getRules(): List<CoCoRule> {
         logger.trace("Fetching all rules")
         if (accessToken == null) {
@@ -280,6 +298,25 @@ class CoCo(
         }
     }
 
+    suspend fun createRule(rule: CoCoRule): Boolean {
+        logger.trace("Creating rule with name: {}", rule.name)
+        if (accessToken == null) {
+            throw IllegalStateException("Not logged in")
+        }
+
+        return try {
+            client.post("$baseUrl/rules") {
+                contentType(ContentType.Application.Json)
+                header("Authorization", "Bearer $accessToken")
+                setBody(rule)
+            }
+            true
+        } catch (e: Exception) {
+            e.printStackTrace()
+            false
+        }
+    }
+
     suspend fun getObjects(): List<CoCoObject> {
         logger.trace("Fetching all objects")
         if (accessToken == null) {
@@ -311,6 +348,25 @@ class CoCo(
         } catch (e: Exception) {
             e.printStackTrace()
             null
+        }
+    }
+
+    suspend fun createObject(obj: CoCoObject): Boolean {
+        logger.trace("Creating object with ID: {}", obj.id)
+        if (accessToken == null) {
+            throw IllegalStateException("Not logged in")
+        }
+
+        return try {
+            client.post("$baseUrl/objects") {
+                contentType(ContentType.Application.Json)
+                header("Authorization", "Bearer $accessToken")
+                setBody(obj)
+            }
+            true
+        } catch (e: Exception) {
+            e.printStackTrace()
+            false
         }
     }
 
