@@ -8,6 +8,7 @@ import io.ktor.client.plugins.websocket.WebSockets
 import io.ktor.client.plugins.websocket.webSocket
 import io.ktor.client.request.get
 import io.ktor.client.request.header
+import io.ktor.client.request.patch
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
 import io.ktor.http.ContentType
@@ -362,6 +363,46 @@ class CoCo(
                 contentType(ContentType.Application.Json)
                 header("Authorization", "Bearer $accessToken")
                 setBody(obj)
+            }
+            true
+        } catch (e: Exception) {
+            e.printStackTrace()
+            false
+        }
+    }
+
+    suspend fun updateObjectProperties(
+        objectId: String, properties: Map<String, CoCoValue>
+    ): Boolean {
+        logger.trace("Updating properties for object with ID: {}", objectId)
+        if (accessToken == null) {
+            throw IllegalStateException("Not logged in")
+        }
+
+        return try {
+            client.patch("$baseUrl/objects/$objectId") {
+                contentType(ContentType.Application.Json)
+                header("Authorization", "Bearer $accessToken")
+                setBody(properties)
+            }
+            true
+        } catch (e: Exception) {
+            e.printStackTrace()
+            false
+        }
+    }
+
+    suspend fun updateObjectValues(objectId: String, values: Map<String, CoCoValue>): Boolean {
+        logger.trace("Updating values for object with ID: {}", objectId)
+        if (accessToken == null) {
+            throw IllegalStateException("Not logged in")
+        }
+
+        return try {
+            client.post("$baseUrl/objects/$objectId/data") {
+                contentType(ContentType.Application.Json)
+                header("Authorization", "Bearer $accessToken")
+                setBody(values)
             }
             true
         } catch (e: Exception) {

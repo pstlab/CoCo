@@ -1,8 +1,8 @@
 plugins {
-    kotlin("jvm") version "2.4.0"
-    kotlin("plugin.serialization") version "2.4.0"
+    alias(libs.plugins.kotlin.jvm)
+    alias(libs.plugins.kotlin.serialization)
+    alias(libs.plugins.maven.publish.vanniktech)
     id("maven-publish")
-    id("com.vanniktech.maven.publish") version "0.37.0"
 }
 
 repositories {
@@ -10,19 +10,22 @@ repositories {
 }
 
 dependencies {
-    implementation("io.ktor:ktor-client-core:3.5.0")
-    implementation("io.ktor:ktor-client-content-negotiation:3.5.0")
-    implementation("io.ktor:ktor-client-websockets:3.5.0")
-    implementation("io.ktor:ktor-serialization-kotlinx-json:3.5.0")
-    implementation("org.slf4j:slf4j-api:2.0.18")
+    // Core Architecture Infrastructure
+    implementation(libs.ktor.client.core)
+    implementation(libs.ktor.client.content.negotiation)
+    implementation(libs.ktor.client.websockets)
+    implementation(libs.ktor.serialization.kotlinx.json)
+    implementation(libs.slf4j.api)
+
+    // Unit & Logic Flow Verifications
     testImplementation(kotlin("test"))
-    testImplementation("io.ktor:ktor-client-cio:3.5.0")
-    testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.11.0")
-    testImplementation("org.slf4j:slf4j-simple:2.0.18")
+    testImplementation(libs.ktor.client.cio)
+    testImplementation(libs.kotlinx.coroutines.test)
+    testImplementation(libs.slf4j.simple)
 }
 
 mavenPublishing {
-    coordinates("io.github.pstlab", "coco-client", "1.0.3")
+    coordinates("io.github.pstlab", "coco-client", "1.0.4")
 
     pom {
         name.set("CoCo Kotlin Client")
