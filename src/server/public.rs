@@ -189,10 +189,10 @@ async fn get_objects(State(coco): State<CoCo>, Query(filter): Query<ObjectFilter
                     Err(e) => return (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to get classes for object '{}': {}", object_id, e)).into_response(),
                 };
 
-                if !filter.class.as_ref().is_none_or(|class_name| object.classes.contains(class_name)) {
+                if !filter.classes.as_ref().is_none_or(|class_names| class_names.iter().any(|class_name| object.classes.contains(class_name))) {
                     continue;
                 }
-                if !filter.extra.as_ref().is_none_or(|extra| extra.iter().all(|(k, v)| object.properties.as_ref().and_then(|props| props.get(k)).is_none_or(|prop| prop == v))) {
+                if !filter.properties.as_ref().is_none_or(|extra| extra.iter().all(|(k, v)| object.properties.as_ref().and_then(|props| props.get(k)).is_none_or(|prop| prop == v))) {
                     continue;
                 }
 
