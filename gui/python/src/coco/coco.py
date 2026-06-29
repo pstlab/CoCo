@@ -1,11 +1,12 @@
 import json
 import threading
 from typing import Any, Callable
+from coco.model import CocoClass, CocoObject
 import requests
 import websocket
 
 
-def urlencode(params):
+def urlencode(params: dict[str, Any]) -> str:
     if not params:
         return ""
     parts = []
@@ -75,7 +76,7 @@ def get_class(host: str, token: str, class_id: str) -> dict | None:
 
 
 def get_objects(host: str, token: str, classes=None, filters=None) -> list | None:
-    params = {}
+    params: dict[str, Any] = {}
     if classes:
         params["classes"] = ",".join(classes)
     if filters:
@@ -153,8 +154,8 @@ def _on_close(ws: websocket.WebSocketApp, close_status_code: int, close_msg: str
     print("WebSocket closed:", close_status_code, close_msg)
 
 
-OnNewClassCallback = Callable[[dict[str, Any]], None]
-OnNewObjectCallback = Callable[[dict[str, Any]], None]
+OnNewClassCallback = Callable[[CocoClass], None]
+OnNewObjectCallback = Callable[[CocoObject], None]
 
 
 def connect(host: str, token: str, on_new_class: OnNewClassCallback | None = None, on_new_object: OnNewObjectCallback | None = None) -> websocket.WebSocketApp:
@@ -164,10 +165,10 @@ def connect(host: str, token: str, on_new_class: OnNewClassCallback | None = Non
             data: dict[str, Any] = json.loads(message)
 
             if on_new_class and data.get("msg_type") == "new-class":
-                on_new_class(data)
+                on_new_class(CocoClass.from_json(data))
 
             if on_new_object and data.get("msg_type") == "new-object":
-                on_new_object(data)
+                on_new_object(CocoObject.from_json(data))
 
         except json.JSONDecodeError:
             print("Failed to decode JSON message:", message)
