@@ -207,15 +207,18 @@
                 "operationId": "get_objects",
                 "parameters": [
                     {
-                        "name": "class",
+                        "name": "classes",
                         "in": "query",
                         "required": false,
                         "schema": {
-                            "type": "string"
+                            "type": "array",
+                            "items": {
+                                "type": "string"
+                            }
                         }
                     },
                     {
-                        "name": "extra",
+                        "name": "properties",
                         "in": "query",
                         "required": false,
                         "schema": {
