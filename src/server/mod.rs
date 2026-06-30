@@ -1,7 +1,6 @@
-use std::collections::HashMap;
-
 use chrono::{DateTime, Utc};
 use serde::Deserialize;
+use std::collections::HashMap;
 use utoipa::IntoParams;
 
 #[cfg(feature = "auth")]
@@ -20,9 +19,9 @@ pub(super) struct DataFilter {
 #[derive(Debug, Deserialize, IntoParams)]
 #[into_params(parameter_in = Query)]
 pub(super) struct ObjectFilter {
-    pub(super) class: Option<String>,
+    pub(super) classes: Option<Vec<String>>,
     #[serde(flatten)]
-    pub(super) extra: Option<HashMap<String, String>>,
+    pub(super) properties: Option<HashMap<String, String>>,
 }
 
 #[derive(Debug, Deserialize)]

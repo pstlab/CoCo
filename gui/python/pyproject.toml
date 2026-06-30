@@ -1,0 +1,11 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "coco"
+version = "1.0.0"
+dependencies = [
+    "requests>=2.34.2",
+    "websocket-client>=1.8.0"
+]
