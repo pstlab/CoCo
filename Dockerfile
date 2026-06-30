@@ -24,7 +24,7 @@ WORKDIR /usr/src/app
 
 RUN git clone https://github.com/pstlab/CoCo.git .
 
-WORKDIR /usr/src/app/gui/web
+WORKDIR /usr/src/app/api/web
 
 RUN npm install && npm run build:playground
 
@@ -34,7 +34,7 @@ FROM debian:bookworm-slim
 RUN apt-get update && apt-get install -y ca-certificates && rm -rf /var/lib/apt/lists/*
 
 COPY --from=backend-builder /usr/src/app/target/release/coco-reasoner /usr/local/bin/coco
-COPY --from=frontend-builder /usr/src/app/gui/web/playground/dist /usr/local/bin/gui
+COPY --from=frontend-builder /usr/src/app/api/web/playground/dist /usr/local/bin/gui
 
 WORKDIR /usr/local/bin
 

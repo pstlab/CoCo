@@ -1,0 +1,7 @@
+.gradle
+.kotlin
+bin
+build
+local.properties
+gradle.properties
+*.gpg

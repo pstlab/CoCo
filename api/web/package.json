@@ -1,0 +1,52 @@
+{
+  "name": "@ratiosolver/coco",
+  "version": "0.1.10",
+  "type": "module",
+  "description": "A frontend library for facilitating interaction with the CoCo (Combined deduCtiOn and abduCtiOn) cognitive architecture",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/pstlab/COCO.git"
+  },
+  "keywords": [
+    "reasoner",
+    "api",
+    "abduction",
+    "deduction"
+  ],
+  "author": "pstlab",
+  "license": "Apache-2.0",
+  "bugs": {
+    "url": "https://github.com/pstlab/COCO/issues"
+  },
+  "homepage": "https://github.com/pstlab/COCO#readme",
+  "files": [
+    "/dist"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "build:playground": "vite build playground",
+    "dev": "vite playground"
+  },
+  "devDependencies": {
+    "@fortawesome/fontawesome-free": "^7.2.0",
+    "@types/bootstrap": "^5.2.11",
+    "@types/node": "^26.0.0",
+    "jsdom": "^29.1.1",
+    "typescript": "^6.0.3",
+    "vite": "^8.0.16"
+  },
+  "peerDependencies": {
+    "@ratiosolver/flick": "^0.2.11",
+    "bootstrap": "^5.3.8",
+    "snabbdom": "^3.6.4"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "dependencies": {
+    "echarts": "^6.1.0",
+    "highlight.js": "^11.11.1"
+  }
+}
