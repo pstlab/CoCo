@@ -194,7 +194,9 @@ class CoCo(
                                         logger.info("Received PropertiesUpdated event: {}", event)
                                         val obj =
                                             requireNotNull(objects[event.objectId]) { "Object with ID ${event.objectId} not found" }
-                                        val updatedObj = obj.copy(properties = event.properties)
+                                        val mergedProperties =
+                                            (obj.properties ?: emptyMap()) + event.properties
+                                        val updatedObj = obj.copy(properties = mergedProperties)
                                         objects[event.objectId] = updatedObj
                                         _objectEvents.tryEmit(updatedObj)
                                         objectFlows[event.objectId]?.tryEmit(updatedObj)
@@ -204,10 +206,11 @@ class CoCo(
                                         logger.info("Received ValuesUpdated event: {}", event)
                                         val obj =
                                             requireNotNull(objects[event.objectId]) { "Object with ID ${event.objectId} not found" }
-                                        val updatedObj =
-                                            obj.copy(values = event.values.mapValues { (_, v) ->
-                                                TimeValue(v, event.dateTime)
-                                            })
+                                        val mergedValues = (obj.values
+                                            ?: emptyMap()) + event.values.mapValues { (_, v) ->
+                                            TimeValue(v, event.dateTime)
+                                        }
+                                        val updatedObj = obj.copy(values = mergedValues)
                                         objects[event.objectId] = updatedObj
                                         _objectEvents.tryEmit(updatedObj)
                                         objectFlows[event.objectId]?.tryEmit(updatedObj)
