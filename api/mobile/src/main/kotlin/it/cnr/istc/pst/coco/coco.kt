@@ -12,6 +12,7 @@ import io.ktor.client.request.patch
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
 import io.ktor.http.ContentType
+import io.ktor.http.URLProtocol
 import io.ktor.http.Url
 import io.ktor.http.contentType
 import io.ktor.http.path
@@ -55,7 +56,11 @@ class CoCo(
         }
         install(WebSockets)
     }
+
+    @Volatile
     private var accessToken: String? = null
+
+    @Volatile
     private var webSocketSession: DefaultClientWebSocketSession? = null
     private var webSocketJob: kotlinx.coroutines.Job? = null
     private val isRunning = AtomicBoolean(false)
@@ -110,7 +115,10 @@ class CoCo(
             try {
                 client.webSocket(request = {
                     url {
+                        protocol =
+                            if (parsedUrl.protocol.name == "https") URLProtocol.WSS else URLProtocol.WS
                         host = parsedUrl.host
+                        port = parsedUrl.port
                         path("/ws")
                         parameters.append("token", accessToken ?: "")
                     }
