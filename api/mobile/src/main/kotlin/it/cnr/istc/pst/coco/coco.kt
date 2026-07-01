@@ -2,9 +2,7 @@ package it.cnr.istc.pst.coco
 
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
-import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.client.plugins.websocket.DefaultClientWebSocketSession
-import io.ktor.client.plugins.websocket.WebSockets
 import io.ktor.client.plugins.websocket.webSocket
 import io.ktor.client.request.get
 import io.ktor.client.request.header
@@ -16,7 +14,6 @@ import io.ktor.http.URLProtocol
 import io.ktor.http.Url
 import io.ktor.http.contentType
 import io.ktor.http.path
-import io.ktor.serialization.kotlinx.json.json
 import io.ktor.websocket.CloseReason
 import io.ktor.websocket.Frame
 import io.ktor.websocket.close
@@ -36,7 +33,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.coroutines.CoroutineContext
 
 class CoCo(
-    private val baseUrl: String = System.getenv("COCO_URL") ?: "https://coco.pst.istc.cnr.it"
+    private val client: HttpClient, private val baseUrl: String
 ) : CoroutineScope {
 
     companion object {
@@ -47,15 +44,6 @@ class CoCo(
     override val coroutineContext: CoroutineContext = Dispatchers.Default + supervisor
 
     private val parsedUrl = Url(baseUrl)
-    private val client = HttpClient {
-        install(ContentNegotiation) {
-            json(Json {
-                ignoreUnknownKeys = true
-                isLenient = true
-            })
-        }
-        install(WebSockets)
-    }
 
     @Volatile
     private var accessToken: String? = null
@@ -527,7 +515,6 @@ class CoCo(
         )
 
         webSocketJob?.join()
-        client.close()
     }
 
     /**
@@ -539,8 +526,4 @@ class CoCo(
     fun observeObject(objectId: String): SharedFlow<CoCoObject> {
         return objectFlows.computeIfAbsent(objectId) { MutableSharedFlow() }.asSharedFlow()
     }
-}
-
-object CoCoProvider {
-    val instance: CoCo by lazy { CoCo() }
 }
