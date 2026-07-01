@@ -115,6 +115,17 @@ class CoCo(
                     while (isRunning.get()) {
                         val result = incoming.receiveCatching()
                         if (result.isClosed) {
+                            val reason = closeReason.await()
+                            logger.info(
+                                "WebSocket closing: code={}, reason={}",
+                                reason?.code,
+                                reason?.message
+                            )
+                            result.exceptionOrNull()?.let {
+                                logger.warn(
+                                    "WebSocket closed with exception: {}", it.localizedMessage
+                                )
+                            }
                             break
                         }
 
