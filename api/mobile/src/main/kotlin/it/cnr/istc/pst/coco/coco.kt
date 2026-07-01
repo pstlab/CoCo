@@ -189,15 +189,13 @@ class CoCo(
                                         objectFlows[event.objectId]?.tryEmit(updatedObj)
                                     }
 
-                                    is CoCoEvent.ValuesUpdated -> {
+                                    is CoCoEvent.ValuesAdded -> {
                                         logger.info("Received ValuesUpdated event: {}", event)
                                         val obj =
                                             requireNotNull(objects[event.objectId]) { "Object with ID ${event.objectId} not found" }
                                         val updatedObj =
                                             obj.copy(values = event.values.mapValues { (_, v) ->
-                                                TimeValue(
-                                                    v, event.timestamp
-                                                )
+                                                TimeValue(v, event.dateTime)
                                             })
                                         objects[event.objectId] = updatedObj
                                         _objectEvents.tryEmit(updatedObj)

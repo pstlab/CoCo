@@ -25,7 +25,7 @@ dependencies {
 }
 
 mavenPublishing {
-    coordinates("io.github.pstlab", "coco-client", "1.0.7")
+    coordinates("io.github.pstlab", "coco-client", "1.0.8")
 
     pom {
         name.set("CoCo Kotlin Client")
