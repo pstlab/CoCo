@@ -23,25 +23,25 @@ class CoCoIntegrationTest {
     }
 
     @Test
-    fun testGetClasses() = runTest {
+    fun testFetchClasses() = runTest {
         val coco = createLoggedInClient()
-        val classes = coco.getClasses()
+        val classes = coco.fetchClasses()
         assertNotNull(classes)
         coco.close()
     }
 
     @Test
-    fun testGetRules() = runTest {
+    fun testFetchRules() = runTest {
         val coco = createLoggedInClient()
-        val rules = coco.getRules()
+        val rules = coco.fetchRules()
         assertNotNull(rules)
         coco.close()
     }
 
     @Test
-    fun testGetObjects() = runTest {
+    fun testFetchObjects() = runTest {
         val coco = createLoggedInClient()
-        val objects = coco.getObjects()
+        val objects = coco.fetchObjects()
         assertNotNull(objects)
         coco.close()
     }
