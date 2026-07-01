@@ -38,7 +38,9 @@ class CoCo(
     private val baseUrl: String = System.getenv("COCO_URL") ?: "https://coco.pst.istc.cnr.it"
 ) : CoroutineScope {
 
-    val Any.logger: Logger get() = LoggerFactory.getLogger(this.javaClass)
+    companion object {
+        private val logger: Logger = LoggerFactory.getLogger(CoCo::class.java)
+    }
 
     private val supervisor = SupervisorJob()
     override val coroutineContext: CoroutineContext = Dispatchers.Default + supervisor
@@ -113,6 +115,7 @@ class CoCo(
                                 val text = frame.readText()
                                 when (val event = Json.decodeFromString<CoCoEvent>(text)) {
                                     is CoCoEvent.CoCo -> {
+                                        logger.info("Received CoCo event: {}", event)
                                         event.classes?.forEach { (className, cls) ->
                                             classes[className] = cls.copy(name = className)
                                         }
@@ -125,6 +128,7 @@ class CoCo(
                                     }
 
                                     is CoCoEvent.ClassCreated -> {
+                                        logger.info("Received ClassCreated event: {}", event)
                                         val cls = CoCoClass(
                                             name = event.name,
                                             parents = event.parents,
@@ -136,6 +140,7 @@ class CoCo(
                                     }
 
                                     is CoCoEvent.RuleCreated -> {
+                                        logger.info("Received RuleCreated event: {}", event)
                                         val rl = CoCoRule(
                                             name = event.name, content = event.content
                                         )
@@ -144,6 +149,7 @@ class CoCo(
                                     }
 
                                     is CoCoEvent.ObjectCreated -> {
+                                        logger.info("Received ObjectCreated event: {}", event)
                                         val obj = CoCoObject(
                                             id = event.id,
                                             classes = event.classes,
@@ -155,6 +161,7 @@ class CoCo(
                                     }
 
                                     is CoCoEvent.ClassesUpdated -> {
+                                        logger.info("Received ClassesUpdated event: {}", event)
                                         val obj = objects[event.objectId]
                                         if (obj != null) {
                                             val updatedObj = obj.copy(classes = event.classes)
@@ -165,6 +172,7 @@ class CoCo(
                                     }
 
                                     is CoCoEvent.PropertiesUpdated -> {
+                                        logger.info("Received PropertiesUpdated event: {}", event)
                                         val obj = objects[event.objectId]
                                         if (obj != null) {
                                             val updatedObj = obj.copy(properties = event.properties)
@@ -175,6 +183,7 @@ class CoCo(
                                     }
 
                                     is CoCoEvent.ValuesUpdated -> {
+                                        logger.info("Received ValuesUpdated event: {}", event)
                                         val obj = objects[event.objectId]
                                         if (obj != null) {
                                             val updatedObj =

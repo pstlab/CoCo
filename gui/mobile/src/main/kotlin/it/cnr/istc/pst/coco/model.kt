@@ -103,6 +103,72 @@ sealed class CoCoProperty {
         val max: Double? = null,
         val description: String? = null
     ) : CoCoProperty()
+
+    @Serializable
+    @SerialName("string")
+    data class StringProperty(
+        val default: String? = null, val description: String? = null
+    ) : CoCoProperty()
+
+    @Serializable
+    @SerialName("symbol")
+    data class SymbolProperty(
+        val default: String? = null,
+        @SerialName("allowed_values") val allowedValues: Set<String>? = null,
+        val description: String? = null
+    ) : CoCoProperty()
+
+    @Serializable
+    @SerialName("object")
+    data class ObjectProperty(
+        val default: String? = null, val classes: List<String>, val description: String? = null
+    ) : CoCoProperty()
+
+    @Serializable
+    @SerialName("bool-array")
+    data class BoolArrayProperty(
+        val default: List<Boolean>? = null, val description: String? = null
+    ) : CoCoProperty()
+
+    @Serializable
+    @SerialName("int-array")
+    data class IntArrayProperty(
+        val default: List<Long>? = null,
+        val min: Long? = null,
+        val max: Long? = null,
+        val description: String? = null
+    ) : CoCoProperty()
+
+    @Serializable
+    @SerialName("float-array")
+    data class FloatArrayProperty(
+        val default: List<Double>? = null,
+        val min: Double? = null,
+        val max: Double? = null,
+        val description: String? = null
+    ) : CoCoProperty()
+
+    @Serializable
+    @SerialName("string-array")
+    data class StringArrayProperty(
+        val default: List<String>? = null, val description: String? = null
+    ) : CoCoProperty()
+
+    @Serializable
+    @SerialName("symbol-array")
+    data class SymbolArrayProperty(
+        val default: List<String>? = null,
+        @SerialName("allowed_values") val allowedValues: Set<String>? = null,
+        val description: String? = null
+    ) : CoCoProperty()
+
+    @Serializable
+    @SerialName("object-array")
+    data class ObjectArrayProperty(
+        val default: List<String>? = null,
+        val classes: List<String>,
+        val description: String? = null
+    ) : CoCoProperty()
 }
 
 @Serializable
