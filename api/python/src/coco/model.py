@@ -4,7 +4,7 @@ from datetime import datetime
 
 class Property:
     @staticmethod
-    def from_json(json_data: dict) -> "Property":
+    def from_json(json_data: dict) -> Property:
         property_type = json_data.get("type")
         if property_type == "bool":
             return BoolProperty(
@@ -36,6 +36,46 @@ class Property:
                 allowed_values=json_data.get("allowed_values"),
                 description=json_data.get("description"),
             )
+        elif property_type == "object":
+            return ObjectProperty(
+                default=json_data.get("default"),
+                classes=json_data.get("classes"),
+                description=json_data.get("description"),
+            )
+        elif property_type == "bool-array":
+            return BoolArrayProperty(
+                default=json_data.get("default"),
+                description=json_data.get("description"),
+            )
+        elif property_type == "int-array":
+            return IntArrayProperty(
+                default=json_data.get("default"),
+                description=json_data.get("description"),
+            )
+        elif property_type == "float-array":
+            return FloatArrayProperty(
+                default=json_data.get("default"),
+                description=json_data.get("description"),
+            )
+        elif property_type == "string-array":
+            return StringArrayProperty(
+                default=json_data.get("default"),
+                description=json_data.get("description"),
+            )
+        elif property_type == "symbol-array":
+            return SymbolArrayProperty(
+                default=json_data.get("default"),
+                allowed_values=json_data.get("allowed_values"),
+                description=json_data.get("description"),
+            )
+        elif property_type == "object-array":
+            return ObjectArrayProperty(
+                default=json_data.get("default"),
+                classes=json_data.get("classes"),
+                description=json_data.get("description"),
+            )
+        else:
+            raise ValueError(f"Unknown property type: {property_type}")
 
 
 class BoolProperty(Property):
@@ -78,6 +118,58 @@ class SymbolProperty(Property):
         self.description = description
 
 
+class ObjectProperty(Property):
+    def __init__(self, default: str | None = None, classes: list[str] | None = None, description: str | None = None):
+        super().__init__()
+        self.default = default
+        self.classes = classes
+        self.description = description
+
+
+class BoolArrayProperty(Property):
+    def __init__(self, default: list[bool] | None = None, description: str | None = None):
+        super().__init__()
+        self.default = default
+        self.description = description
+
+
+class IntArrayProperty(Property):
+    def __init__(self, default: list[int] | None = None, description: str | None = None):
+        super().__init__()
+        self.default = default
+        self.description = description
+
+
+class FloatArrayProperty(Property):
+    def __init__(self, default: list[float] | None = None, description: str | None = None):
+        super().__init__()
+        self.default = default
+        self.description = description
+
+
+class StringArrayProperty(Property):
+    def __init__(self, default: list[str] | None = None, description: str | None = None):
+        super().__init__()
+        self.default = default
+        self.description = description
+
+
+class SymbolArrayProperty(Property):
+    def __init__(self, default: list[str] | None = None, allowed_values: list[str] | None = None, description: str | None = None):
+        super().__init__()
+        self.default = default
+        self.allowed_values = allowed_values
+        self.description = description
+
+
+class ObjectArrayProperty(Property):
+    def __init__(self, default: list[str] | None = None, classes: list[str] | None = None, description: str | None = None):
+        super().__init__()
+        self.default = default
+        self.classes = classes
+        self.description = description
+
+
 class CocoClass:
     def __init__(self, name: str, static_properties: dict[str, Property], dynamic_properties: dict[str, Property]):
         self.name = name
@@ -85,8 +177,10 @@ class CocoClass:
         self.dynamic_properties = dynamic_properties
 
     @staticmethod
-    def from_json(json_data: dict) -> "CocoClass":
+    def from_json(json_data: dict) -> CocoClass:
         name = json_data.get("name")
+        if not isinstance(name, str):
+            raise ValueError("Invalid class name in JSON data")
         static_properties_json = json_data.get("static_properties", {})
         dynamic_properties_json = json_data.get("dynamic_properties", {})
 
@@ -107,8 +201,10 @@ class CocoObject:
         self.values = values
 
     @staticmethod
-    def from_json(json_data: dict) -> "CocoObject":
+    def from_json(json_data: dict) -> CocoObject:
         id = json_data.get("id")
+        if not isinstance(id, str):
+            raise ValueError("Invalid object ID in JSON data")
         classes = json_data.get("classes", [])
         properties = json_data.get("properties", {})
         values_json = json_data.get("values", {})
