@@ -1,7 +1,3 @@
-from typing import Any
-from datetime import datetime
-
-
 class Property:
     @staticmethod
     def from_json(json_data: dict) -> Property:
@@ -13,16 +9,16 @@ class Property:
             )
         elif property_type == "int":
             return IntProperty(
-                default=json_data.get("default"),
                 min=json_data.get("min"),
                 max=json_data.get("max"),
+                default=json_data.get("default"),
                 description=json_data.get("description"),
             )
         elif property_type == "float":
             return FloatProperty(
-                default=json_data.get("default"),
                 min=json_data.get("min"),
                 max=json_data.get("max"),
+                default=json_data.get("default"),
                 description=json_data.get("description"),
             )
         elif property_type == "string":
@@ -32,14 +28,14 @@ class Property:
             )
         elif property_type == "symbol":
             return SymbolProperty(
-                default=json_data.get("default"),
                 allowed_values=json_data.get("allowed_values"),
+                default=json_data.get("default"),
                 description=json_data.get("description"),
             )
         elif property_type == "object":
             return ObjectProperty(
+                classes=json_data["classes"],
                 default=json_data.get("default"),
-                classes=json_data.get("classes"),
                 description=json_data.get("description"),
             )
         elif property_type == "bool-array":
@@ -49,11 +45,15 @@ class Property:
             )
         elif property_type == "int-array":
             return IntArrayProperty(
+                min=json_data.get("min"),
+                max=json_data.get("max"),
                 default=json_data.get("default"),
                 description=json_data.get("description"),
             )
         elif property_type == "float-array":
             return FloatArrayProperty(
+                min=json_data.get("min"),
+                max=json_data.get("max"),
                 default=json_data.get("default"),
                 description=json_data.get("description"),
             )
@@ -64,14 +64,14 @@ class Property:
             )
         elif property_type == "symbol-array":
             return SymbolArrayProperty(
-                default=json_data.get("default"),
                 allowed_values=json_data.get("allowed_values"),
+                default=json_data.get("default"),
                 description=json_data.get("description"),
             )
         elif property_type == "object-array":
             return ObjectArrayProperty(
+                classes=json_data["classes"],
                 default=json_data.get("default"),
-                classes=json_data.get("classes"),
                 description=json_data.get("description"),
             )
         else:
@@ -86,20 +86,20 @@ class BoolProperty(Property):
 
 
 class IntProperty(Property):
-    def __init__(self, default: int | None = None, min: int | None = None, max: int | None = None, description: str | None = None):
+    def __init__(self, min: int | None = None, max: int | None = None, default: int | None = None, description: str | None = None):
         super().__init__()
-        self.default = default
         self.min = min
         self.max = max
+        self.default = default
         self.description = description
 
 
 class FloatProperty(Property):
-    def __init__(self, default: float | None = None, min: float | None = None, max: float | None = None, description: str | None = None):
+    def __init__(self, min: float | None = None, max: float | None = None, default: float | None = None, description: str | None = None):
         super().__init__()
-        self.default = default
         self.min = min
         self.max = max
+        self.default = default
         self.description = description
 
 
@@ -111,15 +111,15 @@ class StringProperty(Property):
 
 
 class SymbolProperty(Property):
-    def __init__(self, default: str | None = None, allowed_values: list[str] | None = None, description: str | None = None):
+    def __init__(self, allowed_values: list[str] | None = None, default: str | None = None, description: str | None = None):
         super().__init__()
-        self.default = default
         self.allowed_values = allowed_values
+        self.default = default
         self.description = description
 
 
 class ObjectProperty(Property):
-    def __init__(self, default: str | None = None, classes: list[str] | None = None, description: str | None = None):
+    def __init__(self, classes: list[str], default: str | None = None, description: str | None = None):
         super().__init__()
         self.default = default
         self.classes = classes
@@ -134,15 +134,19 @@ class BoolArrayProperty(Property):
 
 
 class IntArrayProperty(Property):
-    def __init__(self, default: list[int] | None = None, description: str | None = None):
+    def __init__(self, min: int | None = None, max: int | None = None, default: list[int] | None = None, description: str | None = None):
         super().__init__()
+        self.min = min
+        self.max = max
         self.default = default
         self.description = description
 
 
 class FloatArrayProperty(Property):
-    def __init__(self, default: list[float] | None = None, description: str | None = None):
+    def __init__(self, min: float | None = None, max: float | None = None, default: list[float] | None = None, description: str | None = None):
         super().__init__()
+        self.min = min
+        self.max = max
         self.default = default
         self.description = description
 
@@ -155,15 +159,15 @@ class StringArrayProperty(Property):
 
 
 class SymbolArrayProperty(Property):
-    def __init__(self, default: list[str] | None = None, allowed_values: list[str] | None = None, description: str | None = None):
+    def __init__(self, allowed_values: list[str] | None = None, default: list[str] | None = None, description: str | None = None):
         super().__init__()
-        self.default = default
         self.allowed_values = allowed_values
+        self.default = default
         self.description = description
 
 
 class ObjectArrayProperty(Property):
-    def __init__(self, default: list[str] | None = None, classes: list[str] | None = None, description: str | None = None):
+    def __init__(self, classes: list[str], default: list[str] | None = None, description: str | None = None):
         super().__init__()
         self.default = default
         self.classes = classes
@@ -178,7 +182,7 @@ class CocoClass:
 
     @staticmethod
     def from_json(json_data: dict) -> CocoClass:
-        name = json_data.get("name")
+        name = json_data["name"]
         if not isinstance(name, str):
             raise ValueError("Invalid class name in JSON data")
         static_properties_json = json_data.get("static_properties", {})
@@ -193,7 +197,7 @@ class CocoClass:
 
 
 class CocoObject:
-    def __init__(self, id: str, classes: list[str], properties: dict[str, Any], values: dict[str, tuple[Any, datetime]]):
+    def __init__(self, id: str, classes: list[str], properties: dict[str, str | int | float | bool] | None = None, values: dict[str, tuple[str | int | float | bool, str]] | None = None):
         super().__init__()
         self.id = id
         self.classes = classes
@@ -202,21 +206,18 @@ class CocoObject:
 
     @staticmethod
     def from_json(json_data: dict) -> CocoObject:
-        id = json_data.get("id")
+        id = json_data["id"]
         if not isinstance(id, str):
             raise ValueError("Invalid object ID in JSON data")
-        classes = json_data.get("classes", [])
-        properties = json_data.get("properties", {})
-        values_json = json_data.get("values", {})
+        classes = json_data["classes"]
+        properties = json_data.get("properties")
+        values_json = json_data.get("values")
 
-        values = {}
-        for key, value in values_json.items():
-            if isinstance(value, dict) and "value" in value and "timestamp" in value:
-                timestamp_str = value["timestamp"]
-                try:
-                    timestamp = datetime.fromisoformat(timestamp_str)
-                except ValueError:
-                    timestamp = None
-                values[key] = (value["value"], timestamp)
+        values = None
+        if values_json is not None:
+            values = {}
+            for key, value in values_json.items():
+                if isinstance(value, dict) and "value" in value and "timestamp" in value:
+                    values[key] = (value["value"], value["timestamp"])
 
         return CocoObject(id=id, classes=classes, properties=properties, values=values)

@@ -3,13 +3,14 @@ import websocket
 import threading
 from coco.model import CocoClass, CocoObject
 from typing import Any, Callable
-from datetime import datetime
 
 OnNewClassCallback = Callable[[CocoClass], None]
 OnNewObjectCallback = Callable[[CocoObject], None]
 OnClassesUpdateCallback = Callable[[str, set[str]], None]
-OnPropertiesUpdateCallback = Callable[[str, dict[str, Any]], None]
-OnNewDataCallback = Callable[[str, dict[str, tuple[Any, datetime]]], None]
+OnPropertiesUpdateCallback = Callable[[
+    str, dict[str, str | int | float | bool]], None]
+OnNewDataCallback = Callable[[
+    str, dict[str, tuple[str | int | float | bool, str]]], None]
 
 
 def connect(host: str, token: str, on_new_class: OnNewClassCallback | None = None, on_new_object: OnNewObjectCallback | None = None, on_classes_update: OnClassesUpdateCallback | None = None, on_object_update: OnPropertiesUpdateCallback | None = None, on_new_data: OnNewDataCallback | None = None) -> websocket.WebSocketApp:

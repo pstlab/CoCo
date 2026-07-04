@@ -1,7 +1,8 @@
+from coco.model import CocoClass, CocoObject
 import requests
 
 
-def urlencode(params: dict[str, str | int | float]) -> str:
+def urlencode(params: dict[str, str | int | float | bool]) -> str:
     if not params:
         return ""
     parts = []
@@ -30,7 +31,7 @@ def login(host: str, username: str, password: str) -> dict | None:
         return None
 
 
-def get_classes(host: str, token: str) -> list | None:
+def get_classes(host: str, token: str) -> list[CocoClass] | None:
     url = "https://{}/classes".format(host)
     headers = {"Authorization": "Bearer {}".format(token)}
 
@@ -40,7 +41,7 @@ def get_classes(host: str, token: str) -> list | None:
             print("Classes retrieved successfully!")
             data = response.json()
             response.close()
-            return data
+            return [CocoClass.from_json(cls_data) for cls_data in data]
         else:
             print("Failed to retrieve classes:", response.status_code)
             response.close()
@@ -50,7 +51,7 @@ def get_classes(host: str, token: str) -> list | None:
         return None
 
 
-def get_class(host: str, token: str, class_id: str) -> dict | None:
+def get_class(host: str, token: str, class_id: str) -> CocoClass | None:
     url = "https://{}/classes/{}".format(host, class_id)
     headers = {"Authorization": "Bearer {}".format(token)}
 
@@ -60,7 +61,7 @@ def get_class(host: str, token: str, class_id: str) -> dict | None:
             print("Class retrieved successfully!")
             data = response.json()
             response.close()
-            return data
+            return CocoClass.from_json(data)
         else:
             print("Failed to retrieve class:", response.status_code)
             response.close()
@@ -70,8 +71,8 @@ def get_class(host: str, token: str, class_id: str) -> dict | None:
         return None
 
 
-def get_objects(host: str, token: str, classes=None, filters=None) -> list | None:
-    params: dict[str, str | int | float] = {}
+def get_objects(host: str, token: str, classes=None, filters=None) -> list[CocoObject] | None:
+    params: dict[str, str | int | float | bool] = {}
     if classes:
         params["classes"] = ",".join(classes)
     if filters:
@@ -88,7 +89,7 @@ def get_objects(host: str, token: str, classes=None, filters=None) -> list | Non
             print("Objects retrieved successfully!")
             data = response.json()
             response.close()
-            return data
+            return [CocoObject.from_json(obj_data) for obj_data in data]
         else:
             print("Failed to retrieve objects:", response.status_code)
             response.close()
@@ -98,7 +99,7 @@ def get_objects(host: str, token: str, classes=None, filters=None) -> list | Non
         return None
 
 
-def get_object(host: str, token: str, object_id: str) -> dict | None:
+def get_object(host: str, token: str, object_id: str) -> CocoObject | None:
     url = "https://{}/objects/{}".format(host, object_id)
     headers = {"Authorization": "Bearer {}".format(token)}
 
@@ -108,7 +109,7 @@ def get_object(host: str, token: str, object_id: str) -> dict | None:
             print("Object retrieved successfully!")
             data = response.json()
             response.close()
-            return data
+            return CocoObject.from_json(data)
         else:
             print("Failed to retrieve object:", response.status_code)
             response.close()
@@ -118,7 +119,7 @@ def get_object(host: str, token: str, object_id: str) -> dict | None:
         return None
 
 
-def add_data(host: str, token: str, object_id: str, data: dict) -> bool:
+def add_data(host: str, token: str, object_id: str, data: dict[str, str | int | float | bool]) -> bool:
     url = "https://{}/objects/{}/data".format(host, object_id)
     headers = {"Authorization": "Bearer {}".format(token)}
 
