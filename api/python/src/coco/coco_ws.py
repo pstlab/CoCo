@@ -1,104 +1,204 @@
+import socket
+import ssl
+import binascii
+import random
+import asyncio
 import json
-import websocket
-import threading
+
 from coco.model import CocoClass, CocoObject
-from typing import Any, Callable
-
-OnNewClassCallback = Callable[[CocoClass], None]
-OnNewObjectCallback = Callable[[CocoObject], None]
-OnClassesUpdateCallback = Callable[[str, set[str]], None]
-OnPropertiesUpdateCallback = Callable[[
-    str, dict[str, str | int | float | bool]], None]
-OnNewDataCallback = Callable[[
-    str, dict[str, tuple[str | int | float | bool, str]]], None]
 
 
-def connect(host: str, token: str, on_new_class: OnNewClassCallback | None = None, on_new_object: OnNewObjectCallback | None = None, on_classes_update: OnClassesUpdateCallback | None = None, on_object_update: OnPropertiesUpdateCallback | None = None, on_new_data: OnNewDataCallback | None = None) -> websocket.WebSocketApp:
-    stop_event = threading.Event()
-    current_ws: dict[str, websocket.WebSocketApp | None] = {"ws": None}
+def _handshake(host: str, token: str) -> socket.socket | ssl.SSLSocket | None:
+    print("Performing WebSocket handshake...")
+    path = "/ws?token=" + token
+    random_key = bytes([random.getrandbits(8) for _ in range(16)])
+    ws_key = binascii.b2a_base64(random_key).strip().decode()
 
-    def build_ws() -> websocket.WebSocketApp:
-        def on_open(ws: websocket.WebSocketApp) -> None:
-            print("WebSocket connection opened")
+    tcp_sock = None
+    tls_sock = None
+    try:
+        tcp_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        addr = socket.getaddrinfo(host, 443)[0][-1]
+        tcp_sock.connect(addr)
+        tls_sock = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT).wrap_socket(
+            tcp_sock, server_hostname=host)
 
-        def on_message(ws: websocket.WebSocketApp, message: Any) -> None:
-            print("Received raw message:", message)
-            try:
-                data: dict[str, Any] = json.loads(message)
+        request = (
+            "GET {} HTTP/1.1\r\n"
+            "Host: {}\r\n"
+            "Upgrade: websocket\r\n"
+            "Connection: Upgrade\r\n"
+            "Sec-WebSocket-Key: {}\r\n"
+            "Sec-WebSocket-Version: 13\r\n"
+            "\r\n"
+        ).format(path, host, ws_key)
 
-                if on_new_class and data.get("msg_type") == "new-class":
-                    on_new_class(CocoClass.from_json(data))
+        tls_sock.send(request.encode())
+        response = tls_sock.recv(1024).decode()
 
-                if on_new_object and data.get("msg_type") == "new-object":
-                    on_new_object(CocoObject.from_json(data))
+        if "101 Switching Protocols" in response:
+            print("WebSocket handshake successful!")
+            return tls_sock
+        else:
+            print("WebSocket handshake failed. Response:", response)
+            tls_sock.close()
+            tcp_sock.close()
+            return None
+    except Exception as e:
+        print("An error occurred with WebSocket:", e)
+        try:
+            if tls_sock is not None:
+                tls_sock.close()
+        except Exception:
+            pass
+        try:
+            if tcp_sock is not None:
+                tcp_sock.close()
+        except Exception:
+            pass
+        return None
 
-                if on_classes_update and data.get("msg_type") == "classes-updated":
-                    object_id = data.get("object_id")
-                    classes = data.get("classes")
-                    if isinstance(object_id, str) and isinstance(classes, set):
-                        on_classes_update(object_id, classes)
 
-                if on_object_update and data.get("msg_type") == "properties-updated":
-                    object_id = data.get("object_id")
-                    properties = data.get("properties")
-                    if isinstance(object_id, str) and isinstance(properties, dict):
-                        on_object_update(object_id, properties)
+def _read_exact(sock: socket.socket | ssl.SSLSocket, n: int) -> bytes | None:
+    data = b""
+    while len(data) < n:
+        chunk = sock.recv(n - len(data))
+        if not chunk:
+            return None
+        data += chunk
+    return data
 
-                if on_new_data and data.get("msg_type") == "values-added":
-                    object_id = data.get("object_id")
-                    values = data.get("values")
-                    if isinstance(object_id, str) and isinstance(values, dict):
-                        on_new_data(object_id, values)
 
-            except json.JSONDecodeError:
-                print("Failed to decode JSON message:", message)
-            except Exception as e:
-                print("Error processing message:", e)
+def _ws_read_frame(sock: socket.socket | ssl.SSLSocket) -> tuple[int | None, bytes | None]:
+    hdr = _read_exact(sock, 2)
+    if not hdr:
+        return None, None
 
-        def on_error(ws: websocket.WebSocketApp, error: Exception) -> None:
-            print("WebSocket error:", error)
+    b0 = hdr[0]
+    b1 = hdr[1]
+    opcode = b0 & 0x0F
+    masked = (b1 & 0x80) != 0
+    plen = b1 & 0x7F
 
-        def on_close(ws: websocket.WebSocketApp, close_status_code: int, close_msg: str) -> None:
-            print("WebSocket closed:", close_status_code, close_msg)
+    if plen == 126:
+        ext = _read_exact(sock, 2)
+        if not ext:
+            return None, None
+        plen = (ext[0] << 8) | ext[1]
+    elif plen == 127:
+        ext = _read_exact(sock, 8)
+        if not ext:
+            return None, None
+        plen = 0
+        for b in ext:
+            plen = (plen << 8) | b
 
-        ws = websocket.WebSocketApp(
-            "wss://{}/ws?token={}".format(host, token),
-            on_open=on_open,
-            on_message=on_message,
-            on_error=on_error,
-            on_close=on_close,
-        )
+    mask_key = b""
+    if masked:
+        mask_key = _read_exact(sock, 4)
+        if not mask_key:
+            return None, None
 
-        original_close = ws.close
+    payload = _read_exact(sock, plen) if plen else b""
+    if payload is None:
+        return None, None
 
-        def close(*args: Any, **kwargs: Any) -> None:
-            stop_event.set()
-            active_ws = current_ws.get("ws")
-            if active_ws is not None and active_ws is not ws:
-                active_ws.close(*args, **kwargs)
-            original_close(*args, **kwargs)
+    if masked:
+        data = bytearray(payload)
+        for i in range(len(data)):
+            data[i] ^= mask_key[i % 4]
+        payload = bytes(data)
 
-        ws.close = close
-        current_ws["ws"] = ws
-        return ws
+    return opcode, payload
 
-    def run() -> None:
-        reconnect_delay = 1.0
 
-        while not stop_event.is_set():
-            ws = build_ws()
-            ws.run_forever()
+def _ws_send_pong(sock: socket.socket | ssl.SSLSocket, payload=b""):
+    plen = len(payload)
+    mask = bytes([random.getrandbits(8) for _ in range(4)])
 
-            if stop_event.is_set() or not ws.keep_running:
-                break
+    header = bytearray([0x8A])
+    if plen < 126:
+        header.append(0x80 | plen)
+    elif plen < 65536:
+        header.append(0x80 | 126)
+        header.extend(((plen >> 8) & 0xFF, plen & 0xFF))
+    else:
+        header.append(0x80 | 127)
+        for shift in (56, 48, 40, 32, 24, 16, 8, 0):
+            header.append((plen >> shift) & 0xFF)
 
-            print("WebSocket disconnected, reconnecting in {} seconds...".format(
-                reconnect_delay))
-            stop_event.wait(reconnect_delay)
-            reconnect_delay = min(reconnect_delay * 2, 30.0)
+    header.extend(mask)
+    masked = bytearray(plen)
+    for i in range(plen):
+        masked[i] = payload[i] ^ mask[i % 4]
 
-    ws = build_ws()
-    wst = threading.Thread(target=run, daemon=True)
-    wst.start()
+    sock.send(header + masked)
 
-    return ws
+
+def _decode_close_payload(payload: bytes) -> tuple[int | None, str]:
+    if not payload or len(payload) < 2:
+        return None, ""
+
+    code = (payload[0] << 8) | payload[1]
+    reason = ""
+    if len(payload) > 2:
+        try:
+            reason = payload[2:].decode()
+        except Exception:
+            reason = str(payload[2:])
+    return code, reason
+
+
+async def ws_loop(host: str, token: str, on_new_class, on_new_object, on_classes_update, on_object_update, on_new_data):
+    while True:
+        ws_sock = _handshake(host, token)
+        if ws_sock is None:
+            print("Failed to establish WebSocket connection. Retrying in 5 seconds...")
+            await asyncio.sleep(5)
+            continue
+
+        try:
+            while True:
+                opcode, payload = _ws_read_frame(ws_sock)
+                if opcode is None:
+                    raise OSError("WebSocket closed by peer")
+                if payload is None:
+                    payload = b""
+
+                if opcode == 0x1:  # text
+                    try:
+                        print("Received message:", payload.decode())
+                        data = json.loads(payload.decode())
+                        if data["msg-type"] == "new-class":
+                            on_new_class(CocoClass.from_json(data))
+                        if data["msg-type"] == "new-object":
+                            on_new_object(CocoObject.from_json(data))
+                        if data["msg-type"] == "classes-update":
+                            on_classes_update(
+                                data["object_id"], data["classes"])
+                        if data["msg-type"] == "object-update":
+                            on_object_update(
+                                data["object_id"], data["properties"])
+                        if data["msg-type"] == "new-data":
+                            on_new_data(data["object_id"], data["data"])
+                    except Exception:
+                        print("Received binary-ish text payload:", payload)
+                elif opcode == 0x9:  # ping
+                    print("Received ping from server")
+                    _ws_send_pong(ws_sock, payload)
+                elif opcode == 0x8:  # close
+                    code, reason = _decode_close_payload(payload)
+                    print("Server close frame:", code, reason)
+                    raise OSError("WebSocket closed by peer")
+        except Exception as e:
+            print("An error occurred during WebSocket communication:", e)
+        finally:
+            ws_sock.close()
+            print("WebSocket connection closed. Reconnecting in 5 seconds...")
+            await asyncio.sleep(5)
+
+
+def connect(host: str, token: str, on_new_class, on_new_object, on_classes_update, on_object_update, on_new_data):
+    print("Connecting to WebSocket server...")
+    asyncio.create_task(ws_loop(host, token, on_new_class, on_new_object,
+                        on_classes_update, on_object_update, on_new_data))
