@@ -234,11 +234,12 @@ async def ws_loop(host: str, token: str, on_new_class=None, on_new_object=None, 
                         if msg_type == "classes-update" and callable(on_classes_update):
                             on_classes_update(
                                 data["object_id"], data["classes"])
-                        if msg_type == "object-update" and callable(on_object_update):
+                        if msg_type == "properties-updated" and callable(on_object_update):
                             on_object_update(
                                 data["object_id"], data["properties"])
-                        if msg_type == "new-data" and callable(on_new_data):
-                            on_new_data(data["object_id"], data["data"])
+                        if msg_type == "values-added" and callable(on_new_data):
+                            on_new_data(data["object_id"],
+                                        data["values"], data["timestamp"])
                     except Exception:
                         print("Received binary-ish text payload:", payload)
                 elif opcode == 0x9:  # ping
