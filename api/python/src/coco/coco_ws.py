@@ -224,8 +224,9 @@ async def ws_loop(host: str, token: str, on_new_class=None, on_new_object=None, 
 
                 if opcode == 0x1:  # text
                     try:
-                        print("Received message:", payload.decode())
-                        data = json.loads(payload.decode())
+                        text_payload = payload.decode("utf-8", "replace")
+                        print("Received message:", text_payload)
+                        data = json.loads(text_payload)
                         msg_type = data["msg_type"]
                         if msg_type == "new-class" and callable(on_new_class):
                             on_new_class(CocoClass.from_json(data))
