@@ -83,10 +83,10 @@ impl<DB: Database, KB: KnowledgeBase> CoCoModule<DB, KB> for MQTTModule {
                         let payload = serde_json::to_string(&update_msg).unwrap();
                         client.publish(format!("coco/{}/static", object_id), QoS::AtLeastOnce, false, payload).await.unwrap();
                     }
-                    CoCoEvent::ValuesAdded(object_id, values, date_time) => {
+                    CoCoEvent::ValuesAdded(object_id, values, timestamp) => {
                         let update_msg = serde_json::json!({
                             "values": values,
-                            "date_time": date_time
+                            "date_time": timestamp
                         });
                         let payload = serde_json::to_string(&update_msg).unwrap();
                         client.publish(format!("coco/{}/dynamic", object_id), QoS::AtLeastOnce, false, payload).await.unwrap();
@@ -119,8 +119,8 @@ impl<DB: Database, KB: KnowledgeBase> CoCoModule<DB, KB> for MQTTModule {
                             } else if topic_parts[2] == "dynamic" {
                                 let mut update: serde_json::Value = serde_json::from_str(&msg).unwrap();
                                 let values: HashMap<String, CoCoValue> = serde_json::from_value(update["values"].take()).unwrap();
-                                let date_time: DateTime<Utc> = if update.get("date_time").is_some() { serde_json::from_value(update["date_time"].take()).unwrap() } else { Utc::now() };
-                                coco.add_values(topic_parts[1].to_string(), values, date_time).await.unwrap();
+                                let timestamp: DateTime<Utc> = if update.get("date_time").is_some() { serde_json::from_value(update["date_time"].take()).unwrap() } else { Utc::now() };
+                                coco.add_values(topic_parts[1].to_string(), values, timestamp).await.unwrap();
                             }
                         }
                         _ => {}

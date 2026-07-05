@@ -447,7 +447,7 @@ pub enum CoCoEvent {
     ObjectCreated(String),                                          // object_id
     ClassesUpdated(String, HashSet<String>),                        // (object_id, classes)
     PropertiesUpdated(String, HashMap<String, CoCoValue>),          // (object_id, properties)
-    ValuesAdded(String, HashMap<String, CoCoValue>, DateTime<Utc>), // (object_id, value, date_time)
+    ValuesAdded(String, HashMap<String, CoCoValue>, DateTime<Utc>), // (object_id, value, timestamp)
     RuleCreated(String),                                            // rule_name
 }
 
@@ -458,7 +458,7 @@ impl fmt::Display for CoCoEvent {
             CoCoEvent::ObjectCreated(object) => write!(f, "ObjectCreated: {}", object),
             CoCoEvent::ClassesUpdated(object, classes) => write!(f, "ClassesUpdated for {}: {:?}", object, classes),
             CoCoEvent::PropertiesUpdated(object, properties) => write!(f, "UpdatedProperties for {}: {:?}", object, properties),
-            CoCoEvent::ValuesAdded(object, values, date_time) => write!(f, "AddedValues to {}: {:?} at {}", object, values, date_time),
+            CoCoEvent::ValuesAdded(object, values, timestamp) => write!(f, "AddedValues to {}: {:?} at {}", object, values, timestamp),
             CoCoEvent::RuleCreated(rule) => write!(f, "RuleCreated: {}", rule),
         }
     }

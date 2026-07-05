@@ -515,17 +515,17 @@ impl CLIPSKnowledgeBase {
                         return ClipsValue::Void();
                     }
                 };
-                let date_time = if ctx.has_next_argument() {
+                let timestamp = if ctx.has_next_argument() {
                     match ctx.get_next_argument(Type(Type::INTEGER)) {
                         Some(ClipsValue::Integer(ts)) => match DateTime::<Utc>::from_timestamp(ts, 0) {
                             Some(dt) => dt,
                             None => {
-                                error!("Invalid timestamp for date_time argument in add-data UDF: {}", ts);
+                                error!("Invalid timestamp for timestamp argument in add-data UDF: {}", ts);
                                 return ClipsValue::Void();
                             }
                         },
                         _ => {
-                            error!("Expected integer for date_time argument in add-data UDF");
+                            error!("Expected integer for timestamp argument in add-data UDF");
                             return ClipsValue::Void();
                         }
                     }
@@ -534,14 +534,14 @@ impl CLIPSKnowledgeBase {
                 };
 
                 let values: HashMap<String, CoCoValue> = args.into_iter().zip(vals).collect();
-                trace!("CLIPS UDF 'add-data' called with object_id='{}', values={:?}, and date_time={}", object_id, values, date_time);
-                match state.add_values(env, &object_id, &values, date_time) {
+                trace!("CLIPS UDF 'add-data' called with object_id='{}', values={:?}, and timestamp={}", object_id, values, timestamp);
+                match state.add_values(env, &object_id, &values, timestamp) {
                     Ok(_) => {
-                        trace!("Successfully added values {:?} to object '{}' at {}", values, object_id, date_time);
-                        let _ = event_tx_add_data.send(KnowledgeBaseEvent::AddedValues(object_id.clone(), values.clone(), date_time));
+                        trace!("Successfully added values {:?} to object '{}' at {}", values, object_id, timestamp);
+                        let _ = event_tx_add_data.send(KnowledgeBaseEvent::AddedValues(object_id.clone(), values.clone(), timestamp));
                     }
                     Err(e) => {
-                        error!("Error adding values {:?} to object '{}' at {}: {}", values, object_id, date_time, e);
+                        error!("Error adding values {:?} to object '{}' at {}: {}", values, object_id, timestamp, e);
                     }
                 }
 
@@ -615,8 +615,8 @@ impl CLIPSKnowledgeBase {
                         }
                         let _ = reply.send(result);
                     }
-                    KBCommand::AddValues(object_id, values, date_time, reply) => {
-                        let result = state_build.borrow_mut().add_values(&mut env, &object_id, &values, date_time);
+                    KBCommand::AddValues(object_id, values, timestamp, reply) => {
+                        let result = state_build.borrow_mut().add_values(&mut env, &object_id, &values, timestamp);
                         if result.is_ok() {
                             env.run(-1);
                         }
@@ -713,9 +713,9 @@ impl KnowledgeBase for CLIPSKnowledgeBase {
         self.command_tx.send(KBCommand::SetProperties(object_id, properties, resp_tx)).map_err(|_| KnowledgeBaseError::KBError("Failed to send SetProperties command to CLIPS knowledge base actor".to_owned()))?;
         resp_rx.await.map_err(|_| KnowledgeBaseError::KBError("Failed to receive response for SetProperties command from CLIPS knowledge base actor".to_owned()))?
     }
-    async fn add_values(&self, object_id: String, values: HashMap<String, CoCoValue>, date_time: DateTime<Utc>) -> Result<(), KnowledgeBaseError> {
+    async fn add_values(&self, object_id: String, values: HashMap<String, CoCoValue>, timestamp: DateTime<Utc>) -> Result<(), KnowledgeBaseError> {
         let (resp_tx, resp_rx) = oneshot::channel();
-        self.command_tx.send(KBCommand::AddValues(object_id, values, date_time, resp_tx)).map_err(|_| KnowledgeBaseError::KBError("Failed to send AddValues command to CLIPS knowledge base actor".to_owned()))?;
+        self.command_tx.send(KBCommand::AddValues(object_id, values, timestamp, resp_tx)).map_err(|_| KnowledgeBaseError::KBError("Failed to send AddValues command to CLIPS knowledge base actor".to_owned()))?;
         resp_rx.await.map_err(|_| KnowledgeBaseError::KBError("Failed to receive response for AddValues command from CLIPS knowledge base actor".to_owned()))?
     }
 }

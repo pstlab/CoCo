@@ -44,7 +44,7 @@ impl fmt::Display for KnowledgeBaseError {
 pub enum KnowledgeBaseEvent {
     AddedClass(String, String),                                     // (object_id, class_name)
     UpdatedProperties(String, HashMap<String, CoCoValue>),          // (object_id, properties)
-    AddedValues(String, HashMap<String, CoCoValue>, DateTime<Utc>), // (object_id, value, date_time)
+    AddedValues(String, HashMap<String, CoCoValue>, DateTime<Utc>), // (object_id, value, timestamp)
 }
 
 impl fmt::Display for KnowledgeBaseEvent {
@@ -52,7 +52,7 @@ impl fmt::Display for KnowledgeBaseEvent {
         match self {
             KnowledgeBaseEvent::AddedClass(object_id, class_name) => write!(f, "Added class '{}' to object '{}'", class_name, object_id),
             KnowledgeBaseEvent::UpdatedProperties(object_id, properties) => write!(f, "Updated properties for object '{}': {:?}", object_id, properties),
-            KnowledgeBaseEvent::AddedValues(object_id, values, date_time) => write!(f, "Added values for object '{}': {:?} at {}", object_id, values, date_time),
+            KnowledgeBaseEvent::AddedValues(object_id, values, timestamp) => write!(f, "Added values for object '{}': {:?} at {}", object_id, values, timestamp),
         }
     }
 }
@@ -75,5 +75,5 @@ pub trait KnowledgeBase: Clone + Send + Sync + 'static {
     async fn add_class(&self, object_id: String, class_name: String) -> Result<(), KnowledgeBaseError>;
     async fn get_object_classes(&self, object_id: String) -> Result<HashSet<String>, KnowledgeBaseError>;
     async fn set_properties(&self, object_id: String, properties: HashMap<String, CoCoValue>) -> Result<(), KnowledgeBaseError>;
-    async fn add_values(&self, object_id: String, values: HashMap<String, CoCoValue>, date_time: DateTime<Utc>) -> Result<(), KnowledgeBaseError>;
+    async fn add_values(&self, object_id: String, values: HashMap<String, CoCoValue>, timestamp: DateTime<Utc>) -> Result<(), KnowledgeBaseError>;
 }

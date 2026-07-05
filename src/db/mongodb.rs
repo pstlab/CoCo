@@ -183,20 +183,20 @@ impl Database for MongoDB {
         Ok(())
     }
 
-    async fn add_values(&self, object_id: String, values: HashMap<String, CoCoValue>, date_time: DateTime<Utc>) -> Result<(), DatabaseError> {
+    async fn add_values(&self, object_id: String, values: HashMap<String, CoCoValue>, timestamp: DateTime<Utc>) -> Result<(), DatabaseError> {
         let db = self.client.database(&self.name);
         let collection = db.collection::<MongoObject>("objects");
         let oid = ObjectId::parse_str(object_id.clone()).map_err(|e| DatabaseError::InvalidInput(format!("Invalid object id: {e}")))?;
         let mut update_doc = doc! {};
         let mongo_values: HashMap<String, MongoValue> = values.iter().map(|(k, v)| (k.clone(), MongoValue::from(v))).collect();
         for (prop, mongo_value) in &mongo_values {
-            let timed = MongoTimedValue { value: mongo_value.clone(), timestamp: date_time };
+            let timed = MongoTimedValue { value: mongo_value.clone(), timestamp };
             update_doc.insert(format!("values.{}", prop), bson::to_bson(&timed).map_err(|e| DatabaseError::SerializationError(e.to_string()))?);
         }
         collection.update_one(doc! { "_id": oid }, doc! { "$set": update_doc }).await.map_err(|e| DatabaseError::ConnectionError(e.to_string()))?;
 
         let data_collection = db.collection::<ObjectData>("object_data");
-        let data_doc = ObjectData { object_id, values: mongo_values, timestamp: date_time };
+        let data_doc = ObjectData { object_id, values: mongo_values, timestamp };
         data_collection.insert_one(data_doc).await.map_err(|e| DatabaseError::ConnectionError(e.to_string()))?;
         Ok(())
     }

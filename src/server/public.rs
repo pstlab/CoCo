@@ -312,9 +312,9 @@ async fn set_properties(State(coco): State<CoCo>, Path(object_id): Path<String>,
             (status = 500, description = "Failed to add data to object")
         )
     )]
-async fn add_data(State(coco): State<CoCo>, Path(object_id): Path<String>, Query(date_time): Query<DateQuery>, Json(values): Json<JsonValue>) -> impl IntoResponse {
-    trace!("Handling request to add data to object with ID: {}. Values: {:?}, Timestamp: {:?}", object_id, values, date_time);
-    let timestamp = date_time.time.unwrap_or_else(Utc::now);
+async fn add_data(State(coco): State<CoCo>, Path(object_id): Path<String>, Query(time_query): Query<DateQuery>, Json(values): Json<JsonValue>) -> impl IntoResponse {
+    trace!("Handling request to add data to object with ID: {}. Values: {:?}, Timestamp: {:?}", object_id, values, time_query);
+    let timestamp = time_query.time.unwrap_or_else(Utc::now);
     match coco.get_object_classes(object_id.clone()).await {
         Ok(classes) => match values_from_json(coco.clone(), classes, values).await {
             Ok(values) => match coco.add_values(object_id.clone(), values, timestamp).await {
@@ -516,12 +516,12 @@ async fn handle_socket(mut socket: WebSocket, coco: CoCo) {
                         });
                         socket.send(Message::Text(serde_json::to_string(&update_msg).unwrap().into())).await
                     }
-                    CoCoEvent::ValuesAdded(object_id, values, date_time) => {
+                    CoCoEvent::ValuesAdded(object_id, values, timestamp) => {
                         let update_msg = serde_json::json!({
                             "msg_type": "values-added",
                             "object_id": object_id,
                             "values": values,
-                            "date_time": date_time
+                            "date_time": timestamp
                         });
                         socket.send(Message::Text(serde_json::to_string(&update_msg).unwrap().into())).await
                     }

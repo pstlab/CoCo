@@ -90,11 +90,11 @@ impl CoCo {
                     KnowledgeBaseEvent::UpdatedProperties(object_id, properties) => {
                         let _ = event_tx_for_kb.send(CoCoEvent::PropertiesUpdated(object_id, properties));
                     }
-                    KnowledgeBaseEvent::AddedValues(object_id, values, date_time) if let Err(e) = event_db.add_values(object_id.clone(), values.clone(), date_time).await => {
+                    KnowledgeBaseEvent::AddedValues(object_id, values, timestamp) if let Err(e) = event_db.add_values(object_id.clone(), values.clone(), timestamp).await => {
                         error!("Failed to add values to database: {}", e);
                     }
-                    KnowledgeBaseEvent::AddedValues(object_id, values, date_time) => {
-                        let _ = event_tx_for_kb.send(CoCoEvent::ValuesAdded(object_id, values, date_time));
+                    KnowledgeBaseEvent::AddedValues(object_id, values, timestamp) => {
+                        let _ = event_tx_for_kb.send(CoCoEvent::ValuesAdded(object_id, values, timestamp));
                     }
                 }
             }
@@ -246,15 +246,15 @@ impl CoCo {
                         }
                         let _ = response_tx.send(result);
                     }
-                    CoCoCommand::AddValues(object_id, values, date_time, response_tx) => {
+                    CoCoCommand::AddValues(object_id, values, timestamp, response_tx) => {
                         let result = async {
-                            command_kb.add_values(object_id.clone(), values.clone(), date_time).await.map_err(|e| CoCoError::KnowledgeBaseError(e.to_string()))?;
-                            command_db.add_values(object_id.clone(), values.clone(), date_time).await.map_err(|e| CoCoError::DatabaseError(e.to_string()))?;
+                            command_kb.add_values(object_id.clone(), values.clone(), timestamp).await.map_err(|e| CoCoError::KnowledgeBaseError(e.to_string()))?;
+                            command_db.add_values(object_id.clone(), values.clone(), timestamp).await.map_err(|e| CoCoError::DatabaseError(e.to_string()))?;
                             Ok::<(), CoCoError>(())
                         }
                         .await;
                         if result.is_ok() {
-                            let _ = event_tx_for_commands.send(CoCoEvent::ValuesAdded(object_id, values, date_time));
+                            let _ = event_tx_for_commands.send(CoCoEvent::ValuesAdded(object_id, values, timestamp));
                         }
                         let _ = response_tx.send(result);
                     }
@@ -384,9 +384,9 @@ impl CoCo {
         response_rx.await.map_err(|e| CoCoError::KnowledgeBaseError(format!("Failed to receive response from CoCo: {}", e)))?
     }
 
-    pub async fn add_values(&self, object_id: String, values: HashMap<String, CoCoValue>, date_time: DateTime<Utc>) -> Result<(), CoCoError> {
+    pub async fn add_values(&self, object_id: String, values: HashMap<String, CoCoValue>, timestamp: DateTime<Utc>) -> Result<(), CoCoError> {
         let (response_tx, response_rx) = oneshot::channel();
-        self.tx.send(CoCoCommand::AddValues(object_id, values.clone(), date_time, response_tx)).await.map_err(|e| CoCoError::KnowledgeBaseError(format!("Failed to send command to CoCo: {}", e)))?;
+        self.tx.send(CoCoCommand::AddValues(object_id, values.clone(), timestamp, response_tx)).await.map_err(|e| CoCoError::KnowledgeBaseError(format!("Failed to send command to CoCo: {}", e)))?;
         response_rx.await.map_err(|e| CoCoError::KnowledgeBaseError(format!("Failed to receive response from CoCo: {}", e)))?
     }
 

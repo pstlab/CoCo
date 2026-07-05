@@ -703,12 +703,12 @@ async fn set_properties(State(state): State<AppState>, Extension(user): Extensio
             (status = 500, description = "Failed to add data to object")
         )
     )]
-async fn add_data(State(state): State<AppState>, Extension(user): Extension<CurrentUser>, Path(object_id): Path<String>, Query(date_time): Query<DateQuery>, Json(values): Json<JsonValue>) -> impl IntoResponse {
-    trace!("Handling request to add data to object with ID: {}. Values: {:?}, Timestamp: {:?}", object_id, values, date_time);
+async fn add_data(State(state): State<AppState>, Extension(user): Extension<CurrentUser>, Path(object_id): Path<String>, Query(time_query): Query<DateQuery>, Json(values): Json<JsonValue>) -> impl IntoResponse {
+    trace!("Handling request to add data to object with ID: {}. Values: {:?}, Timestamp: {:?}", object_id, values, time_query);
     if !user.has_write_access(&object_id) {
         return (StatusCode::FORBIDDEN, "You do not have permission to modify this object").into_response();
     }
-    let timestamp = date_time.time.unwrap_or_else(Utc::now);
+    let timestamp = time_query.time.unwrap_or_else(Utc::now);
     match state.coco.get_object_classes(object_id.clone()).await {
         Ok(classes) => match values_from_json(state.coco.clone(), classes, values).await {
             Ok(values) => match state.coco.add_values(object_id.clone(), values, timestamp).await {
@@ -950,13 +950,13 @@ async fn handle_socket(mut socket: WebSocket, state: AppState, user: CurrentUser
                             Ok(())
                         }
                     }
-                    CoCoEvent::ValuesAdded(object_id, values, date_time) => {
+                    CoCoEvent::ValuesAdded(object_id, values, timestamp) => {
                         if user.has_read_access(&object_id) {
                             let update_msg = serde_json::json!({
                                 "msg_type": "values-added",
                                 "object_id": object_id,
                                 "values": values,
-                                "date_time": date_time
+                                "date_time": timestamp
                             });
                             socket.send(Message::Text(serde_json::to_string(&update_msg).unwrap().into())).await
                         } else {
