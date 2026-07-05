@@ -71,6 +71,26 @@ def get_class(host: str, token: str, class_id: str) -> CocoClass | None:
         return None
 
 
+def create_class(host: str, token: str, cls: CocoClass) -> bool:
+    url = "https://{}/classes".format(host)
+    headers = {"Authorization": "Bearer {}".format(token)}
+    payload = cls.to_json()
+
+    try:
+        response = requests.post(url, json=payload, headers=headers)
+        if response.status_code == 200:
+            print("Class created successfully!")
+            response.close()
+            return True
+        else:
+            print("Failed to create class:", response.status_code)
+            response.close()
+            return False
+    except Exception as e:
+        print("Error creating class:", e)
+        return False
+
+
 def get_objects(host: str, token: str, classes=None, filters=None) -> list[CocoObject] | None:
     params: dict[str, str | int | float | bool] = {}
     if classes:
@@ -116,6 +136,26 @@ def get_object(host: str, token: str, object_id: str) -> CocoObject | None:
             return None
     except Exception as e:
         print("Error retrieving object:", e)
+        return None
+
+
+def create_object(host: str, token: str, obj: CocoObject) -> str | None:
+    url = "https://{}/objects".format(host)
+    headers = {"Authorization": "Bearer {}".format(token)}
+    payload = obj.to_json()
+
+    try:
+        response = requests.post(url, json=payload, headers=headers)
+        if response.status_code == 200:
+            print("Object created successfully!")
+            response.close()
+            return response.json().get("id")
+        else:
+            print("Failed to create object:", response.status_code)
+            response.close()
+            return None
+    except Exception as e:
+        print("Error creating object:", e)
         return None
 
 

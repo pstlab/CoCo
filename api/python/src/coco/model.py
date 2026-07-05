@@ -77,12 +77,23 @@ class Property:
         else:
             raise ValueError(f"Unknown property type: {property_type}")
 
+    def to_json(self) -> dict:
+        raise NotImplementedError("Subclasses must implement to_json method")
+
 
 class BoolProperty(Property):
     def __init__(self, default: bool | None = None, description: str | None = None):
         super().__init__()
         self.default = default
         self.description = description
+
+    def to_json(self) -> dict:
+        json_data: dict[str, object] = {"type": "bool"}
+        if self.default is not None:
+            json_data["default"] = self.default
+        if self.description is not None:
+            json_data["description"] = self.description
+        return json_data
 
 
 class IntProperty(Property):
@@ -93,6 +104,18 @@ class IntProperty(Property):
         self.default = default
         self.description = description
 
+    def to_json(self) -> dict:
+        json_data: dict[str, object] = {"type": "int"}
+        if self.min is not None:
+            json_data["min"] = self.min
+        if self.max is not None:
+            json_data["max"] = self.max
+        if self.default is not None:
+            json_data["default"] = self.default
+        if self.description is not None:
+            json_data["description"] = self.description
+        return json_data
+
 
 class FloatProperty(Property):
     def __init__(self, min: float | None = None, max: float | None = None, default: float | None = None, description: str | None = None):
@@ -102,12 +125,32 @@ class FloatProperty(Property):
         self.default = default
         self.description = description
 
+    def to_json(self) -> dict:
+        json_data: dict[str, object] = {"type": "float"}
+        if self.min is not None:
+            json_data["min"] = self.min
+        if self.max is not None:
+            json_data["max"] = self.max
+        if self.default is not None:
+            json_data["default"] = self.default
+        if self.description is not None:
+            json_data["description"] = self.description
+        return json_data
+
 
 class StringProperty(Property):
     def __init__(self, default: str | None = None, description: str | None = None):
         super().__init__()
         self.default = default
         self.description = description
+
+    def to_json(self) -> dict:
+        json_data: dict[str, object] = {"type": "string"}
+        if self.default is not None:
+            json_data["default"] = self.default
+        if self.description is not None:
+            json_data["description"] = self.description
+        return json_data
 
 
 class SymbolProperty(Property):
@@ -117,6 +160,16 @@ class SymbolProperty(Property):
         self.default = default
         self.description = description
 
+    def to_json(self) -> dict:
+        json_data: dict[str, object] = {"type": "symbol"}
+        if self.allowed_values is not None:
+            json_data["allowed_values"] = self.allowed_values
+        if self.default is not None:
+            json_data["default"] = self.default
+        if self.description is not None:
+            json_data["description"] = self.description
+        return json_data
+
 
 class ObjectProperty(Property):
     def __init__(self, classes: list[str], default: str | None = None, description: str | None = None):
@@ -125,12 +178,29 @@ class ObjectProperty(Property):
         self.classes = classes
         self.description = description
 
+    def to_json(self) -> dict:
+        json_data: dict[str, object] = {
+            "type": "object", "classes": self.classes}
+        if self.default is not None:
+            json_data["default"] = self.default
+        if self.description is not None:
+            json_data["description"] = self.description
+        return json_data
+
 
 class BoolArrayProperty(Property):
     def __init__(self, default: list[bool] | None = None, description: str | None = None):
         super().__init__()
         self.default = default
         self.description = description
+
+    def to_json(self) -> dict:
+        json_data: dict[str, object] = {"type": "bool-array"}
+        if self.default is not None:
+            json_data["default"] = self.default
+        if self.description is not None:
+            json_data["description"] = self.description
+        return json_data
 
 
 class IntArrayProperty(Property):
@@ -141,6 +211,18 @@ class IntArrayProperty(Property):
         self.default = default
         self.description = description
 
+    def to_json(self) -> dict:
+        json_data: dict[str, object] = {"type": "int-array"}
+        if self.min is not None:
+            json_data["min"] = self.min
+        if self.max is not None:
+            json_data["max"] = self.max
+        if self.default is not None:
+            json_data["default"] = self.default
+        if self.description is not None:
+            json_data["description"] = self.description
+        return json_data
+
 
 class FloatArrayProperty(Property):
     def __init__(self, min: float | None = None, max: float | None = None, default: list[float] | None = None, description: str | None = None):
@@ -150,12 +232,32 @@ class FloatArrayProperty(Property):
         self.default = default
         self.description = description
 
+    def to_json(self) -> dict:
+        json_data: dict[str, object] = {"type": "float-array"}
+        if self.min is not None:
+            json_data["min"] = self.min
+        if self.max is not None:
+            json_data["max"] = self.max
+        if self.default is not None:
+            json_data["default"] = self.default
+        if self.description is not None:
+            json_data["description"] = self.description
+        return json_data
+
 
 class StringArrayProperty(Property):
     def __init__(self, default: list[str] | None = None, description: str | None = None):
         super().__init__()
         self.default = default
         self.description = description
+
+    def to_json(self) -> dict:
+        json_data: dict[str, object] = {"type": "string-array"}
+        if self.default is not None:
+            json_data["default"] = self.default
+        if self.description is not None:
+            json_data["description"] = self.description
+        return json_data
 
 
 class SymbolArrayProperty(Property):
@@ -165,6 +267,16 @@ class SymbolArrayProperty(Property):
         self.default = default
         self.description = description
 
+    def to_json(self) -> dict:
+        json_data: dict[str, object] = {"type": "symbol-array"}
+        if self.allowed_values is not None:
+            json_data["allowed_values"] = self.allowed_values
+        if self.default is not None:
+            json_data["default"] = self.default
+        if self.description is not None:
+            json_data["description"] = self.description
+        return json_data
+
 
 class ObjectArrayProperty(Property):
     def __init__(self, classes: list[str], default: list[str] | None = None, description: str | None = None):
@@ -173,10 +285,20 @@ class ObjectArrayProperty(Property):
         self.classes = classes
         self.description = description
 
+    def to_json(self) -> dict:
+        json_data: dict[str, object] = {
+            "type": "object-array", "classes": self.classes}
+        if self.default is not None:
+            json_data["default"] = self.default
+        if self.description is not None:
+            json_data["description"] = self.description
+        return json_data
+
 
 class CocoClass:
-    def __init__(self, name: str, static_properties: dict[str, Property], dynamic_properties: dict[str, Property]):
+    def __init__(self, name: str, parents: set[str] | None = None, static_properties: dict[str, Property] | None = None, dynamic_properties: dict[str, Property] | None = None):
         self.name = name
+        self.parents = parents
         self.static_properties = static_properties
         self.dynamic_properties = dynamic_properties
 
@@ -185,15 +307,37 @@ class CocoClass:
         name = json_data["name"]
         if not isinstance(name, str):
             raise ValueError("Invalid class name in JSON data")
-        static_properties_json = json_data.get("static_properties", {})
-        dynamic_properties_json = json_data.get("dynamic_properties", {})
+        parents = json_data.get("parents")
+        static_properties_json = json_data.get("static_properties")
+        dynamic_properties_json = json_data.get("dynamic_properties")
 
-        static_properties = {key: Property.from_json(
-            value) for key, value in static_properties_json.items()}
-        dynamic_properties = {key: Property.from_json(
-            value) for key, value in dynamic_properties_json.items()}
+        static_properties = None
+        if static_properties_json is not None:
+            static_properties = {}
+            for key, prop_json in static_properties_json.items():
+                static_properties[key] = Property.from_json(prop_json)
 
-        return CocoClass(name=name, static_properties=static_properties, dynamic_properties=dynamic_properties)
+        dynamic_properties = None
+        if dynamic_properties_json is not None:
+            dynamic_properties = {}
+            for key, prop_json in dynamic_properties_json.items():
+                dynamic_properties[key] = Property.from_json(prop_json)
+
+        return CocoClass(name=name, parents=parents, static_properties=static_properties, dynamic_properties=dynamic_properties)
+
+    def to_json(self) -> dict:
+        json_data: dict[str, object] = {"name": self.name}
+        if self.parents is not None:
+            json_data["parents"] = self.parents
+        if self.static_properties is not None:
+            json_data["static_properties"] = {
+                key: prop.to_json() for key, prop in self.static_properties.items()
+            }
+        if self.dynamic_properties is not None:
+            json_data["dynamic_properties"] = {
+                key: prop.to_json() for key, prop in self.dynamic_properties.items()
+            }
+        return json_data
 
 
 class CocoObject:
@@ -221,3 +365,15 @@ class CocoObject:
                     values[key] = (value["value"], value["timestamp"])
 
         return CocoObject(id=id, classes=classes, properties=properties, values=values)
+
+    def to_json(self) -> dict:
+        json_data = {
+            "id": self.id,
+            "classes": self.classes,
+        }
+        if self.properties is not None:
+            json_data["properties"] = self.properties
+        if self.values is not None:
+            json_data["values"] = {key: {
+                "value": value[0], "timestamp": value[1]} for key, value in self.values.items()}
+        return json_data
