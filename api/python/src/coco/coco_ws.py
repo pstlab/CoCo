@@ -1,18 +1,25 @@
 import socket
 import ssl
 import binascii
+import base64
+import hashlib
 import random
 import asyncio
 import json
+from urllib.parse import quote
 
 from coco.model import CocoClass, CocoObject
 
 
 def _handshake(host: str, token: str) -> socket.socket | ssl.SSLSocket | None:
     print("Performing WebSocket handshake...")
-    path = "/ws?token=" + token
+    path = "/ws?token=" + quote(token, safe="")
     random_key = bytes([random.getrandbits(8) for _ in range(16)])
     ws_key = binascii.b2a_base64(random_key).strip().decode()
+    expected_accept = base64.b64encode(
+        hashlib.sha1(
+            (ws_key + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11").encode()).digest()
+    ).decode()
 
     tcp_sock = None
     tls_sock = None
@@ -33,14 +40,28 @@ def _handshake(host: str, token: str) -> socket.socket | ssl.SSLSocket | None:
             "\r\n"
         ).format(path, host, ws_key)
 
-        tls_sock.send(request.encode())
-        response = tls_sock.recv(1024).decode()
+        tls_sock.sendall(request.encode())
+        response = b""
+        while b"\r\n\r\n" not in response:
+            chunk = tls_sock.recv(1024)
+            if not chunk:
+                break
+            response += chunk
 
-        if "101 Switching Protocols" in response:
+        response_text = response.decode(errors="replace")
+        status_line, _, header_block = response_text.partition("\r\n")
+        headers = {}
+        for line in header_block.split("\r\n"):
+            if ":" not in line:
+                continue
+            name, value = line.split(":", 1)
+            headers[name.strip().lower()] = value.strip()
+
+        if status_line.startswith("HTTP/1.1 101") and headers.get("upgrade", "").lower() == "websocket" and headers.get("connection", "").lower() == "upgrade" and headers.get("sec-websocket-accept") == expected_accept:
             print("WebSocket handshake successful!")
             return tls_sock
         else:
-            print("WebSocket handshake failed. Response:", response)
+            print("WebSocket handshake failed. Response:", response_text)
             tls_sock.close()
             tcp_sock.close()
             return None
@@ -132,7 +153,7 @@ def _ws_send_pong(sock: socket.socket | ssl.SSLSocket, payload=b""):
     for i in range(plen):
         masked[i] = payload[i] ^ mask[i % 4]
 
-    sock.send(header + masked)
+    sock.sendall(header + masked)
 
 
 def _decode_close_payload(payload: bytes) -> tuple[int | None, str]:
@@ -151,7 +172,7 @@ def _decode_close_payload(payload: bytes) -> tuple[int | None, str]:
 
 async def ws_loop(host: str, token: str, on_new_class, on_new_object, on_classes_update, on_object_update, on_new_data):
     while True:
-        ws_sock = _handshake(host, token)
+        ws_sock = await asyncio.to_thread(_handshake, host, token)
         if ws_sock is None:
             print("Failed to establish WebSocket connection. Retrying in 5 seconds...")
             await asyncio.sleep(5)
@@ -159,7 +180,7 @@ async def ws_loop(host: str, token: str, on_new_class, on_new_object, on_classes
 
         try:
             while True:
-                opcode, payload = _ws_read_frame(ws_sock)
+                opcode, payload = await asyncio.to_thread(_ws_read_frame, ws_sock)
                 if opcode is None:
                     raise OSError("WebSocket closed by peer")
                 if payload is None:
@@ -185,7 +206,7 @@ async def ws_loop(host: str, token: str, on_new_class, on_new_object, on_classes
                         print("Received binary-ish text payload:", payload)
                 elif opcode == 0x9:  # ping
                     print("Received ping from server")
-                    _ws_send_pong(ws_sock, payload)
+                    await asyncio.to_thread(_ws_send_pong, ws_sock, payload)
                 elif opcode == 0x8:  # close
                     code, reason = _decode_close_payload(payload)
                     print("Server close frame:", code, reason)
