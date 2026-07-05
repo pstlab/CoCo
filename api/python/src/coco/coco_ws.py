@@ -1,34 +1,48 @@
 import socket
 import ssl
 import binascii
-import base64
 import hashlib
 import random
 import asyncio
 import json
-from urllib.parse import quote
+import select
 
-from coco.model import CocoClass, CocoObject
+from model import CocoClass, CocoObject
+
+
+WS_CONNECT_TIMEOUT_S = 10
+WS_IO_TIMEOUT_S = 20
+
+
+def _set_timeout(sock, timeout_s: int):
+    try:
+        set_timeout = getattr(sock, "settimeout", None)
+        if callable(set_timeout):
+            set_timeout(timeout_s)
+    except Exception:
+        pass
 
 
 def _handshake(host: str, token: str) -> socket.socket | ssl.SSLSocket | None:
     print("Performing WebSocket handshake...")
-    path = "/ws?token=" + quote(token, safe="")
+    path = "/ws?token=" + token
     random_key = bytes([random.getrandbits(8) for _ in range(16)])
     ws_key = binascii.b2a_base64(random_key).strip().decode()
-    expected_accept = base64.b64encode(
+    expected_accept = binascii.b2a_base64(
         hashlib.sha1(
             (ws_key + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11").encode()).digest()
-    ).decode()
+    ).strip().decode()
 
     tcp_sock = None
     tls_sock = None
     try:
         tcp_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        _set_timeout(tcp_sock, WS_CONNECT_TIMEOUT_S)
         addr = socket.getaddrinfo(host, 443)[0][-1]
         tcp_sock.connect(addr)
         tls_sock = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT).wrap_socket(
             tcp_sock, server_hostname=host)
+        _set_timeout(tls_sock, WS_IO_TIMEOUT_S)
 
         request = (
             "GET {} HTTP/1.1\r\n"
@@ -48,7 +62,7 @@ def _handshake(host: str, token: str) -> socket.socket | ssl.SSLSocket | None:
                 break
             response += chunk
 
-        response_text = response.decode(errors="replace")
+        response_text = response.decode("utf-8", "replace")
         status_line, _, header_block = response_text.partition("\r\n")
         headers = {}
         for line in header_block.split("\r\n"):
@@ -134,6 +148,7 @@ def _ws_read_frame(sock: socket.socket | ssl.SSLSocket) -> tuple[int | None, byt
 
 
 def _ws_send_pong(sock: socket.socket | ssl.SSLSocket, payload=b""):
+    print("Sending pong frame to server")
     plen = len(payload)
     mask = bytes([random.getrandbits(8) for _ in range(4)])
 
@@ -170,9 +185,9 @@ def _decode_close_payload(payload: bytes) -> tuple[int | None, str]:
     return code, reason
 
 
-async def ws_loop(host: str, token: str, on_new_class, on_new_object, on_classes_update, on_object_update, on_new_data):
+async def ws_loop(host: str, token: str, on_new_class=None, on_new_object=None, on_classes_update=None, on_object_update=None, on_new_data=None):
     while True:
-        ws_sock = await asyncio.to_thread(_handshake, host, token)
+        ws_sock = _handshake(host, token)
         if ws_sock is None:
             print("Failed to establish WebSocket connection. Retrying in 5 seconds...")
             await asyncio.sleep(5)
@@ -180,7 +195,28 @@ async def ws_loop(host: str, token: str, on_new_class, on_new_object, on_classes
 
         try:
             while True:
-                opcode, payload = await asyncio.to_thread(_ws_read_frame, ws_sock)
+                selected = select.select((ws_sock,), (), (), 0)
+                ready = ()
+                if selected:
+                    ready = selected[0]
+                if not ready:
+                    await asyncio.sleep(1/10)
+                    continue
+
+                try:
+                    opcode, payload = _ws_read_frame(ws_sock)
+                except OSError as e:
+                    msg = str(e)
+                    if "ETIMEDOUT" in msg or "timed out" in msg:
+                        await asyncio.sleep(0)
+                        continue
+                    code = None
+                    if hasattr(e, "args") and e.args:
+                        code = e.args[0]
+                    if code == 110:
+                        await asyncio.sleep(0)
+                        continue
+                    raise
                 if opcode is None:
                     raise OSError("WebSocket closed by peer")
                 if payload is None:
@@ -190,23 +226,24 @@ async def ws_loop(host: str, token: str, on_new_class, on_new_object, on_classes
                     try:
                         print("Received message:", payload.decode())
                         data = json.loads(payload.decode())
-                        if data["msg-type"] == "new-class":
+                        msg_type = data["msg_type"]
+                        if msg_type == "new-class" and callable(on_new_class):
                             on_new_class(CocoClass.from_json(data))
-                        if data["msg-type"] == "new-object":
+                        if msg_type == "new-object" and callable(on_new_object):
                             on_new_object(CocoObject.from_json(data))
-                        if data["msg-type"] == "classes-update":
+                        if msg_type == "classes-update" and callable(on_classes_update):
                             on_classes_update(
                                 data["object_id"], data["classes"])
-                        if data["msg-type"] == "object-update":
+                        if msg_type == "object-update" and callable(on_object_update):
                             on_object_update(
                                 data["object_id"], data["properties"])
-                        if data["msg-type"] == "new-data":
+                        if msg_type == "new-data" and callable(on_new_data):
                             on_new_data(data["object_id"], data["data"])
                     except Exception:
                         print("Received binary-ish text payload:", payload)
                 elif opcode == 0x9:  # ping
                     print("Received ping from server")
-                    await asyncio.to_thread(_ws_send_pong, ws_sock, payload)
+                    _ws_send_pong(ws_sock, payload)
                 elif opcode == 0x8:  # close
                     code, reason = _decode_close_payload(payload)
                     print("Server close frame:", code, reason)
@@ -219,7 +256,7 @@ async def ws_loop(host: str, token: str, on_new_class, on_new_object, on_classes
             await asyncio.sleep(5)
 
 
-def connect(host: str, token: str, on_new_class, on_new_object, on_classes_update, on_object_update, on_new_data):
+def connect(host: str, token: str, on_new_class=None, on_new_object=None, on_classes_update=None, on_object_update=None, on_new_data=None):
     print("Connecting to WebSocket server...")
     asyncio.create_task(ws_loop(host, token, on_new_class, on_new_object,
                         on_classes_update, on_object_update, on_new_data))

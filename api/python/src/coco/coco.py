@@ -1,4 +1,4 @@
-from coco.model import CocoClass, CocoObject
+from model import CocoClass, CocoObject
 import requests
 
 
