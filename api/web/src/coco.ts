@@ -104,7 +104,7 @@ export namespace coco {
           }
           case 'values-added': {
             const obj = this.get_object(msg.object_id);
-            obj._set_values(msg.values, msg.date_time);
+            obj._set_values(msg.values, msg.timestamp);
             break;
           }
         }
@@ -370,13 +370,13 @@ export namespace coco {
       for (const listener of this.listeners) listener.properties_updated(properties);
     }
     get_values(): Record<string, TimeValue> | undefined { return this.values; }
-    _set_values(values: Record<string, Value>, date_time: string) {
+    _set_values(values: Record<string, Value>, timestamp: string) {
       for (const [key, value] of Object.entries(values)) {
-        this.values![key] = { value, timestamp: date_time };
+        this.values![key] = { value, timestamp };
         if (!this.data[key]) this.data[key] = [];
-        this.data[key].push({ value, timestamp: date_time });
+        this.data[key].push({ value, timestamp });
       }
-      for (const listener of this.listeners) listener.values_added(values, date_time);
+      for (const listener of this.listeners) listener.values_added(values, timestamp);
     }
 
     is_data_loaded(): boolean { return this.data_loaded; }
@@ -443,7 +443,7 @@ export namespace coco {
   export interface CoCoObjectListener {
     classes_updated(classes: Set<CoCoClass>): void;
     properties_updated(properties: Record<string, Value>): void;
-    values_added(values: Record<string, Value>, date_time: string): void;
+    values_added(values: Record<string, Value>, timestamp: string): void;
     data_updated(data: Record<string, Array<TimeValue>>): void;
   }
 
@@ -502,5 +502,5 @@ export namespace coco {
     | ({ msg_type: 'object-created' } & ObjectMessage)
     | ({ msg_type: 'classes-updated', object_id: string, classes: string[] })
     | ({ msg_type: 'properties-updated', object_id: string, properties: Record<string, Value> })
-    | ({ msg_type: 'values-added', object_id: string, values: Record<string, Value>, date_time: string });
+    | ({ msg_type: 'values-added', object_id: string, values: Record<string, Value>, timestamp: string });
 }

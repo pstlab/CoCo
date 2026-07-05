@@ -956,7 +956,7 @@ async fn handle_socket(mut socket: WebSocket, state: AppState, user: CurrentUser
                                 "msg_type": "values-added",
                                 "object_id": object_id,
                                 "values": values,
-                                "date_time": timestamp
+                                "timestamp": timestamp
                             });
                             socket.send(Message::Text(serde_json::to_string(&update_msg).unwrap().into())).await
                         } else {

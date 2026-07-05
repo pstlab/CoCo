@@ -208,7 +208,7 @@ class CoCo(
                                             requireNotNull(objects[event.objectId]) { "Object with ID ${event.objectId} not found" }
                                         val mergedValues = (obj.values
                                             ?: emptyMap()) + event.values.mapValues { (_, v) ->
-                                            TimeValue(v, event.dateTime)
+                                            TimeValue(v, event.timestamp)
                                         }
                                         val updatedObj = obj.copy(values = mergedValues)
                                         objects[event.objectId] = updatedObj

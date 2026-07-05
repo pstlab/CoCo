@@ -238,7 +238,7 @@ sealed class CoCoEvent {
     data class ValuesAdded(
         @SerialName("object_id") val objectId: String,
         val values: Map<String, CoCoValue>,
-        @SerialName("date_time") val dateTime: String
+        val timestamp: String
     ) : CoCoEvent()
 }
 

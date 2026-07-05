@@ -16,7 +16,7 @@ const BOTTOM_UI_HEIGHT = 50;
 const obj_item_listener: coco.CoCoObjectListener = {
   classes_updated: (_classes: Set<coco.CoCoClass>) => { },
   properties_updated: (properties: Record<string, coco.Value>) => { if (properties.name) flick.redraw(); },
-  values_added: (_values: Record<string, coco.Value>, _date_time: string) => { },
+  values_added: (_values: Record<string, coco.Value>, _timestamp: string) => { },
   data_updated: (_data: Record<string, Array<coco.TimeValue>>) => { }
 };
 
@@ -301,7 +301,7 @@ export function CoCoObject(obj: coco.CoCoObject): VNode {
   const obj_listener: coco.CoCoObjectListener = {
     classes_updated: (_classes: Set<coco.CoCoClass>) => { flick.redraw(); },
     properties_updated: (_properties: Record<string, coco.Value>) => { flick.redraw(); },
-    values_added: (_values: Record<string, coco.Value>, _date_time: string) => { flick.redraw(); if (chart) chart.setOption(get_option()); },
+    values_added: (_values: Record<string, coco.Value>, _timestamp: string) => { flick.redraw(); if (chart) chart.setOption(get_option()); },
     data_updated: (_data: Record<string, Array<coco.TimeValue>>) => { flick.redraw(); if (chart) chart.setOption(get_option()); }
   };
 
