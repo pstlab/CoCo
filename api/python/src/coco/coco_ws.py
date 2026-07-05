@@ -241,8 +241,8 @@ async def ws_loop(host: str, token: str, on_new_class=None, on_new_object=None, 
                         if msg_type == "values-added" and callable(on_new_data):
                             on_new_data(data["object_id"],
                                         data["values"], data["timestamp"])
-                    except Exception:
-                        print("Received binary-ish text payload:", payload)
+                    except Exception as e:
+                        print("Error occurred while processing message:", e)
                 elif opcode == 0x9:  # ping
                     print("Received ping from server")
                     _ws_send_pong(ws_sock, payload)
