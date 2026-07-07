@@ -240,6 +240,8 @@ sealed class CoCoEvent {
         val values: Map<String, CoCoValue>,
         val timestamp: String
     ) : CoCoEvent()
+
+    data class Disconnected(val exception: Throwable? = null) : CoCoEvent()
 }
 
 object CoCoValueSerializer : KSerializer<CoCoValue> {

@@ -29,7 +29,6 @@ import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
-import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.coroutines.CoroutineContext
 
@@ -53,23 +52,10 @@ class CoCo(
     private var webSocketSession: DefaultClientWebSocketSession? = null
     private var webSocketJob: kotlinx.coroutines.Job? = null
     private val isRunning = AtomicBoolean(false)
-    private val classes = ConcurrentHashMap<String, CoCoClass>()
-    private val rules = ConcurrentHashMap<String, CoCoRule>()
-    private val objects = ConcurrentHashMap<String, CoCoObject>()
-    private val _classEvents = MutableSharedFlow<CoCoClass>(
-        replay = 1, extraBufferCapacity = 64, onBufferOverflow = BufferOverflow.DROP_OLDEST
+    private val _events = MutableSharedFlow<CoCoEvent>(
+        extraBufferCapacity = 64, onBufferOverflow = BufferOverflow.DROP_OLDEST
     )
-    val classEvents = _classEvents.asSharedFlow()
-    private val _ruleEvents = MutableSharedFlow<CoCoRule>(
-        replay = 1, extraBufferCapacity = 64, onBufferOverflow = BufferOverflow.DROP_OLDEST
-    )
-    val ruleEvents = _ruleEvents.asSharedFlow()
-    private val _objectEvents = MutableSharedFlow<CoCoObject>(
-        replay = 1, extraBufferCapacity = 64, onBufferOverflow = BufferOverflow.DROP_OLDEST
-    )
-    val objectEvents = _objectEvents.asSharedFlow()
-    private val objectFlows = ConcurrentHashMap<String, MutableSharedFlow<CoCoObject>>()
-
+    val events: SharedFlow<CoCoEvent> = _events.asSharedFlow()
 
     /**
      * Logs in to the CoCo server with the provided username and password.
@@ -107,6 +93,7 @@ class CoCo(
 
         isRunning.set(true)
         webSocketJob = launch {
+            var disconnectException: Throwable? = null
             try {
                 client.webSocket(request = {
                     url {
@@ -129,9 +116,7 @@ class CoCo(
                                 reason?.message
                             )
                             result.exceptionOrNull()?.let {
-                                logger.warn(
-                                    "WebSocket closed with exception: {}", it.localizedMessage
-                                )
+                                logger.warn("WebSocket closed with exception: ${it.localizedMessage}")
                             }
                             break
                         }
@@ -140,89 +125,8 @@ class CoCo(
                         when (frame) {
                             is Frame.Text -> {
                                 val text = frame.readText()
-                                when (val event = Json.decodeFromString<CoCoEvent>(text)) {
-                                    is CoCoEvent.CoCo -> {
-                                        logger.info("Received CoCo event: {}", event)
-                                        event.classes?.forEach { (className, cls) ->
-                                            classes[className] = cls.copy(name = className)
-                                        }
-                                        event.rules?.forEach { (ruleName, rl) ->
-                                            rules[ruleName] = rl.copy(name = ruleName)
-                                        }
-                                        event.objects?.forEach { (objectId, obj) ->
-                                            objects[objectId] = obj.copy(id = objectId)
-                                        }
-                                    }
-
-                                    is CoCoEvent.ClassCreated -> {
-                                        logger.info("Received ClassCreated event: {}", event)
-                                        val cls = CoCoClass(
-                                            name = event.name,
-                                            parents = event.parents,
-                                            staticProperties = event.staticProperties,
-                                            dynamicProperties = event.dynamicProperties
-                                        )
-                                        classes[event.name] = cls
-                                        _classEvents.tryEmit(cls)
-                                    }
-
-                                    is CoCoEvent.RuleCreated -> {
-                                        logger.info("Received RuleCreated event: {}", event)
-                                        val rl = CoCoRule(
-                                            name = event.name, content = event.content
-                                        )
-                                        rules[event.name] = rl
-                                        _ruleEvents.tryEmit(rl)
-                                    }
-
-                                    is CoCoEvent.ObjectCreated -> {
-                                        logger.info("Received ObjectCreated event: {}", event)
-                                        val obj = CoCoObject(
-                                            id = event.id,
-                                            classes = event.classes,
-                                            properties = event.properties,
-                                            values = event.values
-                                        )
-                                        objects[event.id] = obj
-                                        _objectEvents.tryEmit(obj)
-                                    }
-
-                                    is CoCoEvent.ClassesUpdated -> {
-                                        logger.info("Received ClassesUpdated event: {}", event)
-                                        val obj =
-                                            requireNotNull(objects[event.objectId]) { "Object with ID ${event.objectId} not found" }
-                                        val updatedObj = obj.copy(classes = event.classes)
-                                        objects[event.objectId] = updatedObj
-                                        _objectEvents.tryEmit(updatedObj)
-                                        objectFlows[event.objectId]?.tryEmit(updatedObj)
-                                    }
-
-                                    is CoCoEvent.PropertiesUpdated -> {
-                                        logger.info("Received PropertiesUpdated event: {}", event)
-                                        val obj =
-                                            requireNotNull(objects[event.objectId]) { "Object with ID ${event.objectId} not found" }
-                                        val mergedProperties =
-                                            (obj.properties ?: emptyMap()) + event.properties
-                                        val updatedObj = obj.copy(properties = mergedProperties)
-                                        objects[event.objectId] = updatedObj
-                                        _objectEvents.tryEmit(updatedObj)
-                                        objectFlows[event.objectId]?.tryEmit(updatedObj)
-                                    }
-
-                                    is CoCoEvent.ValuesAdded -> {
-                                        logger.info("Received ValuesUpdated event: {}", event)
-                                        val obj =
-                                            requireNotNull(objects[event.objectId]) { "Object with ID ${event.objectId} not found" }
-                                        val mergedValues = (obj.values
-                                            ?: emptyMap()) + event.values.mapValues { (_, v) ->
-                                            TimeValue(v, event.timestamp)
-                                        }
-                                        val updatedObj = obj.copy(values = mergedValues)
-                                        objects[event.objectId] = updatedObj
-                                        _objectEvents.tryEmit(updatedObj)
-                                        objectFlows[event.objectId]?.tryEmit(updatedObj)
-                                    }
-                                }
+                                val event = Json.decodeFromString<CoCoEvent>(text)
+                                _events.emit(event)
                             }
 
                             else -> {
@@ -232,19 +136,15 @@ class CoCo(
                     logger.info("WebSocket disconnected gracefully via protocol handshake.")
                 }
             } catch (e: Exception) {
-                logger.error("WebSocket disconnected: {}", e.localizedMessage)
+                logger.error("WebSocket disconnected: ${e.localizedMessage}")
+                disconnectException = e
             } finally {
                 webSocketSession = null
+                isRunning.set(false)
+                _events.tryEmit(CoCoEvent.Disconnected(exception = disconnectException))
             }
         }
     }
-
-    fun getClasses(): List<CoCoClass> = classes.values.toList()
-    fun getClass(className: String): CoCoClass? = classes[className]
-    fun getRules(): List<CoCoRule> = rules.values.toList()
-    fun getRule(ruleName: String): CoCoRule? = rules[ruleName]
-    fun getObjects(): List<CoCoObject> = objects.values.toList()
-    fun getObject(objectId: String): CoCoObject? = objects[objectId]
 
     /**
      * Fetches all classes from the CoCo server.
@@ -252,7 +152,7 @@ class CoCo(
      * @return A list of CoCoClass objects representing all classes.
      * @throws IllegalStateException if not logged in (accessToken is null).
      */
-    suspend fun fetchClasses(): List<CoCoClass> {
+    suspend fun getClasses(): List<CoCoClass> {
         logger.trace("Fetching all classes")
         if (accessToken == null) {
             throw IllegalStateException("Not logged in")
@@ -276,7 +176,7 @@ class CoCo(
      * @return A CoCoClass object representing the class, or null if not found.
      * @throws IllegalStateException if not logged in (accessToken is null).
      */
-    suspend fun fetchClass(className: String): CoCoClass? {
+    suspend fun getClass(className: String): CoCoClass? {
         logger.trace("Fetching class with name: {}", className)
         if (accessToken == null) {
             throw IllegalStateException("Not logged in")
@@ -325,7 +225,7 @@ class CoCo(
      * @return A list of CoCoRule objects representing all rules.
      * @throws IllegalStateException if not logged in (accessToken is null).
      */
-    suspend fun fetchRules(): List<CoCoRule> {
+    suspend fun getRules(): List<CoCoRule> {
         logger.trace("Fetching all rules")
         if (accessToken == null) {
             throw IllegalStateException("Not logged in")
@@ -349,7 +249,7 @@ class CoCo(
      * @return A CoCoRule object representing the rule, or null if not found.
      * @throws IllegalStateException if not logged in (accessToken is null).
      */
-    suspend fun fetchRule(ruleName: String): CoCoRule? {
+    suspend fun getRule(ruleName: String): CoCoRule? {
         logger.trace("Fetching rule with name: {}", ruleName)
         if (accessToken == null) {
             throw IllegalStateException("Not logged in")
@@ -398,7 +298,7 @@ class CoCo(
      * @return A list of CoCoObject objects representing all objects.
      * @throws IllegalStateException if not logged in (accessToken is null).
      */
-    suspend fun fetchObjects(): List<CoCoObject> {
+    suspend fun getObjects(): List<CoCoObject> {
         logger.trace("Fetching all objects")
         if (accessToken == null) {
             throw IllegalStateException("Not logged in")
@@ -422,7 +322,7 @@ class CoCo(
      * @return A CoCoObject object representing the object, or null if not found.
      * @throws IllegalStateException if not logged in (accessToken is null).
      */
-    suspend fun fetchObject(objectId: String): CoCoObject? {
+    suspend fun getObject(objectId: String): CoCoObject? {
         logger.trace("Fetching object with ID: {}", objectId)
         if (accessToken == null) {
             throw IllegalStateException("Not logged in")
@@ -534,23 +434,5 @@ class CoCo(
         )
 
         webSocketJob?.join()
-    }
-
-    /**
-     * Observes changes to a specific object by its ID.
-     *
-     * @param objectId The ID of the object to observe.
-     * @return A SharedFlow of CoCoObject representing the observed object.
-     */
-    fun observeObject(objectId: String): SharedFlow<CoCoObject> {
-        return objectFlows.computeIfAbsent(objectId) {
-            MutableSharedFlow<CoCoObject>(
-                replay = 1, extraBufferCapacity = 64, onBufferOverflow = BufferOverflow.DROP_OLDEST
-            ).apply {
-                objects[objectId]?.let { cachedObj ->
-                    tryEmit(cachedObj)
-                }
-            }
-        }.asSharedFlow()
     }
 }
