@@ -21,6 +21,7 @@ import io.ktor.websocket.readText
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
@@ -55,11 +56,17 @@ class CoCo(
     private val classes = ConcurrentHashMap<String, CoCoClass>()
     private val rules = ConcurrentHashMap<String, CoCoRule>()
     private val objects = ConcurrentHashMap<String, CoCoObject>()
-    private val _classEvents = MutableSharedFlow<CoCoClass>()
+    private val _classEvents = MutableSharedFlow<CoCoClass>(
+        replay = 1, extraBufferCapacity = 64, onBufferOverflow = BufferOverflow.DROP_OLDEST
+    )
     val classEvents = _classEvents.asSharedFlow()
-    private val _ruleEvents = MutableSharedFlow<CoCoRule>()
+    private val _ruleEvents = MutableSharedFlow<CoCoRule>(
+        replay = 1, extraBufferCapacity = 64, onBufferOverflow = BufferOverflow.DROP_OLDEST
+    )
     val ruleEvents = _ruleEvents.asSharedFlow()
-    private val _objectEvents = MutableSharedFlow<CoCoObject>()
+    private val _objectEvents = MutableSharedFlow<CoCoObject>(
+        replay = 1, extraBufferCapacity = 64, onBufferOverflow = BufferOverflow.DROP_OLDEST
+    )
     val objectEvents = _objectEvents.asSharedFlow()
     private val objectFlows = ConcurrentHashMap<String, MutableSharedFlow<CoCoObject>>()
 
@@ -536,6 +543,14 @@ class CoCo(
      * @return A SharedFlow of CoCoObject representing the observed object.
      */
     fun observeObject(objectId: String): SharedFlow<CoCoObject> {
-        return objectFlows.computeIfAbsent(objectId) { MutableSharedFlow() }.asSharedFlow()
+        return objectFlows.computeIfAbsent(objectId) {
+            MutableSharedFlow<CoCoObject>(
+                replay = 1, extraBufferCapacity = 64, onBufferOverflow = BufferOverflow.DROP_OLDEST
+            ).apply {
+                objects[objectId]?.let { cachedObj ->
+                    tryEmit(cachedObj)
+                }
+            }
+        }.asSharedFlow()
     }
 }
