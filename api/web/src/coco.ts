@@ -469,13 +469,13 @@ export namespace coco {
     | { type: 'float', default?: number, min?: number, max?: number, description?: string }
     | { type: 'string', default?: string, description?: string }
     | { type: 'symbol', default?: string, allowed_values?: string[], description?: string }
-    | { type: 'object', default?: string, class: string, description?: string }
+    | { type: 'object', default?: string, classes: string[], description?: string }
     | { type: 'bool-array', default?: boolean[], description?: string }
     | { type: 'int-array', default?: number[], min?: number, max?: number, description?: string }
     | { type: 'float-array', default?: number[], min?: number, max?: number, description?: string }
     | { type: 'string-array', default?: string[], description?: string }
     | { type: 'symbol-array', default?: string[], allowed_values?: string[], description?: string }
-    | { type: 'object-array', default?: string[], class: string, description?: string };
+    | { type: 'object-array', default?: string[], classes: string[], description?: string };
 
   type Token = { access_token: string, refresh_token: string, token_type: string };
   type User = { username: string, role: 'User' | 'Admin', read_access: string[], write_access: string[] };

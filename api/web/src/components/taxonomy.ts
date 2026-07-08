@@ -16,10 +16,12 @@ export function taxonomy(coco: coco.CoCo): VNode {
     for (const cls of coco.get_classes().values()) {
       for (const parent of cls.get_parents())
         links.push({ source: cls.get_name(), target: parent, symbol: ['none', 'arrow'] });
-      for (const target of cls.get_static_properties().values().filter(prop => prop.type === 'object').map(prop => prop.class as string))
-        links.push({ source: cls.get_name(), target, lineStyle: { type: 'dotted', dashOffset: 5 }, symbol: ['none', 'circle'] });
-      for (const target of cls.get_dynamic_properties().values().filter(prop => prop.type === 'object').map(prop => prop.class as string))
-        links.push({ source: cls.get_name(), target, lineStyle: { type: 'dashed', dashOffset: 5 }, symbol: ['none', 'circle'] });
+      for (const target of cls.get_static_properties().values().filter(prop => prop.type === 'object' || prop.type === 'object-array'))
+        for (const targetClass of target.classes)
+          links.push({ source: cls.get_name(), target: targetClass, lineStyle: { type: 'dotted', dashOffset: 5 }, symbol: ['none', 'circle'] });
+      for (const target of cls.get_dynamic_properties().values().filter(prop => prop.type === 'object' || prop.type === 'object-array'))
+        for (const targetClass of target.classes)
+          links.push({ source: cls.get_name(), target: targetClass, lineStyle: { type: 'dashed', dashOffset: 5 }, symbol: ['none', 'circle'] });
     }
 
     return {

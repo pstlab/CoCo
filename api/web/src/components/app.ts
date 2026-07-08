@@ -1,9 +1,10 @@
-import { h, VNode } from "snabbdom";
+import { h, VNode, VNodeChildren } from "snabbdom";
 import { coco } from "../coco";
 import { App, flick, Navbar, NavbarItem, NavbarList, OffcanvasBrand } from "@ratiosolver/flick";
 import { CoCoOffcanvas } from "./offcanvas";
 import { taxonomy } from "./taxonomy";
 import { UserButton } from "./user";
+import { class_diagram } from "./class_diagram";
 
 const landing_page = () => h('div.container.mt-5', [
   h('header.text-center.mb-5', [
@@ -74,22 +75,20 @@ export function CoCoApp(coco: coco.CoCo): VNode {
     CoCoOffcanvas(coco)
   ]);
 
-  return App(Navbar(OffcanvasBrand('CoCo'), [NavbarList([NavbarItem(h('i.fas.fa-home', {
-    on: {
-      click: () => {
-        flick.ctx.current_page = landing_page;
-        flick.ctx.page_title = 'Home';
-        flick.redraw();
-      }
-    }
-  })),
-  NavbarItem(h('i.fas.fa-sitemap', {
-    on: {
-      click: () => {
-        flick.ctx.current_page = () => taxonomy(coco);
-        flick.ctx.page_title = 'Taxonomy';
-        flick.redraw();
-      }
-    }
-  }))]), UserButton(coco)]), content);
+  return App(Navbar(OffcanvasBrand('CoCo'), [NavbarList([NavbarItem(h('i.fas.fa-home'), () => {
+    flick.ctx.current_page = landing_page;
+    flick.ctx.page_title = 'Home';
+    flick.redraw();
+  }, false, 'Home'),
+  NavbarItem(h('i.fas.fa-project-diagram'), () => {
+    flick.ctx.current_page = () => taxonomy(coco);
+    flick.ctx.page_title = 'Taxonomy';
+    flick.redraw();
+  }, false, 'Taxonomy'),
+  NavbarItem(h('i.fas.fa-sitemap'), () => {
+    flick.ctx.current_page = () => class_diagram(coco);
+    flick.ctx.page_title = 'Class Diagram';
+    flick.redraw();
+  }, false, 'Class Diagram')
+  ]), UserButton(coco)]), content);
 }
