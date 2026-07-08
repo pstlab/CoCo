@@ -179,7 +179,7 @@ def get_data(host: str, token: str, object_id: str, start: str | None = None, en
             print("Data retrieved successfully!")
             data = response.json()
             response.close()
-            return [(entry["data"], entry["timestamp"]) for entry in data]
+            return data
         else:
             print("Failed to retrieve data:", response.status_code)
             response.close()
