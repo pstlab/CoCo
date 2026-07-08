@@ -1,6 +1,6 @@
 class Property:
     @staticmethod
-    def from_json(json_data: dict) -> Property:
+    def from_json(json_data: dict) -> 'Property':
         property_type = json_data.get("type")
         if property_type == "bool":
             return BoolProperty(
@@ -303,7 +303,7 @@ class CocoClass:
         self.dynamic_properties = dynamic_properties
 
     @staticmethod
-    def from_json(json_data: dict) -> CocoClass:
+    def from_json(json_data: dict) -> 'CocoClass':
         name = json_data["name"]
         if not isinstance(name, str):
             raise ValueError("Invalid class name in JSON data")
@@ -349,7 +349,7 @@ class CocoObject:
         self.values = values
 
     @staticmethod
-    def from_json(json_data: dict) -> CocoObject:
+    def from_json(json_data: dict) -> 'CocoObject':
         id = json_data["id"]
         if not isinstance(id, str):
             raise ValueError("Invalid object ID in JSON data")
