@@ -1,3 +1,22 @@
+class AuthTokens:
+    def __init__(self, access_token: str, refresh_token: str, token_type: str):
+        self.access_token = access_token
+        self.refresh_token = refresh_token
+        self.token_type = token_type
+
+    @staticmethod
+    def from_json(json_data: dict) -> 'AuthTokens':
+        access_token = json_data["access_token"]
+        refresh_token = json_data["refresh_token"]
+        token_type = json_data["token_type"]
+        return AuthTokens(access_token=access_token, refresh_token=refresh_token, token_type=token_type)
+
+
+class CoCoHTTPError(Exception):
+    def __init__(self, status_code):
+        self.status_code = status_code
+
+
 class Property:
     @staticmethod
     def from_json(json_data: dict) -> 'Property':
