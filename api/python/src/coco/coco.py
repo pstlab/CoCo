@@ -419,7 +419,7 @@ class CoCo:
 
                 tls_sock = ssl_ctx.wrap_socket(tcp_sock, server_hostname=self.host)
                 if hasattr(tls_sock, "settimeout"):
-                    tls_sock.settimeout(io_timeout)
+                    setattr(tls_sock, "settimeout", io_timeout)
                 else:
                     tcp_sock.settimeout(io_timeout)
 
