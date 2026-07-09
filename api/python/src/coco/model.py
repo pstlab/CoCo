@@ -14,6 +14,7 @@ class AuthTokens:
 
 class CoCoHTTPError(Exception):
     def __init__(self, status_code):
+        super().__init__(f"HTTP request failed with status code: {status_code}")
         self.status_code = status_code
 
 
@@ -314,7 +315,7 @@ class ObjectArrayProperty(Property):
         return json_data
 
 
-class CocoClass:
+class CoCoClass:
     def __init__(self, name: str, parents: set[str] | None = None, static_properties: dict[str, Property] | None = None, dynamic_properties: dict[str, Property] | None = None):
         self.name = name
         self.parents = parents
@@ -322,7 +323,7 @@ class CocoClass:
         self.dynamic_properties = dynamic_properties
 
     @staticmethod
-    def from_json(json_data: dict) -> 'CocoClass':
+    def from_json(json_data: dict) -> 'CoCoClass':
         name = json_data["name"]
         if not isinstance(name, str):
             raise ValueError("Invalid class name in JSON data")
@@ -342,7 +343,7 @@ class CocoClass:
             for key, prop_json in dynamic_properties_json.items():
                 dynamic_properties[key] = Property.from_json(prop_json)
 
-        return CocoClass(name=name, parents=parents, static_properties=static_properties, dynamic_properties=dynamic_properties)
+        return CoCoClass(name=name, parents=parents, static_properties=static_properties, dynamic_properties=dynamic_properties)
 
     def to_json(self) -> dict:
         json_data: dict[str, object] = {"name": self.name}
@@ -359,16 +360,31 @@ class CocoClass:
         return json_data
 
 
-class CocoObject:
-    def __init__(self, id: str, classes: list[str], properties: dict[str, str | int | float | bool] | None = None, values: dict[str, tuple[str | int | float | bool, str]] | None = None):
-        super().__init__()
+class CoCoRule:
+    def __init__(self, name: str, content: str):
+        self.name = name
+        self.content = content
+
+    @staticmethod
+    def from_json(json_data: dict) -> 'CoCoRule':
+        name = json_data["name"]
+        content = json_data["content"]
+        return CoCoRule(name=name, content=content)
+
+
+Value = str | int | float | bool
+TimeValue = tuple[Value, str]  # (value, timestamp)
+
+
+class CoCoObject:
+    def __init__(self, id: str, classes: list[str], properties: dict[str, Value] | None = None, values: dict[str, TimeValue] | None = None):
         self.id = id
         self.classes = classes
         self.properties = properties
         self.values = values
 
     @staticmethod
-    def from_json(json_data: dict) -> 'CocoObject':
+    def from_json(json_data: dict) -> 'CoCoObject':
         id = json_data["id"]
         if not isinstance(id, str):
             raise ValueError("Invalid object ID in JSON data")
@@ -383,7 +399,7 @@ class CocoObject:
                 if isinstance(value, dict) and "value" in value and "timestamp" in value:
                     values[key] = (value["value"], value["timestamp"])
 
-        return CocoObject(id=id, classes=classes, properties=properties, values=values)
+        return CoCoObject(id=id, classes=classes, properties=properties, values=values)
 
     def to_json(self) -> dict:
         json_data = {

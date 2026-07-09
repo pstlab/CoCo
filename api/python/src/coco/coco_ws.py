@@ -7,7 +7,7 @@ import asyncio
 import json
 import select
 
-from model import CocoClass, CocoObject
+from model import CoCoClass, CoCoObject
 
 
 WS_CONNECT_TIMEOUT_S = 10
@@ -229,9 +229,9 @@ async def ws_loop(host: str, token: str, on_new_class=None, on_new_object=None, 
                         data = json.loads(text_payload)
                         msg_type = data["msg_type"]
                         if msg_type == "new-class" and callable(on_new_class):
-                            on_new_class(CocoClass.from_json(data))
+                            on_new_class(CoCoClass.from_json(data))
                         if msg_type == "new-object" and callable(on_new_object):
-                            on_new_object(CocoObject.from_json(data))
+                            on_new_object(CoCoObject.from_json(data))
                         if msg_type == "classes-update" and callable(on_classes_update):
                             on_classes_update(
                                 data["object_id"], data["classes"])

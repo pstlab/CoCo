@@ -691,7 +691,7 @@ async fn set_properties(State(state): State<AppState>, Extension(user): Extensio
         description = "Add new data values to an existing object.",
         params(
             ("id" = String, Path, description = "ID of the object to update"),
-            ("time" = Option<DateTime<Utc>>, Query, description = "Timestamp for the data being added (optional, defaults to current time)")
+            ("timestamp" = Option<DateTime<Utc>>, Query, description = "Timestamp for the data being added (optional, defaults to current time)")
         ),
         request_body = inline(HashMap<String, CoCoValue>),
         responses(
@@ -708,7 +708,7 @@ async fn add_data(State(state): State<AppState>, Extension(user): Extension<Curr
     if !user.has_write_access(&object_id) {
         return (StatusCode::FORBIDDEN, "You do not have permission to modify this object").into_response();
     }
-    let timestamp = time_query.time.unwrap_or_else(Utc::now);
+    let timestamp = time_query.timestamp.unwrap_or_else(Utc::now);
     match state.coco.get_object_classes(object_id.clone()).await {
         Ok(classes) => match values_from_json(state.coco.clone(), classes, values).await {
             Ok(values) => match state.coco.add_values(object_id.clone(), values, timestamp).await {

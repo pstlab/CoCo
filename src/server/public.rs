@@ -302,7 +302,7 @@ async fn set_properties(State(coco): State<CoCo>, Path(object_id): Path<String>,
         description = "Add new data values to an existing object.",
         params(
             ("id" = String, Path, description = "ID of the object to update"),
-            ("time" = Option<DateTime<Utc>>, Query, description = "Timestamp for the data being added (optional, defaults to current time)")
+            ("timestamp" = Option<DateTime<Utc>>, Query, description = "Timestamp for the data being added (optional, defaults to current time)")
         ),
         request_body = inline(HashMap<String, CoCoValue>),
         responses(
@@ -314,7 +314,7 @@ async fn set_properties(State(coco): State<CoCo>, Path(object_id): Path<String>,
     )]
 async fn add_data(State(coco): State<CoCo>, Path(object_id): Path<String>, Query(time_query): Query<DateQuery>, Json(values): Json<JsonValue>) -> impl IntoResponse {
     trace!("Handling request to add data to object with ID: {}. Values: {:?}, Timestamp: {:?}", object_id, values, time_query);
-    let timestamp = time_query.time.unwrap_or_else(Utc::now);
+    let timestamp = time_query.timestamp.unwrap_or_else(Utc::now);
     match coco.get_object_classes(object_id.clone()).await {
         Ok(classes) => match values_from_json(coco.clone(), classes, values).await {
             Ok(values) => match coco.add_values(object_id.clone(), values, timestamp).await {

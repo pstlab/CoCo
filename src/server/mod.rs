@@ -26,5 +26,5 @@ pub(super) struct ObjectFilter {
 
 #[derive(Debug, Deserialize)]
 pub(super) struct DateQuery {
-    pub(super) time: Option<DateTime<Utc>>,
+    pub(super) timestamp: Option<DateTime<Utc>>,
 }
