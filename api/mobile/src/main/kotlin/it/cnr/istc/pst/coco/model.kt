@@ -23,15 +23,13 @@ import kotlinx.serialization.json.long
 import kotlinx.serialization.json.longOrNull
 
 @Serializable
-data class LoginRequest(
-    val username: String, val password: String
-)
+data class LoginRequest(val username: String, val password: String)
 
 @Serializable
-data class LoginResponse(
-    @SerialName("access_token") val accessToken: String,
-    @SerialName("refresh_token") val refreshToken: String
-)
+data class TokenRefreshRequest(@SerialName("refresh_token") val refreshToken: String)
+
+@Serializable
+data class AuthTokens(@SerialName("access_token") val accessToken: String, @SerialName("refresh_token") val refreshToken: String)
 
 @Serializable(with = CoCoValueSerializer::class)
 sealed interface CoCoValue {
@@ -64,17 +62,10 @@ sealed interface CoCoValue {
 }
 
 @Serializable
-data class TimeValue(
-    val value: CoCoValue, val timestamp: String
-)
+data class TimeValue(val value: CoCoValue, val timestamp: String)
 
 @Serializable
-data class CoCoClass(
-    val name: String? = null,
-    val parents: List<String>? = null,
-    @SerialName("static_properties") val staticProperties: Map<String, CoCoProperty>?,
-    @SerialName("dynamic_properties") val dynamicProperties: Map<String, CoCoProperty>?
-)
+data class CoCoClass(val name: String? = null, val parents: List<String>? = null, @SerialName("static_properties") val staticProperties: Map<String, CoCoProperty>?, @SerialName("dynamic_properties") val dynamicProperties: Map<String, CoCoProperty>?)
 
 @OptIn(ExperimentalSerializationApi::class)
 @Serializable
@@ -82,41 +73,23 @@ data class CoCoClass(
 sealed class CoCoProperty {
     @Serializable
     @SerialName("bool")
-    data class BoolProperty(
-        val default: Boolean? = null, val description: String? = null
-    ) : CoCoProperty()
+    data class BoolProperty(val default: Boolean? = null, val description: String? = null) : CoCoProperty()
 
     @Serializable
     @SerialName("int")
-    data class IntProperty(
-        val default: Long? = null,
-        val min: Long? = null,
-        val max: Long? = null,
-        val description: String? = null
-    ) : CoCoProperty()
+    data class IntProperty(val default: Long? = null, val min: Long? = null, val max: Long? = null, val description: String? = null) : CoCoProperty()
 
     @Serializable
     @SerialName("float")
-    data class FloatProperty(
-        val default: Double? = null,
-        val min: Double? = null,
-        val max: Double? = null,
-        val description: String? = null
-    ) : CoCoProperty()
+    data class FloatProperty(val default: Double? = null, val min: Double? = null, val max: Double? = null, val description: String? = null) : CoCoProperty()
 
     @Serializable
     @SerialName("string")
-    data class StringProperty(
-        val default: String? = null, val description: String? = null
-    ) : CoCoProperty()
+    data class StringProperty(val default: String? = null, val description: String? = null) : CoCoProperty()
 
     @Serializable
     @SerialName("symbol")
-    data class SymbolProperty(
-        val default: String? = null,
-        @SerialName("allowed_values") val allowedValues: Set<String>? = null,
-        val description: String? = null
-    ) : CoCoProperty()
+    data class SymbolProperty(val default: String? = null, @SerialName("allowed_values") val allowedValues: Set<String>? = null, val description: String? = null) : CoCoProperty()
 
     @Serializable
     @SerialName("object")
@@ -126,64 +99,34 @@ sealed class CoCoProperty {
 
     @Serializable
     @SerialName("bool-array")
-    data class BoolArrayProperty(
-        val default: List<Boolean>? = null, val description: String? = null
-    ) : CoCoProperty()
+    data class BoolArrayProperty(val default: List<Boolean>? = null, val description: String? = null) : CoCoProperty()
 
     @Serializable
     @SerialName("int-array")
-    data class IntArrayProperty(
-        val default: List<Long>? = null,
-        val min: Long? = null,
-        val max: Long? = null,
-        val description: String? = null
-    ) : CoCoProperty()
+    data class IntArrayProperty(val default: List<Long>? = null, val min: Long? = null, val max: Long? = null, val description: String? = null) : CoCoProperty()
 
     @Serializable
     @SerialName("float-array")
-    data class FloatArrayProperty(
-        val default: List<Double>? = null,
-        val min: Double? = null,
-        val max: Double? = null,
-        val description: String? = null
-    ) : CoCoProperty()
+    data class FloatArrayProperty(val default: List<Double>? = null, val min: Double? = null, val max: Double? = null, val description: String? = null) : CoCoProperty()
 
     @Serializable
     @SerialName("string-array")
-    data class StringArrayProperty(
-        val default: List<String>? = null, val description: String? = null
-    ) : CoCoProperty()
+    data class StringArrayProperty(val default: List<String>? = null, val description: String? = null) : CoCoProperty()
 
     @Serializable
     @SerialName("symbol-array")
-    data class SymbolArrayProperty(
-        val default: List<String>? = null,
-        @SerialName("allowed_values") val allowedValues: Set<String>? = null,
-        val description: String? = null
-    ) : CoCoProperty()
+    data class SymbolArrayProperty(val default: List<String>? = null, @SerialName("allowed_values") val allowedValues: Set<String>? = null, val description: String? = null) : CoCoProperty()
 
     @Serializable
     @SerialName("object-array")
-    data class ObjectArrayProperty(
-        val default: List<String>? = null,
-        val classes: List<String>,
-        val description: String? = null
-    ) : CoCoProperty()
+    data class ObjectArrayProperty(val default: List<String>? = null, val classes: List<String>, val description: String? = null) : CoCoProperty()
 }
 
 @Serializable
-data class CoCoRule(
-    val name: String? = null,
-    val content: String? = null,
-)
+data class CoCoRule(val name: String? = null, val content: String? = null)
 
 @Serializable
-data class CoCoObject(
-    val id: String? = null,
-    val classes: List<String>,
-    val properties: Map<String, CoCoValue>? = null,
-    val values: Map<String, TimeValue>? = null
-)
+data class CoCoObject(val id: String? = null, val classes: List<String>, val properties: Map<String, CoCoValue>? = null, val values: Map<String, TimeValue>? = null)
 
 @OptIn(ExperimentalSerializationApi::class)
 @Serializable
@@ -191,66 +134,40 @@ data class CoCoObject(
 sealed class CoCoEvent {
     @Serializable
     @SerialName("coco")
-    data class CoCo(
-        val classes: Map<String, CoCoClass>? = null,
-        val rules: Map<String, CoCoRule>? = null,
-        val objects: Map<String, CoCoObject>? = null
-    ) : CoCoEvent()
+    data class CoCo(val classes: Map<String, CoCoClass>? = null, val rules: Map<String, CoCoRule>? = null, val objects: Map<String, CoCoObject>? = null) : CoCoEvent()
 
     @Serializable
     @SerialName("class-created")
-    data class ClassCreated(
-        val name: String,
-        val parents: List<String>? = null,
-        @SerialName("static_properties") val staticProperties: Map<String, CoCoProperty>?,
-        @SerialName("dynamic_properties") val dynamicProperties: Map<String, CoCoProperty>?
-    ) : CoCoEvent()
+    data class ClassCreated(val name: String, val parents: List<String>? = null, @SerialName("static_properties") val staticProperties: Map<String, CoCoProperty>?, @SerialName("dynamic_properties") val dynamicProperties: Map<String, CoCoProperty>?) : CoCoEvent()
 
     @Serializable
     @SerialName("rule-created")
-    data class RuleCreated(
-        val name: String, val content: String
-    ) : CoCoEvent()
+    data class RuleCreated(val name: String, val content: String) : CoCoEvent()
 
     @Serializable
     @SerialName("object-created")
-    data class ObjectCreated(
-        val id: String,
-        val classes: List<String>,
-        val properties: Map<String, CoCoValue>? = null,
-        val values: Map<String, TimeValue>? = null
-    ) : CoCoEvent()
+    data class ObjectCreated(val id: String, val classes: List<String>, val properties: Map<String, CoCoValue>? = null, val values: Map<String, TimeValue>? = null) : CoCoEvent()
 
     @Serializable
     @SerialName("classes-updated")
-    data class ClassesUpdated(
-        @SerialName("object_id") val objectId: String, val classes: List<String>
-    ) : CoCoEvent()
+    data class ClassesUpdated(@SerialName("object_id") val objectId: String, val classes: List<String>) : CoCoEvent()
 
     @Serializable
     @SerialName("properties-updated")
-    data class PropertiesUpdated(
-        @SerialName("object_id") val objectId: String, val properties: Map<String, CoCoValue>
-    ) : CoCoEvent()
+    data class PropertiesUpdated(@SerialName("object_id") val objectId: String, val properties: Map<String, CoCoValue>) : CoCoEvent()
 
     @Serializable
     @SerialName("values-added")
-    data class ValuesAdded(
-        @SerialName("object_id") val objectId: String,
-        val values: Map<String, CoCoValue>,
-        val timestamp: String
-    ) : CoCoEvent()
+    data class ValuesAdded(@SerialName("object_id") val objectId: String, val values: Map<String, CoCoValue>, val timestamp: String) : CoCoEvent()
 
     data class Disconnected(val exception: Throwable? = null) : CoCoEvent()
 }
 
 object CoCoValueSerializer : KSerializer<CoCoValue> {
-    override val descriptor: SerialDescriptor =
-        kotlinx.serialization.descriptors.buildClassSerialDescriptor("CoCoValue")
+    override val descriptor: SerialDescriptor = kotlinx.serialization.descriptors.buildClassSerialDescriptor("CoCoValue")
 
     override fun deserialize(decoder: Decoder): CoCoValue {
-        val input = decoder as? JsonDecoder
-            ?: throw IllegalStateException("Questo serializer supporta solo il formato JSON")
+        val input = decoder as? JsonDecoder ?: throw IllegalStateException("Questo serializer supporta solo il formato JSON")
 
         return when (val element = input.decodeJsonElement()) {
             is JsonNull -> CoCoValue.NullValue
@@ -258,10 +175,7 @@ object CoCoValueSerializer : KSerializer<CoCoValue> {
                 if (element.isString) {
                     CoCoValue.StringValue(element.content)
                 } else {
-                    element.booleanOrNull?.let { CoCoValue.BoolValue(it) }
-                        ?: element.longOrNull?.let { CoCoValue.IntValue(it) }
-                        ?: element.doubleOrNull?.let { CoCoValue.FloatValue(it) }
-                        ?: CoCoValue.StringValue(element.content)
+                    element.booleanOrNull?.let { CoCoValue.BoolValue(it) } ?: element.longOrNull?.let { CoCoValue.IntValue(it) } ?: element.doubleOrNull?.let { CoCoValue.FloatValue(it) } ?: CoCoValue.StringValue(element.content)
                 }
             }
 
@@ -269,17 +183,10 @@ object CoCoValueSerializer : KSerializer<CoCoValue> {
                 if (element.isEmpty()) {
                     CoCoValue.StringArrayValue(emptyList())
                 } else {
-                    val first = element.first()
-                    when {
-                        first is JsonPrimitive && first.isString -> CoCoValue.StringArrayValue(
-                            element.map { it.jsonPrimitive.content })
-
-                        first is JsonPrimitive && first.booleanOrNull != null -> CoCoValue.BoolArrayValue(
-                            element.map { it.jsonPrimitive.boolean })
-
-                        first is JsonPrimitive && first.longOrNull != null -> CoCoValue.IntArrayValue(
-                            element.map { it.jsonPrimitive.long })
-
+                    when (val first = element.first()) {
+                        is JsonPrimitive if first.isString -> CoCoValue.StringArrayValue(element.map { it.jsonPrimitive.content })
+                        is JsonPrimitive if first.booleanOrNull != null -> CoCoValue.BoolArrayValue(element.map { it.jsonPrimitive.boolean })
+                        is JsonPrimitive if first.longOrNull != null -> CoCoValue.IntArrayValue(element.map { it.jsonPrimitive.long })
                         else -> CoCoValue.FloatArrayValue(element.map { it.jsonPrimitive.double })
                     }
                 }
