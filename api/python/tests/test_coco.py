@@ -2,6 +2,7 @@ import os
 import pytest
 from dotenv import load_dotenv
 from coco import CoCo
+import asyncio
 
 load_dotenv()
 
@@ -41,4 +42,7 @@ def test_get_classes(coco, credentials):
 
 async def test_ws(coco, credentials):
     coco.login(credentials["username"], credentials["password"])
-    await coco.connect()
+    connect_task = asyncio.create_task(coco.connect())
+    await asyncio.sleep(5)
+    await coco.close()
+    await connect_task

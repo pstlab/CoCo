@@ -39,6 +39,9 @@ class CoCo:
         self.verify_ssl = verify_ssl
         self.token: AuthTokens | None = None
 
+        self._stop_requested = False
+        self._ws_sock = None
+
     def login(self, username: str, password: str, timeout=5):
         url = f"https://{self.host}/login"
         payload = {"username": username, "password": password}
@@ -468,16 +471,26 @@ class CoCo:
             raise ValueError("on_new_data must be a callable function or None.")
         if self.token is None:
             raise ValueError("No token available. Please login first.")
-        while True:
+
+        self._stop_requested = False
+        while not self._stop_requested:
             ws_sock = self._handshake()
             if ws_sock is None:
                 print("Failed to establish WebSocket connection. Retrying in 5 seconds...")
-                await asyncio.sleep(5)
+                for _ in range(50):
+                    if self._stop_requested:
+                        break
+                    await asyncio.sleep(0.1)
                 continue
 
+            self._ws_sock = ws_sock
+
             try:
-                while True:
-                    selected = select.select((ws_sock,), (), (), 0)
+                while not self._stop_requested:
+                    try:
+                        selected = select.select((ws_sock,), (), (), 0)
+                    except (ValueError, OSError):
+                        break
                     ready = ()
                     if selected:
                         ready = selected[0]
@@ -532,11 +545,36 @@ class CoCo:
                         print("Server close frame:", code, reason)
                         raise OSError("WebSocket closed by peer")
             except Exception as e:
-                print("An error occurred during WebSocket communication:", e)
+                if not self._stop_requested:
+                    print("An error occurred during WebSocket communication:", e)
             finally:
-                ws_sock.close()
+                if self._ws_sock:
+                    try:
+                        self._ws_sock.close()
+                    except Exception:
+                        pass
+                    self._ws_sock = None
+
+                if self._stop_requested:
+                    print("WebSocket connection closed.")
+                    break
+
                 print("WebSocket connection closed. Reconnecting in 5 seconds...")
-                await asyncio.sleep(5)
+                for _ in range(50):
+                    if self._stop_requested:
+                        break
+                    await asyncio.sleep(0.1)
+
+    async def close(self):
+        self._stop_requested = True
+
+        if self._ws_sock:
+            try:
+                self._ws_sock.close()
+            except Exception:
+                pass
+            finally:
+                self._ws_sock = None
 
 
 def _read_exact(sock: ssl.SSLSocket, n: int) -> bytes | None:
