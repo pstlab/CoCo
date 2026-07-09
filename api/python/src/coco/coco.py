@@ -510,17 +510,17 @@ class CoCo:
                             print("Received message:", text_payload)
                             data = json.loads(text_payload)
                             msg_type = data["msg_type"]
-                            if msg_type == "new-class":
+                            if msg_type == "new-class" and on_new_class is not None:
                                 on_new_class(CoCoClass.from_json(data))
-                            if msg_type == "new-rule":
+                            if msg_type == "new-rule" and on_new_rule is not None:
                                 on_new_rule(CoCoRule.from_json(data))
-                            if msg_type == "new-object":
+                            if msg_type == "new-object" and on_new_object is not None:
                                 on_new_object(CoCoObject.from_json(data))
-                            if msg_type == "classes-update":
+                            if msg_type == "classes-update" and on_classes_update is not None:
                                 on_classes_update(data["object_id"], data["classes"])
-                            if msg_type == "properties-updated":
+                            if msg_type == "properties-updated" and on_object_update is not None:
                                 on_object_update(data["object_id"], data["properties"])
-                            if msg_type == "values-added":
+                            if msg_type == "values-added" and on_new_data is not None:
                                 on_new_data(data["object_id"], data["values"], data["timestamp"])
                         except Exception as e:
                             print("Error occurred while processing message:", e)
