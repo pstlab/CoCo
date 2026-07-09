@@ -84,7 +84,7 @@ class CoCo:
             return requests.get(url, headers=headers, timeout=timeout)
 
         response = fetch_classes()
-        if response.status_code in (401, 403):
+        if response.status_code == 401:
             response.close()
             self.refresh_token(timeout=timeout)
             response = fetch_classes()
@@ -109,7 +109,7 @@ class CoCo:
             return requests.get(url, headers=headers, timeout=timeout)
 
         response = fetch_class()
-        if response.status_code in (401, 403):
+        if response.status_code == 401:
             response.close()
             self.refresh_token(timeout=timeout)
             response = fetch_class()
@@ -135,7 +135,7 @@ class CoCo:
             return requests.post(url, json=payload, headers=headers, timeout=timeout)
 
         response = post_class()
-        if response.status_code in (401, 403):
+        if response.status_code == 401:
             response.close()
             self.refresh_token(timeout=timeout)
             response = post_class()
@@ -160,7 +160,7 @@ class CoCo:
             return requests.get(url, headers=headers, timeout=timeout)
 
         response = fetch_rules()
-        if response.status_code in (401, 403):
+        if response.status_code == 401:
             response.close()
             self.refresh_token(timeout=timeout)
             response = fetch_rules()
@@ -185,7 +185,7 @@ class CoCo:
             return requests.get(url, headers=headers, timeout=timeout)
 
         response = fetch_rule()
-        if response.status_code in (401, 403):
+        if response.status_code == 401:
             response.close()
             self.refresh_token(timeout=timeout)
             response = fetch_rule()
@@ -211,7 +211,7 @@ class CoCo:
             return requests.post(url, json=payload, headers=headers, timeout=timeout)
 
         response = post_rule()
-        if response.status_code in (401, 403):
+        if response.status_code == 401:
             response.close()
             self.refresh_token(timeout=timeout)
             response = post_rule()
@@ -244,7 +244,7 @@ class CoCo:
             return requests.get(url, headers=headers, timeout=timeout)
 
         response = fetch_objects()
-        if response.status_code in (401, 403):
+        if response.status_code == 401:
             response.close()
             self.refresh_token(timeout=timeout)
             response = fetch_objects()
@@ -269,7 +269,7 @@ class CoCo:
             return requests.get(url, headers=headers, timeout=timeout)
 
         response = fetch_object()
-        if response.status_code in (401, 403):
+        if response.status_code == 401:
             response.close()
             self.refresh_token(timeout=timeout)
             response = fetch_object()
@@ -295,7 +295,7 @@ class CoCo:
             return requests.post(url, json=payload, headers=headers, timeout=timeout)
 
         response = post_object()
-        if response.status_code in (401, 403):
+        if response.status_code == 401:
             response.close()
             self.refresh_token(timeout=timeout)
             response = post_object()
@@ -328,7 +328,7 @@ class CoCo:
             return requests.get(url, headers=headers, timeout=timeout)
 
         response = fetch_data()
-        if response.status_code in (401, 403):
+        if response.status_code == 401:
             response.close()
             self.refresh_token(timeout=timeout)
             response = fetch_data()
@@ -359,7 +359,7 @@ class CoCo:
             return requests.post(url, json=data, headers=headers, timeout=timeout)
 
         response = post_data()
-        if response.status_code in (401, 403):
+        if response.status_code == 401:
             response.close()
             self.refresh_token(timeout=timeout)
             response = post_data()
@@ -433,7 +433,7 @@ class CoCo:
         status_parts = status_line.split(" ")
         status_code = int(status_parts[1]) if len(status_parts) >= 2 and status_parts[1].isdigit() else 0
 
-        if status_code in (401, 403):
+        if status_code == 401:
             print(f"WebSocket auth failed with status: {status_code}")
             self.refresh_token()
             result = get_handshake(self.token.access_token)

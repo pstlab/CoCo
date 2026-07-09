@@ -2,6 +2,7 @@ package it.cnr.istc.pst.coco
 
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
+import io.ktor.client.plugins.ClientRequestException
 import io.ktor.client.plugins.auth.Auth
 import io.ktor.client.plugins.auth.providers.BearerTokens
 import io.ktor.client.plugins.auth.providers.bearer
@@ -36,6 +37,7 @@ import org.slf4j.Logger
 import org.slf4j.LoggerFactory
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.coroutines.CoroutineContext
+import kotlin.time.Duration.Companion.milliseconds
 
 class CoCo(private val client: HttpClient, private val baseUrl: String) : CoroutineScope {
 
@@ -132,12 +134,15 @@ class CoCo(private val client: HttpClient, private val baseUrl: String) : Corout
      * @throws IllegalStateException if not logged in.
      */
     fun connect() {
-        logger.trace("Connecting to WebSocket at: {}", baseUrl)
-        token?.let { auth ->
-            isRunning.set(true)
-            webSocketJob = launch {
-                var disconnectException: Throwable? = null
+        if (isRunning.getAndSet(true)) return // Evita connessioni doppie
+
+        webSocketJob = launch {
+            while (isRunning.get()) {
                 try {
+                    val auth = token ?: throw IllegalStateException("Not logged in")
+
+                    logger.info("Connecting to WebSocket at $baseUrl/ws")
+
                     client.webSocket(request = {
                         url {
                             protocol = if (parsedUrl.protocol.name == "https") URLProtocol.WSS else URLProtocol.WS
@@ -148,41 +153,45 @@ class CoCo(private val client: HttpClient, private val baseUrl: String) : Corout
                         }
                     }) {
                         webSocketSession = this
-                        while (isRunning.get()) {
-                            val result = incoming.receiveCatching()
-                            if (result.isClosed) {
-                                val reason = closeReason.await()
-                                logger.info("WebSocket closing: code={}, reason={}", reason?.code, reason?.message)
-                                result.exceptionOrNull()?.let {
-                                    logger.warn("WebSocket closed with exception: ${it.localizedMessage}")
-                                }
-                                break
-                            }
+                        logger.info("WebSocket connesso!")
 
-                            val frame = result.getOrNull() ?: continue
-                            when (frame) {
-                                is Frame.Text -> {
-                                    val text = frame.readText()
-                                    val event = Json.decodeFromString<CoCoEvent>(text)
-                                    _events.emit(event)
-                                }
-
-                                else -> {
-                                }
+                        // Gestione del ciclo di ricezione
+                        for (frame in incoming) {
+                            if (frame is Frame.Text) {
+                                val text = frame.readText()
+                                val event = Json.decodeFromString<CoCoEvent>(text)
+                                _events.emit(event)
                             }
                         }
-                        logger.info("WebSocket disconnected gracefully via protocol handshake.")
+                    }
+                } catch (e: ClientRequestException) {
+                    when (e.response.status.value) {
+                        401 -> {
+                            logger.warn("Unauthorized access. Attempting to refresh token...")
+                            try {
+                                refreshToken()
+                                logger.info("Token refreshed successfully. Reconnecting...")
+                            } catch (refreshException: Exception) {
+                                logger.error("Token refresh failed: ${refreshException.message}. Stopping WebSocket connection.", refreshException)
+                                isRunning.set(false)
+                            }
+                        }
+
+                        else -> {
+                            logger.error("WebSocket connection error: ${e.message}. Retrying in 5 seconds...", e)
+                            kotlinx.coroutines.delay(5000.milliseconds)
+                        }
                     }
                 } catch (e: Exception) {
-                    logger.error("WebSocket disconnected: ${e.localizedMessage}")
-                    disconnectException = e
+                    if (isRunning.get()) {
+                        logger.error("WebSocket connection error: ${e.message}. Retrying in 5 seconds...", e)
+                        kotlinx.coroutines.delay(5000.milliseconds)
+                    }
                 } finally {
                     webSocketSession = null
-                    isRunning.set(false)
-                    _events.tryEmit(CoCoEvent.Disconnected(exception = disconnectException))
                 }
             }
-        } ?: throw IllegalStateException("Not logged in")
+        }
     }
 
     /**
