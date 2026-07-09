@@ -26,8 +26,7 @@ class CoCoIntegrationTest {
             install(WebSockets)
         }
         val coco = CoCo(client, baseUrl)
-        val loginSuccess = coco.login(cocoUser, cocoPass)
-        assertTrue(loginSuccess)
+        coco.login(cocoUser, cocoPass)
         return coco
     }
 

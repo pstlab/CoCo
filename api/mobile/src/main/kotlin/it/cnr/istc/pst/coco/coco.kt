@@ -2,6 +2,9 @@ package it.cnr.istc.pst.coco
 
 import io.ktor.client.HttpClient
 import io.ktor.client.call.body
+import io.ktor.client.plugins.auth.Auth
+import io.ktor.client.plugins.auth.providers.BearerTokens
+import io.ktor.client.plugins.auth.providers.bearer
 import io.ktor.client.plugins.websocket.DefaultClientWebSocketSession
 import io.ktor.client.plugins.websocket.webSocket
 import io.ktor.client.request.get
@@ -13,6 +16,8 @@ import io.ktor.http.ContentType
 import io.ktor.http.URLProtocol
 import io.ktor.http.Url
 import io.ktor.http.contentType
+import io.ktor.http.encodedPath
+import io.ktor.http.isSuccess
 import io.ktor.http.path
 import io.ktor.websocket.CloseReason
 import io.ktor.websocket.Frame
@@ -45,6 +50,27 @@ class CoCo(private val client: HttpClient, private val baseUrl: String) : Corout
 
     @Volatile
     private var token: AuthTokens? = null
+    private val authClient = client.config {
+        install(Auth) {
+            bearer {
+                loadTokens {
+                    token?.let { BearerTokens(it.accessToken, it.refreshToken) }
+                }
+
+                refreshTokens {
+                    logger.trace("Token expired, attempting refresh...")
+                    refreshToken()
+                    token?.let { BearerTokens(it.accessToken, it.refreshToken) }
+                }
+
+                sendWithoutRequest { request ->
+                    val isCorrectHost = request.url.host == Url(baseUrl).host
+                    val isPublicEndpoint = request.url.encodedPath.startsWith("/login") || request.url.encodedPath.startsWith("/refresh_token")
+                    isCorrectHost && !isPublicEndpoint
+                }
+            }
+        }
+    }
 
     @Volatile
     private var webSocketSession: DefaultClientWebSocketSession? = null
@@ -59,12 +85,26 @@ class CoCo(private val client: HttpClient, private val baseUrl: String) : Corout
      * @param username The username for authentication.
      * @param password The password for authentication.
      */
-    suspend fun login(username: String, password: String) {
+    suspend fun login(username: String, password: String): AuthTokens {
         logger.trace("Logging in with username: {}", username)
-        token = client.post("$baseUrl/login") {
+        val response = authClient.post("$baseUrl/login") {
             contentType(ContentType.Application.Json)
             setBody(LoginRequest(username, password))
-        }.body<AuthTokens>()
+        }
+        if (!response.status.isSuccess()) {
+            throw IllegalStateException("Login failed with status: ${response.status}")
+        }
+        token = response.body()
+        return token!!
+    }
+
+    /**
+     * Sets the authentication token for the CoCo client.
+     *
+     * @param authTokens The AuthTokens object containing the access and refresh tokens.
+     */
+    fun setToken(authTokens: AuthTokens) {
+        token = authTokens
     }
 
     /**
@@ -75,10 +115,14 @@ class CoCo(private val client: HttpClient, private val baseUrl: String) : Corout
     suspend fun refreshToken() {
         logger.trace("Refreshing token")
         token?.let { auth ->
-            token = client.post("$baseUrl/refresh") {
+            val response = authClient.post("$baseUrl/refresh_token") {
                 contentType(ContentType.Application.Json)
-                setBody(TokenRefreshRequest(auth.refreshToken))
-            }.body<AuthTokens>()
+                setBody(RefreshRequest(auth.refreshToken))
+            }
+            if (!response.status.isSuccess()) {
+                throw IllegalStateException("Token refresh failed with status: ${response.status}")
+            }
+            token = response.body()
         } ?: throw IllegalStateException("Not logged in")
     }
 
@@ -149,12 +193,14 @@ class CoCo(private val client: HttpClient, private val baseUrl: String) : Corout
      */
     suspend fun getClasses(): List<CoCoClass> {
         logger.trace("Fetching all classes")
-        token?.let { auth ->
-            client.get("$baseUrl/classes") {
-                contentType(ContentType.Application.Json)
-                header("Authorization", "Bearer ${auth.accessToken}")
-            }.body()
-        } ?: throw IllegalStateException("Not logged in")
+        check(token != null) { "Not logged in" }
+        val response = authClient.get("$baseUrl/classes") {
+            contentType(ContentType.Application.Json)
+        }
+        if (!response.status.isSuccess()) {
+            throw IllegalStateException("Failed to fetch classes with status: ${response.status}")
+        }
+        return response.body()
     }
 
     /**
@@ -166,12 +212,14 @@ class CoCo(private val client: HttpClient, private val baseUrl: String) : Corout
      */
     suspend fun getClass(className: String): CoCoClass {
         logger.trace("Fetching class with name: {}", className)
-        token?.let { auth ->
-            client.get("$baseUrl/classes/$className") {
-                contentType(ContentType.Application.Json)
-                header("Authorization", "Bearer ${auth.accessToken}")
-            }.body()
-        } ?: throw IllegalStateException("Not logged in")
+        check(token != null) { "Not logged in" }
+        val response = authClient.get("$baseUrl/classes/$className") {
+            contentType(ContentType.Application.Json)
+        }
+        if (!response.status.isSuccess()) {
+            throw IllegalStateException("Failed to fetch class with status: ${response.status}")
+        }
+        return response.body()
     }
 
     /**
@@ -182,13 +230,14 @@ class CoCo(private val client: HttpClient, private val baseUrl: String) : Corout
      */
     suspend fun createClass(cls: CoCoClass) {
         logger.trace("Creating class with name: {}", cls.name)
-        token?.let { auth ->
-            client.post("$baseUrl/classes") {
-                contentType(ContentType.Application.Json)
-                header("Authorization", "Bearer ${auth.accessToken}")
-                setBody(cls)
-            }
-        } ?: throw IllegalStateException("Not logged in")
+        check(token != null) { "Not logged in" }
+        val response = authClient.post("$baseUrl/classes") {
+            contentType(ContentType.Application.Json)
+            setBody(cls)
+        }
+        if (!response.status.isSuccess()) {
+            throw IllegalStateException("Failed to create class with status: ${response.status}")
+        }
     }
 
     /**
@@ -199,12 +248,14 @@ class CoCo(private val client: HttpClient, private val baseUrl: String) : Corout
      */
     suspend fun getRules(): List<CoCoRule> {
         logger.trace("Fetching all rules")
-        token?.let { auth ->
-            client.get("$baseUrl/rules") {
-                contentType(ContentType.Application.Json)
-                header("Authorization", "Bearer ${auth.accessToken}")
-            }.body()
-        } ?: throw IllegalStateException("Not logged in")
+        check(token != null) { "Not logged in" }
+        val response = authClient.get("$baseUrl/rules") {
+            contentType(ContentType.Application.Json)
+        }
+        if (!response.status.isSuccess()) {
+            throw IllegalStateException("Failed to fetch rules with status: ${response.status}")
+        }
+        return response.body()
     }
 
     /**
@@ -216,12 +267,14 @@ class CoCo(private val client: HttpClient, private val baseUrl: String) : Corout
      */
     suspend fun getRule(ruleName: String): CoCoRule {
         logger.trace("Fetching rule with name: {}", ruleName)
-        token?.let { auth ->
-            client.get("$baseUrl/rules/$ruleName") {
-                contentType(ContentType.Application.Json)
-                header("Authorization", "Bearer ${auth.accessToken}")
-            }.body()
-        } ?: throw IllegalStateException("Not logged in")
+        check(token != null) { "Not logged in" }
+        val response = authClient.get("$baseUrl/rules/$ruleName") {
+            contentType(ContentType.Application.Json)
+        }
+        if (!response.status.isSuccess()) {
+            throw IllegalStateException("Failed to fetch rule with status: ${response.status}")
+        }
+        return response.body()
     }
 
     /**
@@ -232,13 +285,14 @@ class CoCo(private val client: HttpClient, private val baseUrl: String) : Corout
      */
     suspend fun createRule(rule: CoCoRule) {
         logger.trace("Creating rule with name: {}", rule.name)
-        token?.let { auth ->
-            client.post("$baseUrl/rules") {
-                contentType(ContentType.Application.Json)
-                header("Authorization", "Bearer ${auth.accessToken}")
-                setBody(rule)
-            }
-        } ?: throw IllegalStateException("Not logged in")
+        check(token != null) { "Not logged in" }
+        val response = authClient.post("$baseUrl/rules") {
+            contentType(ContentType.Application.Json)
+            setBody(rule)
+        }
+        if (!response.status.isSuccess()) {
+            throw IllegalStateException("Failed to create rule with status: ${response.status}")
+        }
     }
 
     /**
@@ -249,12 +303,14 @@ class CoCo(private val client: HttpClient, private val baseUrl: String) : Corout
      */
     suspend fun getObjects(): List<CoCoObject> {
         logger.trace("Fetching all objects")
-        token?.let { auth ->
-            client.get("$baseUrl/objects") {
-                contentType(ContentType.Application.Json)
-                header("Authorization", "Bearer ${auth.accessToken}")
-            }.body()
-        } ?: throw IllegalStateException("Not logged in")
+        check(token != null) { "Not logged in" }
+        val response = authClient.get("$baseUrl/objects") {
+            contentType(ContentType.Application.Json)
+        }
+        if (!response.status.isSuccess()) {
+            throw IllegalStateException("Failed to fetch objects with status: ${response.status}")
+        }
+        return response.body()
     }
 
     /**
@@ -266,12 +322,14 @@ class CoCo(private val client: HttpClient, private val baseUrl: String) : Corout
      */
     suspend fun getObject(objectId: String): CoCoObject {
         logger.trace("Fetching object with ID: {}", objectId)
-        token?.let { auth ->
-            client.get("$baseUrl/objects/$objectId") {
-                contentType(ContentType.Application.Json)
-                header("Authorization", "Bearer ${auth.accessToken}")
-            }.body()
-        } ?: throw IllegalStateException("Not logged in")
+        check(token != null) { "Not logged in" }
+        val response = authClient.get("$baseUrl/objects/$objectId") {
+            contentType(ContentType.Application.Json)
+        }
+        if (!response.status.isSuccess()) {
+            throw IllegalStateException("Failed to fetch object with status: ${response.status}")
+        }
+        return response.body()
     }
 
     /**
@@ -282,13 +340,14 @@ class CoCo(private val client: HttpClient, private val baseUrl: String) : Corout
      */
     suspend fun createObject(obj: CoCoObject) {
         logger.trace("Creating object with ID: {}", obj.id)
-        token?.let { auth ->
-            client.post("$baseUrl/objects") {
-                contentType(ContentType.Application.Json)
-                header("Authorization", "Bearer ${auth.accessToken}")
-                setBody(obj)
-            }
-        } ?: throw IllegalStateException("Not logged in")
+        check(token != null) { "Not logged in" }
+        val response = authClient.post("$baseUrl/objects") {
+            contentType(ContentType.Application.Json)
+            setBody(obj)
+        }
+        if (!response.status.isSuccess()) {
+            throw IllegalStateException("Failed to create object with status: ${response.status}")
+        }
     }
 
     /**
@@ -298,16 +357,16 @@ class CoCo(private val client: HttpClient, private val baseUrl: String) : Corout
      * @param properties A map of property names to their new values.
      * @throws IllegalStateException if not logged in.
      */
-    suspend fun updateObjectProperties(objectId: String, properties: Map<String, CoCoValue>): Boolean {
+    suspend fun updateObjectProperties(objectId: String, properties: Map<String, CoCoValue>) {
         logger.trace("Updating properties for object with ID: {}", objectId)
-        token?.let { auth ->
-            client.patch("$baseUrl/objects/$objectId/properties") {
-                contentType(ContentType.Application.Json)
-                header("Authorization", "Bearer ${auth.accessToken}")
-                setBody(properties)
-            }
-            return true
-        } ?: throw IllegalStateException("Not logged in")
+        check(token != null) { "Not logged in" }
+        val response = authClient.patch("$baseUrl/objects/$objectId") {
+            contentType(ContentType.Application.Json)
+            setBody(properties)
+        }
+        if (!response.status.isSuccess()) {
+            throw IllegalStateException("Failed to update properties with status: ${response.status}")
+        }
     }
 
     /**
@@ -319,13 +378,14 @@ class CoCo(private val client: HttpClient, private val baseUrl: String) : Corout
      */
     suspend fun updateObjectValues(objectId: String, values: Map<String, CoCoValue>) {
         logger.trace("Updating values for object with ID: {}", objectId)
-        token?.let { auth ->
-            client.patch("$baseUrl/objects/$objectId/values") {
-                contentType(ContentType.Application.Json)
-                header("Authorization", "Bearer ${auth.accessToken}")
-                setBody(values)
-            }
-        } ?: throw IllegalStateException("Not logged in")
+        check(token != null) { "Not logged in" }
+        val response = authClient.patch("$baseUrl/objects/$objectId/data") {
+            contentType(ContentType.Application.Json)
+            setBody(values)
+        }
+        if (!response.status.isSuccess()) {
+            throw IllegalStateException("Failed to update values with status: ${response.status}")
+        }
     }
 
     /**

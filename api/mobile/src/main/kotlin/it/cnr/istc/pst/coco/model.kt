@@ -26,7 +26,7 @@ import kotlinx.serialization.json.longOrNull
 data class LoginRequest(val username: String, val password: String)
 
 @Serializable
-data class TokenRefreshRequest(@SerialName("refresh_token") val refreshToken: String)
+data class RefreshRequest(@SerialName("refresh_token") val refreshToken: String)
 
 @Serializable
 data class AuthTokens(@SerialName("access_token") val accessToken: String, @SerialName("refresh_token") val refreshToken: String)
