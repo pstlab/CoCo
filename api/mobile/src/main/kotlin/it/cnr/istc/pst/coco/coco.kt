@@ -134,7 +134,7 @@ class CoCo(private val client: HttpClient, private val baseUrl: String) : Corout
      * @throws IllegalStateException if not logged in.
      */
     fun connect() {
-        if (isRunning.getAndSet(true)) return // Evita connessioni doppie
+        if (isRunning.getAndSet(true)) return
 
         webSocketJob = launch {
             while (isRunning.get()) {
@@ -155,7 +155,6 @@ class CoCo(private val client: HttpClient, private val baseUrl: String) : Corout
                         webSocketSession = this
                         logger.info("WebSocket connesso!")
 
-                        // Gestione del ciclo di ricezione
                         for (frame in incoming) {
                             if (frame is Frame.Text) {
                                 val text = frame.readText()
