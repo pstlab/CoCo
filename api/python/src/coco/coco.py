@@ -1,13 +1,27 @@
-from model import *
-import requests
-import socket
-import ssl
+from .model import *
 import binascii
 import hashlib
 import random
-import asyncio
 import json
+import asyncio
+import socket
+import ssl
 import select
+import requests
+
+
+def _quote_plus(s: str) -> str:
+    safe = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_.-~"
+    result = []
+    for c in s:
+        if c in safe:
+            result.append(c)
+        elif c == " ":
+            result.append("+")
+        else:
+            for b in c.encode("utf-8"):
+                result.append("%{:02X}".format(b))
+    return "".join(result)
 
 
 def _urlencode(params: dict[str, Value]) -> str:
@@ -15,13 +29,14 @@ def _urlencode(params: dict[str, Value]) -> str:
         return ""
     parts = []
     for k, v in params.items():
-        parts.append("{}={}".format(k, v))
+        parts.append("{}={}".format(_quote_plus(str(k)), _quote_plus(str(v))))
     return "&".join(parts)
 
 
 class CoCo:
-    def __init__(self, host: str):
+    def __init__(self, host: str, verify_ssl=True):
         self.host = host
+        self.verify_ssl = verify_ssl
         self.token: AuthTokens | None = None
 
     def login(self, username: str, password: str, timeout=5):
@@ -358,7 +373,7 @@ class CoCo:
         ws_key = binascii.b2a_base64(random_key).strip().decode()
         expected_accept = binascii.b2a_base64(hashlib.sha1((ws_key + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11").encode()).digest()).strip().decode()
 
-        def get_handshake(host: str, token: str) -> tuple[ssl.SSLSocket, str]:
+        def get_handshake(token: str) -> tuple[ssl.SSLSocket, str]:
             path = f"/ws?token={token}"
             tcp_sock = None
             tls_sock = None
@@ -367,7 +382,13 @@ class CoCo:
                 tcp_sock.settimeout(connect_timeout)
                 addr = socket.getaddrinfo(self.host, 443)[0][-1]
                 tcp_sock.connect(addr)
-                tls_sock = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT).wrap_socket(tcp_sock, server_hostname=self.host)
+                ssl_ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+
+                if not self.verify_ssl:
+                    ssl_ctx.check_hostname = False
+                    ssl_ctx.verify_mode = ssl.CERT_NONE
+
+                tls_sock = ssl_ctx.wrap_socket(tcp_sock, server_hostname=self.host)
                 tls_sock.settimeout(io_timeout)
 
                 request = (
@@ -403,7 +424,7 @@ class CoCo:
                     pass
                 raise
 
-        result = get_handshake(self.host, self.token.access_token)
+        result = get_handshake(self.token.access_token)
         status_line, _, header_block = result[1].partition("\r\n")
 
         status_parts = status_line.split(" ")
@@ -412,7 +433,7 @@ class CoCo:
         if status_code in (401, 403):
             print(f"WebSocket auth failed with status: {status_code}")
             self.refresh_token()
-            result = get_handshake(self.host, self.token.access_token)
+            result = get_handshake(self.token.access_token)
             status_line, _, header_block = result[1].partition("\r\n")
             status_parts = status_line.split(" ")
             status_code = int(status_parts[1]) if len(status_parts) >= 2 and status_parts[1].isdigit() else 0
@@ -432,7 +453,21 @@ class CoCo:
             result[0].close()
             raise CoCoHTTPError(status_code)
 
-    async def _ws_loop(self, on_new_class=None, on_new_rule=None, on_new_object=None, on_classes_update=None, on_object_update=None, on_new_data=None):
+    async def connect(self, on_new_class=None, on_new_rule=None, on_new_object=None, on_classes_update=None, on_object_update=None, on_new_data=None):
+        if on_new_class is not None and not callable(on_new_class):
+            raise ValueError("on_new_class must be a callable function or None.")
+        if on_new_rule is not None and not callable(on_new_rule):
+            raise ValueError("on_new_rule must be a callable function or None.")
+        if on_new_object is not None and not callable(on_new_object):
+            raise ValueError("on_new_object must be a callable function or None.")
+        if on_classes_update is not None and not callable(on_classes_update):
+            raise ValueError("on_classes_update must be a callable function or None.")
+        if on_object_update is not None and not callable(on_object_update):
+            raise ValueError("on_object_update must be a callable function or None.")
+        if on_new_data is not None and not callable(on_new_data):
+            raise ValueError("on_new_data must be a callable function or None.")
+        if self.token is None:
+            raise ValueError("No token available. Please login first.")
         while True:
             ws_sock = self._handshake()
             if ws_sock is None:
@@ -502,21 +537,6 @@ class CoCo:
                 ws_sock.close()
                 print("WebSocket connection closed. Reconnecting in 5 seconds...")
                 await asyncio.sleep(5)
-
-    def connect(self, on_new_class=None, on_new_rule=None, on_new_object=None, on_classes_update=None, on_object_update=None, on_new_data=None):
-        if on_new_class is not None and not callable(on_new_class):
-            raise ValueError("on_new_class must be a callable function or None.")
-        if on_new_rule is not None and not callable(on_new_rule):
-            raise ValueError("on_new_rule must be a callable function or None.")
-        if on_new_object is not None and not callable(on_new_object):
-            raise ValueError("on_new_object must be a callable function or None.")
-        if on_classes_update is not None and not callable(on_classes_update):
-            raise ValueError("on_classes_update must be a callable function or None.")
-        if on_object_update is not None and not callable(on_object_update):
-            raise ValueError("on_object_update must be a callable function or None.")
-        if self.token is None:
-            raise ValueError("No token available. Please login first.")
-        asyncio.create_task(self._ws_loop(on_new_class, on_new_rule, on_new_object, on_classes_update, on_object_update, on_new_data))
 
 
 def _read_exact(sock: ssl.SSLSocket, n: int) -> bytes | None:
