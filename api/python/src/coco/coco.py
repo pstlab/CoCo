@@ -80,6 +80,8 @@ class CoCo:
         url = f"https://{self.host}/classes"
 
         def fetch_classes():
+            if self.token is None:
+                raise ValueError("No token available. Please login first.")
             headers = {"Authorization": f"Bearer {self.token.access_token}"}
             return requests.get(url, headers=headers, timeout=timeout)
 
@@ -105,6 +107,8 @@ class CoCo:
         url = f"https://{self.host}/classes/{class_id}"
 
         def fetch_class():
+            if self.token is None:
+                raise ValueError("No token available. Please login first.")
             headers = {"Authorization": f"Bearer {self.token.access_token}"}
             return requests.get(url, headers=headers, timeout=timeout)
 
@@ -131,6 +135,8 @@ class CoCo:
         payload = cls.to_json()
 
         def post_class():
+            if self.token is None:
+                raise ValueError("No token available. Please login first.")
             headers = {"Authorization": f"Bearer {self.token.access_token}"}
             return requests.post(url, json=payload, headers=headers, timeout=timeout)
 
@@ -156,6 +162,8 @@ class CoCo:
         url = f"https://{self.host}/rules"
 
         def fetch_rules():
+            if self.token is None:
+                raise ValueError("No token available. Please login first.")
             headers = {"Authorization": f"Bearer {self.token.access_token}"}
             return requests.get(url, headers=headers, timeout=timeout)
 
@@ -181,6 +189,8 @@ class CoCo:
         url = f"https://{self.host}/rules/{name}"
 
         def fetch_rule():
+            if self.token is None:
+                raise ValueError("No token available. Please login first.")
             headers = {"Authorization": f"Bearer {self.token.access_token}"}
             return requests.get(url, headers=headers, timeout=timeout)
 
@@ -207,6 +217,8 @@ class CoCo:
         payload = rule.to_json()
 
         def post_rule():
+            if self.token is None:
+                raise ValueError("No token available. Please login first.")
             headers = {"Authorization": f"Bearer {self.token.access_token}"}
             return requests.post(url, json=payload, headers=headers, timeout=timeout)
 
@@ -225,7 +237,7 @@ class CoCo:
         finally:
             response.close()
 
-    def get_objects(self, classes: set[str] = None, filters: dict[str, Value] = None, timeout=5) -> list[CoCoObject]:
+    def get_objects(self, classes: set[str] | None = None, filters: dict[str, Value] | None = None, timeout=5) -> list[CoCoObject]:
         if self.token is None:
             raise ValueError("No token available. Please login first.")
 
@@ -240,6 +252,8 @@ class CoCo:
             url += "?" + query_string
 
         def fetch_objects():
+            if self.token is None:
+                raise ValueError("No token available. Please login first.")
             headers = {"Authorization": f"Bearer {self.token.access_token}"}
             return requests.get(url, headers=headers, timeout=timeout)
 
@@ -265,6 +279,8 @@ class CoCo:
         url = f"https://{self.host}/objects/{object_id}"
 
         def fetch_object():
+            if self.token is None:
+                raise ValueError("No token available. Please login first.")
             headers = {"Authorization": f"Bearer {self.token.access_token}"}
             return requests.get(url, headers=headers, timeout=timeout)
 
@@ -291,6 +307,8 @@ class CoCo:
         payload = obj.to_json()
 
         def post_object():
+            if self.token is None:
+                raise ValueError("No token available. Please login first.")
             headers = {"Authorization": f"Bearer {self.token.access_token}"}
             return requests.post(url, json=payload, headers=headers, timeout=timeout)
 
@@ -309,7 +327,7 @@ class CoCo:
         finally:
             response.close()
 
-    def get_data(self, object_id: str, start: str = None, end: str = None, timeout=10) -> dict[str, list[Value]]:
+    def get_data(self, object_id: str, start: str | None = None, end: str | None = None, timeout=10) -> dict[str, list[Value]]:
         if self.token is None:
             raise ValueError("No token available. Please login first.")
 
@@ -324,6 +342,8 @@ class CoCo:
             url += "?" + query_string
 
         def fetch_data():
+            if self.token is None:
+                raise ValueError("No token available. Please login first.")
             headers = {"Authorization": f"Bearer {self.token.access_token}"}
             return requests.get(url, headers=headers, timeout=timeout)
 
@@ -342,7 +362,7 @@ class CoCo:
         finally:
             response.close()
 
-    def add_data(self, object_id: str, data: dict[str, Value], timestamp: str = None, timeout=5):
+    def add_data(self, object_id: str, data: dict[str, Value], timestamp: str | None = None, timeout=5):
         if self.token is None:
             raise ValueError("No token available. Please login first.")
 
@@ -355,6 +375,8 @@ class CoCo:
             url += "?" + query_string
 
         def post_data():
+            if self.token is None:
+                raise ValueError("No token available. Please login first.")
             headers = {"Authorization": f"Bearer {self.token.access_token}"}
             return requests.post(url, json=data, headers=headers, timeout=timeout)
 
@@ -372,9 +394,12 @@ class CoCo:
 
     def _handshake(self, connect_timeout=5, io_timeout=20) -> ssl.SSLSocket:
         print("Performing WebSocket handshake...")
+        if self.token is None:
+            raise ValueError("No token available. Please login first.")
         random_key = bytes([random.getrandbits(8) for _ in range(16)])
         ws_key = binascii.b2a_base64(random_key).strip().decode()
-        expected_accept = binascii.b2a_base64(hashlib.sha1((ws_key + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11").encode()).digest()).strip().decode()
+        expected_accept = binascii.b2a_base64(hashlib.sha1(
+            (ws_key + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11").encode()).digest()).strip().decode()
 
         def get_handshake(token: str) -> tuple[ssl.SSLSocket, str]:
             path = f"/ws?token={token}"
@@ -388,11 +413,15 @@ class CoCo:
                 ssl_ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
 
                 if not self.verify_ssl:
-                    ssl_ctx.check_hostname = False
+                    if hasattr(ssl_ctx, "check_hostname"):
+                        setattr(ssl_ctx, "check_hostname", False)
                     ssl_ctx.verify_mode = ssl.CERT_NONE
 
                 tls_sock = ssl_ctx.wrap_socket(tcp_sock, server_hostname=self.host)
-                tls_sock.settimeout(io_timeout)
+                if hasattr(tls_sock, "settimeout"):
+                    tls_sock.settimeout(io_timeout)
+                else:
+                    tcp_sock.settimeout(io_timeout)
 
                 request = (
                     "GET {} HTTP/1.1\r\n"
@@ -431,7 +460,8 @@ class CoCo:
         status_line, _, header_block = result[1].partition("\r\n")
 
         status_parts = status_line.split(" ")
-        status_code = int(status_parts[1]) if len(status_parts) >= 2 and status_parts[1].isdigit() else 0
+        status_code = int(status_parts[1]) if len(
+            status_parts) >= 2 and status_parts[1].isdigit() else 0
 
         if status_code == 401:
             print(f"WebSocket auth failed with status: {status_code}")
@@ -439,7 +469,8 @@ class CoCo:
             result = get_handshake(self.token.access_token)
             status_line, _, header_block = result[1].partition("\r\n")
             status_parts = status_line.split(" ")
-            status_code = int(status_parts[1]) if len(status_parts) >= 2 and status_parts[1].isdigit() else 0
+            status_code = int(status_parts[1]) if len(
+                status_parts) >= 2 and status_parts[1].isdigit() else 0
 
         headers = {}
         for line in header_block.split("\r\n"):
@@ -458,17 +489,23 @@ class CoCo:
 
     async def connect(self, on_new_class=None, on_new_rule=None, on_new_object=None, on_classes_update=None, on_object_update=None, on_new_data=None):
         if on_new_class is not None and not callable(on_new_class):
-            raise ValueError("on_new_class must be a callable function or None.")
+            raise ValueError(
+                "on_new_class must be a callable function or None.")
         if on_new_rule is not None and not callable(on_new_rule):
-            raise ValueError("on_new_rule must be a callable function or None.")
+            raise ValueError(
+                "on_new_rule must be a callable function or None.")
         if on_new_object is not None and not callable(on_new_object):
-            raise ValueError("on_new_object must be a callable function or None.")
+            raise ValueError(
+                "on_new_object must be a callable function or None.")
         if on_classes_update is not None and not callable(on_classes_update):
-            raise ValueError("on_classes_update must be a callable function or None.")
+            raise ValueError(
+                "on_classes_update must be a callable function or None.")
         if on_object_update is not None and not callable(on_object_update):
-            raise ValueError("on_object_update must be a callable function or None.")
+            raise ValueError(
+                "on_object_update must be a callable function or None.")
         if on_new_data is not None and not callable(on_new_data):
-            raise ValueError("on_new_data must be a callable function or None.")
+            raise ValueError(
+                "on_new_data must be a callable function or None.")
         if self.token is None:
             raise ValueError("No token available. Please login first.")
 
@@ -476,7 +513,8 @@ class CoCo:
         while not self._stop_requested:
             ws_sock = self._handshake()
             if ws_sock is None:
-                print("Failed to establish WebSocket connection. Retrying in 5 seconds...")
+                print(
+                    "Failed to establish WebSocket connection. Retrying in 5 seconds...")
                 for _ in range(50):
                     if self._stop_requested:
                         break
@@ -530,11 +568,14 @@ class CoCo:
                             if msg_type == "new-object" and on_new_object is not None:
                                 on_new_object(CoCoObject.from_json(data))
                             if msg_type == "classes-update" and on_classes_update is not None:
-                                on_classes_update(data["object_id"], data["classes"])
+                                on_classes_update(
+                                    data["object_id"], data["classes"])
                             if msg_type == "properties-updated" and on_object_update is not None:
-                                on_object_update(data["object_id"], data["properties"])
+                                on_object_update(
+                                    data["object_id"], data["properties"])
                             if msg_type == "values-added" and on_new_data is not None:
-                                on_new_data(data["object_id"], data["values"], data["timestamp"])
+                                on_new_data(
+                                    data["object_id"], data["values"], data["timestamp"])
                         except Exception as e:
                             print("Error occurred while processing message:", e)
                     elif opcode == 0x9:  # ping
@@ -555,15 +596,15 @@ class CoCo:
                         pass
                     self._ws_sock = None
 
-                if self._stop_requested:
-                    print("WebSocket connection closed.")
-                    break
+            if self._stop_requested:
+                print("WebSocket connection closed.")
+                break
 
-                print("WebSocket connection closed. Reconnecting in 5 seconds...")
-                for _ in range(50):
-                    if self._stop_requested:
-                        break
-                    await asyncio.sleep(0.1)
+            print("WebSocket connection closed. Reconnecting in 5 seconds...")
+            for _ in range(50):
+                if self._stop_requested:
+                    break
+                await asyncio.sleep(0.1)
 
     async def close(self):
         self._stop_requested = True

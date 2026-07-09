@@ -371,6 +371,9 @@ class CoCoRule:
         content = json_data["content"]
         return CoCoRule(name=name, content=content)
 
+    def to_json(self) -> dict:
+        return {"name": self.name, "content": self.content}
+
 
 Value = str | int | float | bool
 TimeValue = tuple[Value, str]  # (value, timestamp)
