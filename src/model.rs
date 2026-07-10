@@ -377,7 +377,7 @@ pub async fn properties_from_json(coco: CoCo, class_names: HashSet<String>, obj:
             for (_class_name, class_props) in static_props {
                 for (prop_name, prop) in class_props {
                     if let Some(value) = obj.get(&prop_name) {
-                        properties.insert(prop_name.clone(), value_from_json(&prop, value)?);
+                        properties.insert(prop_name.clone(), if value.is_null() { CoCoValue::Null } else { value_from_json(&prop, value)? });
                     }
                 }
             }
@@ -390,15 +390,15 @@ pub async fn properties_from_json(coco: CoCo, class_names: HashSet<String>, obj:
 pub async fn values_from_json(coco: CoCo, class_names: HashSet<String>, obj: JsonValue) -> Result<HashMap<String, CoCoValue>, CoCoError> {
     match coco.get_dynamic_properties(class_names).await {
         Ok(dynamic_props) => {
-            let mut properties = HashMap::new();
+            let mut values = HashMap::new();
             for (_class_name, class_props) in dynamic_props {
                 for (prop_name, prop) in class_props {
                     if let Some(value) = obj.get(&prop_name) {
-                        properties.insert(prop_name.clone(), value_from_json(&prop, value)?);
+                        values.insert(prop_name.clone(), if value.is_null() { CoCoValue::Null } else { value_from_json(&prop, value)? });
                     }
                 }
             }
-            Ok(properties)
+            Ok(values)
         }
         Err(e) => Err(CoCoError::JsonParseError(format!("Failed to retrieve dynamic properties for object: {}", e))),
     }
