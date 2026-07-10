@@ -9,11 +9,11 @@ import io.ktor.client.plugins.auth.providers.bearer
 import io.ktor.client.plugins.websocket.DefaultClientWebSocketSession
 import io.ktor.client.plugins.websocket.webSocket
 import io.ktor.client.request.get
-import io.ktor.client.request.header
 import io.ktor.client.request.patch
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
 import io.ktor.http.ContentType
+import io.ktor.http.URLBuilder
 import io.ktor.http.URLProtocol
 import io.ktor.http.Url
 import io.ktor.http.contentType
@@ -35,6 +35,7 @@ import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
 import org.slf4j.Logger
 import org.slf4j.LoggerFactory
+import java.time.Instant
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.coroutines.CoroutineContext
 import kotlin.time.Duration.Companion.milliseconds
@@ -304,15 +305,20 @@ class CoCo(private val client: HttpClient, private val baseUrl: String) : Corout
     }
 
     /**
-     * Fetches all objects from the CoCo server.
+     * Fetches all objects from the CoCo server, optionally filtered by classes and properties.
      *
-     * @return A list of CoCoObject objects representing all objects.
+     * @param classes Optional set of class names to filter objects.
+     * @param filters Optional map of property names to their values for filtering objects.
+     * @return A list of CoCoObject objects representing the filtered objects.
      * @throws IllegalStateException if not logged in.
      */
-    suspend fun getObjects(): List<CoCoObject> {
+    suspend fun getObjects(classes: Set<String>? = null, filters: Map<String, CoCoValue>? = null): List<CoCoObject> {
         logger.trace("Fetching all objects")
         check(token != null) { "Not logged in" }
-        val response = authClient.get("$baseUrl/objects") {
+        val urlBuilder = URLBuilder("$baseUrl/objects")
+        classes?.forEach { urlBuilder.parameters.append("class", it) }
+        filters?.forEach { (key, value) -> urlBuilder.parameters.append(key, value.toString()) }
+        val response = authClient.get(urlBuilder.build()) {
             contentType(ContentType.Application.Json)
         }
         if (!response.status.isSuccess()) {
@@ -365,7 +371,7 @@ class CoCo(private val client: HttpClient, private val baseUrl: String) : Corout
      * @param properties A map of property names to their new values.
      * @throws IllegalStateException if not logged in.
      */
-    suspend fun updateObjectProperties(objectId: String, properties: Map<String, CoCoValue>) {
+    suspend fun setProperties(objectId: String, properties: Map<String, CoCoValue>) {
         logger.trace("Updating properties for object with ID: {}", objectId)
         check(token != null) { "Not logged in" }
         val response = authClient.patch("$baseUrl/objects/$objectId") {
@@ -378,16 +384,40 @@ class CoCo(private val client: HttpClient, private val baseUrl: String) : Corout
     }
 
     /**
+     * Fetches the data of a specific object from the CoCo server.
+     *
+     * @param objectId The ID of the object to fetch data for.
+     * @param start Optional start time for filtering data.
+     * @param end Optional end time for filtering data.
+     * @return A map of value names to their corresponding lists of CoCoValue objects.
+     * @throws IllegalStateException if not logged in.
+     */
+    suspend fun getData(objectId: String, start: Instant? = null, end: Instant? = null): Map<String, List<CoCoValue>> {
+        logger.trace("Fetching data for object with ID: {}", objectId)
+        check(token != null) { "Not logged in" }
+        val urlBuilder = URLBuilder("$baseUrl/objects/$objectId/data")
+        start?.let { urlBuilder.parameters.append("start", it.toString()) }
+        end?.let { urlBuilder.parameters.append("end", it.toString()) }
+        val response = authClient.get(urlBuilder.build()) {
+            contentType(ContentType.Application.Json)
+        }
+        if (!response.status.isSuccess()) {
+            throw IllegalStateException("Failed to fetch data with status: ${response.status}")
+        }
+        return response.body()
+    }
+
+    /**
      * Updates the values of an existing object on the CoCo server.
      *
      * @param objectId The ID of the object to update.
      * @param values A map of value names to their new values.
      * @throws IllegalStateException if not logged in.
      */
-    suspend fun updateObjectValues(objectId: String, values: Map<String, CoCoValue>) {
+    suspend fun addData(objectId: String, values: Map<String, CoCoValue>) {
         logger.trace("Updating values for object with ID: {}", objectId)
         check(token != null) { "Not logged in" }
-        val response = authClient.patch("$baseUrl/objects/$objectId/data") {
+        val response = authClient.post("$baseUrl/objects/$objectId/data") {
             contentType(ContentType.Application.Json)
             setBody(values)
         }
