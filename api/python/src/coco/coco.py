@@ -23,7 +23,7 @@ import select
 try:
     import requests
 except ImportError:
-    import urequests as requests
+    import urequests as requests  # type: ignore
 
 
 def _quote_plus(s):
