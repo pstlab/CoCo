@@ -238,7 +238,7 @@ fn flush_values(object_id: &str, full_text: &mut String, done: bool, values_tx: 
     for (idx, c) in full_text.char_indices() {
         match state {
             ParserState::Text => {
-                if c == '[' {
+                if c == '<' {
                     let text = buffer.trim();
                     if !text.is_empty() {
                         trace!("Sending '{}' with values {}", text, values.iter().map(|(k, v)| format!("{}={:?}", k, v)).collect::<Vec<_>>().join(", "));
@@ -263,7 +263,7 @@ fn flush_values(object_id: &str, full_text: &mut String, done: bool, values_tx: 
                 }
             }
             ParserState::Command => {
-                if c == ']' {
+                if c == '>' {
                     for part in buffer.split(|ch| [';', ','].contains(&ch)) {
                         let pair = part.trim();
                         if pair.is_empty() {
@@ -324,7 +324,7 @@ fn build_tagged_prompt(user_prompt: &str, properties: &HashMap<String, CoCoPrope
         "Generate a tagged response.\n\
 Allowed keys: {}\n\
 Rules:\n\
-- Use only inline opening tags: [key=value] or [key=v;arg=w].\n\
+- Use only inline opening tags: <key=value> or <key=v;arg=w>.\n\
 - Tags modify only the text that follows.\n\
 - No explanations, no markdown, no extra lines.\n\
 \n\
@@ -376,7 +376,7 @@ mod tests {
     async fn test_flush_values() {
         let (values_tx, mut values_rx) = mpsc::unbounded_channel();
         let object_id = "test_object".to_string();
-        let mut full_text = String::from("Hello world. [facial=happy;arms=opened] How are you? [facial=sad, arms=crossed] Goodbye!");
+        let mut full_text = String::from("Hello world. <facial=happy;arms=opened> How are you? <facial=sad, arms=crossed> Goodbye!");
 
         flush_values(&object_id, &mut full_text, true, &values_tx);
 
@@ -427,10 +427,10 @@ mod tests {
         let object_id = "test_object".to_string();
         let mut full_text = String::new();
 
-        full_text.push_str("Hello [fac");
+        full_text.push_str("Hello <fac");
         flush_values(&object_id, &mut full_text, false, &values_tx);
 
-        full_text.push_str("ial=happy]");
+        full_text.push_str("ial=happy>");
         flush_values(&object_id, &mut full_text, false, &values_tx);
 
         full_text.push_str(" world!");
