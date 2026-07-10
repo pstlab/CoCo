@@ -450,13 +450,13 @@ export namespace coco {
   export type Value = null | boolean | number | string | Array<boolean> | Array<number> | Array<string>;
   export type TimeValue = { value: Value, timestamp: string };
 
-  export function value_to_string(value: Value): string {
+  export function value_to_string(value: Value, null_placeholder = '-'): string {
     switch (typeof value) {
       case 'boolean': return value ? 'true' : 'false';
       case 'number': return value.toString();
       case 'string': return value;
       case 'object':
-        if (value === null) return 'null';
+        if (value === null) return null_placeholder;
         if (Array.isArray(value)) return '[' + value.map(v => value_to_string(v)).join(', ') + ']';
         return JSON.stringify(value);
       default: return String(value);
