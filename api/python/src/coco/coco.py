@@ -1,3 +1,11 @@
+"""
+CoCo client - MicroPython-compatible version.
+
+This module provides a client for interacting with the CoCo API, including
+authentication, class and rule management, object management, data retrieval,
+and WebSocket communication for real-time updates.
+"""
+
 from .model import *
 import binascii
 import hashlib
@@ -7,10 +15,18 @@ import asyncio
 import socket
 import ssl
 import select
-import requests
+
+# MicroPython: "requests" is not a builtin module. On ports with
+# networking it can be installed via `mip.install("requests")` (the
+# modern micropython-lib name), or on older firmware it's available as
+# `urequests`. We try both.
+try:
+    import requests
+except ImportError:
+    import urequests as requests
 
 
-def _quote_plus(s: str) -> str:
+def _quote_plus(s):
     safe = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_.-~"
     result = []
     for c in s:
@@ -24,7 +40,7 @@ def _quote_plus(s: str) -> str:
     return "".join(result)
 
 
-def _urlencode(params: dict[str, Value]) -> str:
+def _urlencode(params):
     if not params:
         return ""
     parts = []
@@ -33,20 +49,100 @@ def _urlencode(params: dict[str, Value]) -> str:
     return "&".join(parts)
 
 
+def _http_request(method, url, timeout=5, **kwargs):
+    # MicroPython: some urequests builds don't accept timeout=. In
+    # that case fall back to a call without an explicit timeout (the
+    # socket's default timeout will be used, if one is set).
+    try:
+        return method(url, timeout=timeout, **kwargs)
+    except TypeError:
+        return method(url, **kwargs)
+
+
+def _sock_write(sock, data):
+    # MicroPython: TLS-wrapped sockets reliably expose only the stream
+    # interface (write/read), not necessarily sendall/recv. write()
+    # can write fewer bytes than requested (or return None on a
+    # non-blocking socket), so we loop.
+    if hasattr(sock, "write"):
+        mv = memoryview(data)
+        total = 0
+        while total < len(mv):
+            n = sock.write(mv[total:])
+            if not n:
+                continue
+            total += n
+    else:
+        sock.sendall(data)
+
+
+def _sock_read(sock, n):
+    if hasattr(sock, "read"):
+        return sock.read(n)
+    return sock.recv(n)
+
+
+def _is_timeout_error(e):
+    msg = str(e)
+    if "ETIMEDOUT" in msg or "timed out" in msg:
+        return True
+    code = None
+    if hasattr(e, "args") and e.args:
+        code = e.args[0]
+    return code == 110  # errno.ETIMEDOUT
+
+
+def _tls_wrap(tcp_sock, host, verify_ssl):
+    # MicroPython: not every port has ssl.SSLContext /
+    # ssl.PROTOCOL_TLS_CLIENT (added in relatively recent versions).
+    # Older/minimal ports only have the module-level
+    # ssl.wrap_socket(...) function.
+    try:
+        ssl_ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+        if not verify_ssl:
+            if hasattr(ssl_ctx, "check_hostname"):
+                # setattr instead of ssl_ctx.check_hostname = False:
+                # this is an assignment target the stub may not
+                # declare on every port/version; setattr() is typed
+                # permissively and isn't statically checked the way a
+                # direct assignment would be.
+                setattr(ssl_ctx, "check_hostname", False)
+            ssl_ctx.verify_mode = ssl.CERT_NONE
+        return ssl_ctx.wrap_socket(tcp_sock, server_hostname=host)
+    except AttributeError:
+        kwargs = {"server_hostname": host}
+        if not verify_ssl:
+            kwargs["cert_reqs"] = ssl.CERT_NONE
+        return ssl.wrap_socket(tcp_sock, **kwargs)
+
+
 class CoCo:
-    def __init__(self, host: str, verify_ssl=True):
+    def __init__(self, host, verify_ssl=True):
+        """
+        Initialize the CoCo client.
+
+        :param host: The API host.
+        :param verify_ssl: Whether to verify SSL certificates.
+        """
         self.host = host
         self.verify_ssl = verify_ssl
-        self.token: AuthTokens | None = None
+        self.token = None
 
         self._stop_requested = False
         self._ws_sock = None
 
-    def login(self, username: str, password: str, timeout=5):
+    def login(self, username, password, timeout=5):
+        """
+        Log in to the CoCo API.
+
+        :param username: The username.
+        :param password: The password.
+        :param timeout: The request timeout.
+        """
         url = f"https://{self.host}/login"
         payload = {"username": username, "password": password}
 
-        response = requests.post(url, json=payload, timeout=timeout)
+        response = _http_request(requests.post, url, json=payload, timeout=timeout)
         if response.status_code != 200:
             response.close()
             raise CoCoHTTPError(response.status_code)
@@ -57,13 +153,18 @@ class CoCo:
             response.close()
 
     def refresh_token(self, timeout=5):
+        """
+        Refresh the authentication token.
+
+        :param timeout: The request timeout.
+        """
         if self.token is None:
             raise ValueError("No token available. Please login first.")
 
         url = f"https://{self.host}/refresh_token"
         payload = {"refresh_token": self.token.refresh_token}
 
-        response = requests.post(url, json=payload, timeout=timeout)
+        response = _http_request(requests.post, url, json=payload, timeout=timeout)
         if response.status_code != 200:
             response.close()
             raise CoCoHTTPError(response.status_code)
@@ -73,7 +174,13 @@ class CoCo:
         finally:
             response.close()
 
-    def get_classes(self, timeout=5) -> list[CoCoClass]:
+    def get_classes(self, timeout=5):
+        """
+        Retrieve all classes from the CoCo API.
+
+        :param timeout: The request timeout.
+        :return: A list of CoCoClass instances.
+        """
         if self.token is None:
             raise ValueError("No token available. Please login first.")
 
@@ -83,7 +190,7 @@ class CoCo:
             if self.token is None:
                 raise ValueError("No token available. Please login first.")
             headers = {"Authorization": f"Bearer {self.token.access_token}"}
-            return requests.get(url, headers=headers, timeout=timeout)
+            return _http_request(requests.get, url, headers=headers, timeout=timeout)
 
         response = fetch_classes()
         if response.status_code == 401:
@@ -100,7 +207,14 @@ class CoCo:
         finally:
             response.close()
 
-    def get_class(self, class_id: str, timeout=5) -> CoCoClass:
+    def get_class(self, class_id, timeout=5):
+        """
+        Retrieve a specific class from the CoCo API.
+
+        :param class_id: The ID of the class to retrieve.
+        :param timeout: The request timeout.
+        :return: A CoCoClass instance.
+        """
         if self.token is None:
             raise ValueError("No token available. Please login first.")
 
@@ -110,7 +224,7 @@ class CoCo:
             if self.token is None:
                 raise ValueError("No token available. Please login first.")
             headers = {"Authorization": f"Bearer {self.token.access_token}"}
-            return requests.get(url, headers=headers, timeout=timeout)
+            return _http_request(requests.get, url, headers=headers, timeout=timeout)
 
         response = fetch_class()
         if response.status_code == 401:
@@ -127,7 +241,14 @@ class CoCo:
         finally:
             response.close()
 
-    def create_class(self, cls: CoCoClass, timeout=5):
+    def create_class(self, cls, timeout=5):
+        """
+        Create a new class in the CoCo API.
+
+        :param cls: The class to create.
+        :param timeout: The request timeout.
+        :return: A CoCoClass instance.
+        """
         if self.token is None:
             raise ValueError("No token available. Please login first.")
 
@@ -138,7 +259,7 @@ class CoCo:
             if self.token is None:
                 raise ValueError("No token available. Please login first.")
             headers = {"Authorization": f"Bearer {self.token.access_token}"}
-            return requests.post(url, json=payload, headers=headers, timeout=timeout)
+            return _http_request(requests.post, url, json=payload, headers=headers, timeout=timeout)
 
         response = post_class()
         if response.status_code == 401:
@@ -155,7 +276,13 @@ class CoCo:
         finally:
             response.close()
 
-    def get_rules(self, timeout=5) -> list[CoCoRule]:
+    def get_rules(self, timeout=5):
+        """
+        Retrieve all rules from the CoCo API.
+
+        :param timeout: The request timeout.
+        :return: A list of CoCoRule instances.
+        """
         if self.token is None:
             raise ValueError("No token available. Please login first.")
 
@@ -165,7 +292,7 @@ class CoCo:
             if self.token is None:
                 raise ValueError("No token available. Please login first.")
             headers = {"Authorization": f"Bearer {self.token.access_token}"}
-            return requests.get(url, headers=headers, timeout=timeout)
+            return _http_request(requests.get, url, headers=headers, timeout=timeout)
 
         response = fetch_rules()
         if response.status_code == 401:
@@ -182,7 +309,14 @@ class CoCo:
         finally:
             response.close()
 
-    def get_rule(self, name: str, timeout=5) -> CoCoRule:
+    def get_rule(self, name, timeout=5):
+        """
+        Retrieve a specific rule from the CoCo API.
+
+        :param name: The name of the rule to retrieve.
+        :param timeout: The request timeout.
+        :return: A CoCoRule instance.
+        """
         if self.token is None:
             raise ValueError("No token available. Please login first.")
 
@@ -192,7 +326,7 @@ class CoCo:
             if self.token is None:
                 raise ValueError("No token available. Please login first.")
             headers = {"Authorization": f"Bearer {self.token.access_token}"}
-            return requests.get(url, headers=headers, timeout=timeout)
+            return _http_request(requests.get, url, headers=headers, timeout=timeout)
 
         response = fetch_rule()
         if response.status_code == 401:
@@ -209,7 +343,14 @@ class CoCo:
         finally:
             response.close()
 
-    def create_rule(self, rule: CoCoRule, timeout=5):
+    def create_rule(self, rule, timeout=5):
+        """
+        Create a new rule in the CoCo API.
+
+        :param rule: The rule to create.
+        :param timeout: The request timeout.
+        :return: A CoCoRule instance.
+        """
         if self.token is None:
             raise ValueError("No token available. Please login first.")
 
@@ -220,7 +361,7 @@ class CoCo:
             if self.token is None:
                 raise ValueError("No token available. Please login first.")
             headers = {"Authorization": f"Bearer {self.token.access_token}"}
-            return requests.post(url, json=payload, headers=headers, timeout=timeout)
+            return _http_request(requests.post, url, json=payload, headers=headers, timeout=timeout)
 
         response = post_rule()
         if response.status_code == 401:
@@ -237,7 +378,15 @@ class CoCo:
         finally:
             response.close()
 
-    def get_objects(self, classes: set[str] | None = None, filters: dict[str, Value] | None = None, timeout=5) -> list[CoCoObject]:
+    def get_objects(self, classes=None, filters=None, timeout=5):
+        """
+        Retrieve all objects from the CoCo API.
+
+        :param classes: A list of classes to filter by.
+        :param filters: A dictionary of additional filters.
+        :param timeout: The request timeout.
+        :return: A list of CoCoObject instances.
+        """
         if self.token is None:
             raise ValueError("No token available. Please login first.")
 
@@ -255,7 +404,7 @@ class CoCo:
             if self.token is None:
                 raise ValueError("No token available. Please login first.")
             headers = {"Authorization": f"Bearer {self.token.access_token}"}
-            return requests.get(url, headers=headers, timeout=timeout)
+            return _http_request(requests.get, url, headers=headers, timeout=timeout)
 
         response = fetch_objects()
         if response.status_code == 401:
@@ -272,7 +421,14 @@ class CoCo:
         finally:
             response.close()
 
-    def get_object(self, object_id: str, timeout=5) -> CoCoObject:
+    def get_object(self, object_id, timeout=5):
+        """
+        Retrieve a specific object from the CoCo API.
+
+        :param object_id: The ID of the object to retrieve.
+        :param timeout: The request timeout.
+        :return: A CoCoObject instance.
+        """
         if self.token is None:
             raise ValueError("No token available. Please login first.")
 
@@ -282,7 +438,7 @@ class CoCo:
             if self.token is None:
                 raise ValueError("No token available. Please login first.")
             headers = {"Authorization": f"Bearer {self.token.access_token}"}
-            return requests.get(url, headers=headers, timeout=timeout)
+            return _http_request(requests.get, url, headers=headers, timeout=timeout)
 
         response = fetch_object()
         if response.status_code == 401:
@@ -299,7 +455,14 @@ class CoCo:
         finally:
             response.close()
 
-    def create_object(self, obj: CoCoObject, timeout=5):
+    def create_object(self, obj, timeout=5):
+        """
+        Create a new object in the CoCo API.
+
+        :param obj: The object to create.
+        :param timeout: The request timeout.
+        :return: A CoCoObject instance.
+        """
         if self.token is None:
             raise ValueError("No token available. Please login first.")
 
@@ -310,7 +473,7 @@ class CoCo:
             if self.token is None:
                 raise ValueError("No token available. Please login first.")
             headers = {"Authorization": f"Bearer {self.token.access_token}"}
-            return requests.post(url, json=payload, headers=headers, timeout=timeout)
+            return _http_request(requests.post, url, json=payload, headers=headers, timeout=timeout)
 
         response = post_object()
         if response.status_code == 401:
@@ -327,7 +490,16 @@ class CoCo:
         finally:
             response.close()
 
-    def get_data(self, object_id: str, start: str | None = None, end: str | None = None, timeout=10) -> dict[str, list[Value]]:
+    def get_data(self, object_id, start=None, end=None, timeout=10):
+        """
+        Retrieve data for a specific object from the CoCo API.
+
+        :param object_id: The ID of the object for which to retrieve data.
+        :param start: The start timestamp for the data range.
+        :param end: The end timestamp for the data range.
+        :param timeout: The request timeout.
+        :return: A list of data points.
+        """
         if self.token is None:
             raise ValueError("No token available. Please login first.")
 
@@ -345,7 +517,7 @@ class CoCo:
             if self.token is None:
                 raise ValueError("No token available. Please login first.")
             headers = {"Authorization": f"Bearer {self.token.access_token}"}
-            return requests.get(url, headers=headers, timeout=timeout)
+            return _http_request(requests.get, url, headers=headers, timeout=timeout)
 
         response = fetch_data()
         if response.status_code == 401:
@@ -362,7 +534,15 @@ class CoCo:
         finally:
             response.close()
 
-    def add_data(self, object_id: str, data: dict[str, Value], timestamp: str | None = None, timeout=5):
+    def add_data(self, object_id, data, timestamp=None, timeout=5):
+        """
+        Add data for a specific object in the CoCo API.
+
+        :param object_id: The ID of the object for which to add data.
+        :param data: The data to add.
+        :param timestamp: The timestamp for the data point.
+        :param timeout: The request timeout.
+        """
         if self.token is None:
             raise ValueError("No token available. Please login first.")
 
@@ -378,7 +558,7 @@ class CoCo:
             if self.token is None:
                 raise ValueError("No token available. Please login first.")
             headers = {"Authorization": f"Bearer {self.token.access_token}"}
-            return requests.post(url, json=data, headers=headers, timeout=timeout)
+            return _http_request(requests.post, url, json=data, headers=headers, timeout=timeout)
 
         response = post_data()
         if response.status_code == 401:
@@ -392,7 +572,7 @@ class CoCo:
 
         response.close()
 
-    def _handshake(self, connect_timeout=5, io_timeout=20) -> ssl.SSLSocket:
+    def _handshake(self, connect_timeout=5, io_timeout=20):
         print("Performing WebSocket handshake...")
         if self.token is None:
             raise ValueError("No token available. Please login first.")
@@ -401,7 +581,7 @@ class CoCo:
         expected_accept = binascii.b2a_base64(hashlib.sha1(
             (ws_key + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11").encode()).digest()).strip().decode()
 
-        def get_handshake(token: str) -> tuple[ssl.SSLSocket, str]:
+        def get_handshake(token):
             path = f"/ws?token={token}"
             tcp_sock = None
             tls_sock = None
@@ -410,16 +590,25 @@ class CoCo:
                 tcp_sock.settimeout(connect_timeout)
                 addr = socket.getaddrinfo(self.host, 443)[0][-1]
                 tcp_sock.connect(addr)
-                ssl_ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
 
-                if not self.verify_ssl:
-                    if hasattr(ssl_ctx, "check_hostname"):
-                        setattr(ssl_ctx, "check_hostname", False)
-                    ssl_ctx.verify_mode = ssl.CERT_NONE
+                tls_sock = _tls_wrap(tcp_sock, self.host, self.verify_ssl)
 
-                tls_sock = ssl_ctx.wrap_socket(tcp_sock, server_hostname=self.host)
-                if hasattr(tls_sock, "settimeout"):
-                    setattr(tls_sock, "settimeout", io_timeout)
+                # MicroPython: actually call settimeout() (the original
+                # mistakenly used setattr(tls_sock, "settimeout",
+                # io_timeout), which just creates an attribute that
+                # *shadows* the method instead of calling it).
+                # settimeout() isn't guaranteed on the object returned
+                # by wrap_socket on every port (which is why the stub
+                # doesn't declare it on SSLSocket): we fetch it with
+                # getattr instead of direct access, so no
+                # # type: ignore is needed, and if it's missing we fall
+                # back to the underlying TCP socket.
+                set_tls_timeout = getattr(tls_sock, "settimeout", None)
+                if set_tls_timeout is not None:
+                    try:
+                        set_tls_timeout(io_timeout)
+                    except OSError:
+                        tcp_sock.settimeout(io_timeout)
                 else:
                     tcp_sock.settimeout(io_timeout)
 
@@ -433,10 +622,10 @@ class CoCo:
                     "\r\n"
                 ).format(path, self.host, ws_key)
 
-                tls_sock.sendall(request.encode())
+                _sock_write(tls_sock, request.encode())
                 response = b""
                 while b"\r\n\r\n" not in response:
-                    chunk = tls_sock.recv(1024)
+                    chunk = _sock_read(tls_sock, 1024)
                     if not chunk:
                         break
                     response += chunk
@@ -526,6 +715,17 @@ class CoCo:
             try:
                 while not self._stop_requested:
                     try:
+                        # MicroPython: select() on a TLS-wrapped socket
+                        # only checks the state of the underlying TCP
+                        # socket, not any bytes already decrypted and
+                        # buffered by the TLS layer. For this
+                        # protocol's traffic (single messages, not
+                        # pipelined) this is a known limitation in
+                        # CPython too and isn't addressed here: if
+                        # messages ever seem to lag "by one", it's
+                        # worth revisiting this with a direct
+                        # non-blocking read instead of select-based
+                        # polling.
                         selected = select.select((ws_sock,), (), (), 0)
                     except (ValueError, OSError):
                         break
@@ -539,14 +739,7 @@ class CoCo:
                     try:
                         opcode, payload = _ws_read_frame(ws_sock)
                     except OSError as e:
-                        msg = str(e)
-                        if "ETIMEDOUT" in msg or "timed out" in msg:
-                            await asyncio.sleep(0)
-                            continue
-                        code = None
-                        if hasattr(e, "args") and e.args:
-                            code = e.args[0]
-                        if code == 110:
+                        if _is_timeout_error(e):
                             await asyncio.sleep(0)
                             continue
                         raise
@@ -618,17 +811,17 @@ class CoCo:
                 self._ws_sock = None
 
 
-def _read_exact(sock: ssl.SSLSocket, n: int) -> bytes | None:
+def _read_exact(sock, n):
     data = b""
     while len(data) < n:
-        chunk = sock.recv(n - len(data))
+        chunk = _sock_read(sock, n - len(data))
         if not chunk:
             return None
         data += chunk
     return data
 
 
-def _ws_read_frame(sock: ssl.SSLSocket) -> tuple[int | None, bytes | None]:
+def _ws_read_frame(sock):
     hdr = _read_exact(sock, 2)
     if not hdr:
         return None, None
@@ -671,7 +864,7 @@ def _ws_read_frame(sock: ssl.SSLSocket) -> tuple[int | None, bytes | None]:
     return opcode, payload
 
 
-def _ws_send_pong(sock: ssl.SSLSocket, payload=b""):
+def _ws_send_pong(sock, payload=b""):
     print("Sending pong frame to server")
     plen = len(payload)
     mask = bytes([random.getrandbits(8) for _ in range(4)])
@@ -692,10 +885,10 @@ def _ws_send_pong(sock: ssl.SSLSocket, payload=b""):
     for i in range(plen):
         masked[i] = payload[i] ^ mask[i % 4]
 
-    sock.sendall(header + masked)
+    _sock_write(sock, header + masked)
 
 
-def _decode_close_payload(payload: bytes) -> tuple[int | None, str]:
+def _decode_close_payload(payload):
     if not payload or len(payload) < 2:
         return None, ""
 
