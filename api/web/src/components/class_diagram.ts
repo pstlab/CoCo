@@ -66,6 +66,7 @@ export function class_diagram(coco: coco.CoCo): VNode {
 
             const svgElement = containerElement.querySelector('svg');
             if (svgElement) {
+              svgElement.style.maxWidth = 'none';
               svgElement.style.width = '100%';
               svgElement.style.height = '100%';
 
