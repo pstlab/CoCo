@@ -428,8 +428,7 @@ class CoCoObject:
         if self.properties is not None:
             json_data["properties"] = self.properties
         if self.values is not None:
-            json_data["values"] = {key: {
-                "value": value[0], "timestamp": value[1]} for key, value in self.values.items()}
+            json_data["values"] = {key: {"value": value[0], "timestamp": value[1]} for key, value in self.values.items()}
         return json_data
 
 
@@ -1095,8 +1094,7 @@ class CoCo:
             result = get_handshake(self.token.access_token)
             status_line, _, header_block = result[1].partition("\r\n")
             status_parts = status_line.split(" ")
-            status_code = int(status_parts[1]) if len(
-                status_parts) >= 2 and status_parts[1].isdigit() else 0
+            status_code = int(status_parts[1]) if len(status_parts) >= 2 and status_parts[1].isdigit() else 0
 
         headers = {}
         for line in header_block.split("\r\n"):
@@ -1117,8 +1115,7 @@ class CoCo:
         # incomplete, even though the server already switched protocols.
         if status_code == 101:
             print("WebSocket handshake accepted with relaxed validation.")
-            print("Handshake checks:", "upgrade=", upgrade_ok,
-                  "connection=", connection_ok, "accept=", accept_ok)
+            print("Handshake checks:", "upgrade=", upgrade_ok, "connection=", connection_ok, "accept=", accept_ok)
             return result[0]
 
         print("WebSocket handshake failed. Response:", result[1])
@@ -1225,14 +1222,11 @@ class CoCo:
                             if msg_type == "new-object" and on_new_object is not None:
                                 on_new_object(CoCoObject.from_json(data))
                             if msg_type == "classes-update" and on_classes_update is not None:
-                                on_classes_update(
-                                    data["object_id"], data["classes"])
+                                on_classes_update(data["object_id"], data["classes"])
                             if msg_type == "properties-updated" and on_object_update is not None:
-                                on_object_update(
-                                    data["object_id"], data["properties"])
+                                on_object_update(data["object_id"], data["properties"])
                             if msg_type == "values-added" and on_new_data is not None:
-                                on_new_data(
-                                    data["object_id"], data["values"], data["timestamp"])
+                                on_new_data(data["object_id"], data["values"], data["timestamp"])
                         except Exception as e:
                             print("Error occurred while processing message:", e)
                     elif opcode == 0x9:  # ping
