@@ -23,6 +23,9 @@ class AuthTokens:
         self.refresh_token = refresh_token
         self.token_type = token_type
 
+    def __repr__(self):
+        return f"AuthTokens(access_token={self.access_token}, refresh_token={self.refresh_token}, token_type={self.token_type})"
+
     @staticmethod
     def from_json(json_data):
         access_token = json_data["access_token"]
@@ -37,8 +40,23 @@ class CoCoHTTPError(Exception):
             f"HTTP request failed with status code: {status_code}")
         self.status_code = status_code
 
+    def __repr__(self):
+        return f"CoCoHTTPError(status_code={self.status_code})"
+
 
 class Property:
+    def __init__(self, default=None, description=None):
+        self.default = default
+        self.description = description
+
+    def __repr__(self):
+        prop = []
+        if self.default is not None:
+            prop.append(f"default={self.default}")
+        if self.description is not None:
+            prop.append(f"description={self.description}")
+        return ", ".join(prop)
+
     @staticmethod
     def from_json(json_data):
         property_type = json_data.get("type")
@@ -123,9 +141,15 @@ class Property:
 
 class BoolProperty(Property):
     def __init__(self, default=None, description=None):
-        super().__init__()
-        self.default = default
-        self.description = description
+        super().__init__(default=default, description=description)
+
+    def __repr__(self):
+        prop = []
+        if self.default is not None:
+            prop.append(f"default={self.default}")
+        if self.description is not None:
+            prop.append(f"description={self.description}")
+        return f"BoolProperty({', '.join(prop)})"
 
     def to_json(self):
         json_data = {"type": "bool"}
@@ -138,11 +162,21 @@ class BoolProperty(Property):
 
 class IntProperty(Property):
     def __init__(self, min=None, max=None, default=None, description=None):
-        super().__init__()
+        super().__init__(default=default, description=description)
         self.min = min
         self.max = max
-        self.default = default
-        self.description = description
+
+    def __repr__(self):
+        prop = []
+        if self.min is not None:
+            prop.append(f"min={self.min}")
+        if self.max is not None:
+            prop.append(f"max={self.max}")
+        if self.default is not None:
+            prop.append(f"default={self.default}")
+        if self.description is not None:
+            prop.append(f"description={self.description}")
+        return f"IntProperty({', '.join(prop)})"
 
     def to_json(self):
         json_data = {"type": "int"}
@@ -159,11 +193,21 @@ class IntProperty(Property):
 
 class FloatProperty(Property):
     def __init__(self, min=None, max=None, default=None, description=None):
-        super().__init__()
+        super().__init__(default=default, description=description)
         self.min = min
         self.max = max
-        self.default = default
-        self.description = description
+
+    def __repr__(self):
+        prop = []
+        if self.min is not None:
+            prop.append(f"min={self.min}")
+        if self.max is not None:
+            prop.append(f"max={self.max}")
+        if self.default is not None:
+            prop.append(f"default={self.default}")
+        if self.description is not None:
+            prop.append(f"description={self.description}")
+        return f"FloatProperty({', '.join(prop)})"
 
     def to_json(self):
         json_data = {"type": "float"}
@@ -180,9 +224,15 @@ class FloatProperty(Property):
 
 class StringProperty(Property):
     def __init__(self, default=None, description=None):
-        super().__init__()
-        self.default = default
-        self.description = description
+        super().__init__(default=default, description=description)
+
+    def __repr__(self):
+        prop = []
+        if self.default is not None:
+            prop.append(f"default={self.default}")
+        if self.description is not None:
+            prop.append(f"description={self.description}")
+        return f"StringProperty({', '.join(prop)})"
 
     def to_json(self):
         json_data = {"type": "string"}
@@ -195,10 +245,18 @@ class StringProperty(Property):
 
 class SymbolProperty(Property):
     def __init__(self, allowed_values=None, default=None, description=None):
-        super().__init__()
+        super().__init__(default=default, description=description)
         self.allowed_values = allowed_values
-        self.default = default
-        self.description = description
+
+    def __repr__(self):
+        prop = []
+        if self.allowed_values is not None:
+            prop.append(f"allowed_values={self.allowed_values}")
+        if self.default is not None:
+            prop.append(f"default={self.default}")
+        if self.description is not None:
+            prop.append(f"description={self.description}")
+        return f"SymbolProperty({', '.join(prop)})"
 
     def to_json(self):
         json_data = {"type": "symbol"}
@@ -213,10 +271,18 @@ class SymbolProperty(Property):
 
 class ObjectProperty(Property):
     def __init__(self, classes, default=None, description=None):
-        super().__init__()
-        self.default = default
+        super().__init__(default=default, description=description)
         self.classes = classes
-        self.description = description
+
+    def __repr__(self):
+        prop = []
+        if self.classes is not None:
+            prop.append(f"classes={self.classes}")
+        if self.default is not None:
+            prop.append(f"default={self.default}")
+        if self.description is not None:
+            prop.append(f"description={self.description}")
+        return f"ObjectProperty({', '.join(prop)})"
 
     def to_json(self):
         json_data = {
@@ -230,9 +296,15 @@ class ObjectProperty(Property):
 
 class BoolArrayProperty(Property):
     def __init__(self, default=None, description=None):
-        super().__init__()
-        self.default = default
-        self.description = description
+        super().__init__(default=default, description=description)
+
+    def __repr__(self):
+        prop = []
+        if self.default is not None:
+            prop.append(f"default={self.default}")
+        if self.description is not None:
+            prop.append(f"description={self.description}")
+        return f"BoolArrayProperty({', '.join(prop)})"
 
     def to_json(self):
         json_data = {"type": "bool-array"}
@@ -245,11 +317,21 @@ class BoolArrayProperty(Property):
 
 class IntArrayProperty(Property):
     def __init__(self, min=None, max=None, default=None, description=None):
-        super().__init__()
+        super().__init__(default=default, description=description)
         self.min = min
         self.max = max
-        self.default = default
-        self.description = description
+
+    def __repr__(self):
+        prop = []
+        if self.min is not None:
+            prop.append(f"min={self.min}")
+        if self.max is not None:
+            prop.append(f"max={self.max}")
+        if self.default is not None:
+            prop.append(f"default={self.default}")
+        if self.description is not None:
+            prop.append(f"description={self.description}")
+        return f"IntArrayProperty({', '.join(prop)})"
 
     def to_json(self):
         json_data = {"type": "int-array"}
@@ -266,11 +348,21 @@ class IntArrayProperty(Property):
 
 class FloatArrayProperty(Property):
     def __init__(self, min=None, max=None, default=None, description=None):
-        super().__init__()
+        super().__init__(default=default, description=description)
         self.min = min
         self.max = max
-        self.default = default
-        self.description = description
+
+    def __repr__(self):
+        prop = []
+        if self.min is not None:
+            prop.append(f"min={self.min}")
+        if self.max is not None:
+            prop.append(f"max={self.max}")
+        if self.default is not None:
+            prop.append(f"default={self.default}")
+        if self.description is not None:
+            prop.append(f"description={self.description}")
+        return f"FloatArrayProperty({', '.join(prop)})"
 
     def to_json(self):
         json_data = {"type": "float-array"}
@@ -287,9 +379,15 @@ class FloatArrayProperty(Property):
 
 class StringArrayProperty(Property):
     def __init__(self, default=None, description=None):
-        super().__init__()
-        self.default = default
-        self.description = description
+        super().__init__(default=default, description=description)
+
+    def __repr__(self):
+        prop = []
+        if self.default is not None:
+            prop.append(f"default={self.default}")
+        if self.description is not None:
+            prop.append(f"description={self.description}")
+        return f"StringArrayProperty({', '.join(prop)})"
 
     def to_json(self):
         json_data = {"type": "string-array"}
@@ -302,10 +400,18 @@ class StringArrayProperty(Property):
 
 class SymbolArrayProperty(Property):
     def __init__(self, allowed_values=None, default=None, description=None):
-        super().__init__()
+        super().__init__(default=default, description=description)
         self.allowed_values = allowed_values
-        self.default = default
-        self.description = description
+
+    def __repr__(self):
+        prop = []
+        if self.allowed_values is not None:
+            prop.append(f"allowed_values={self.allowed_values}")
+        if self.default is not None:
+            prop.append(f"default={self.default}")
+        if self.description is not None:
+            prop.append(f"description={self.description}")
+        return f"SymbolArrayProperty({', '.join(prop)})"
 
     def to_json(self):
         json_data = {"type": "symbol-array"}
@@ -320,10 +426,18 @@ class SymbolArrayProperty(Property):
 
 class ObjectArrayProperty(Property):
     def __init__(self, classes, default=None, description=None):
-        super().__init__()
-        self.default = default
+        super().__init__(default=default, description=description)
         self.classes = classes
-        self.description = description
+
+    def __repr__(self):
+        prop = []
+        if self.classes is not None:
+            prop.append(f"classes={self.classes}")
+        if self.default is not None:
+            prop.append(f"default={self.default}")
+        if self.description is not None:
+            prop.append(f"description={self.description}")
+        return f"ObjectArrayProperty({', '.join(prop)})"
 
     def to_json(self):
         json_data = {
@@ -341,6 +455,16 @@ class CoCoClass:
         self.parents = parents
         self.static_properties = static_properties
         self.dynamic_properties = dynamic_properties
+
+    def __repr__(self):
+        props = []
+        if self.parents is not None:
+            props.append(f"parents={self.parents}")
+        if self.static_properties is not None:
+            props.append(f"static_properties={self.static_properties}")
+        if self.dynamic_properties is not None:
+            props.append(f"dynamic_properties={self.dynamic_properties}")
+        return f"CoCoClass(name={self.name}, {', '.join(props)})"
 
     @staticmethod
     def from_json(json_data):
@@ -385,6 +509,9 @@ class CoCoRule:
         self.name = name
         self.content = content
 
+    def __repr__(self):
+        return f"CoCoRule(name={self.name}, content={self.content})"
+
     @staticmethod
     def from_json(json_data):
         name = json_data["name"]
@@ -401,6 +528,14 @@ class CoCoObject:
         self.classes = classes
         self.properties = properties
         self.values = values
+
+    def __repr__(self):
+        props = []
+        if self.properties is not None:
+            props.append(f"properties={self.properties}")
+        if self.values is not None:
+            props.append(f"values={self.values}")
+        return f"CoCoObject(id={self.id}, classes={self.classes}, {', '.join(props)})"
 
     @staticmethod
     def from_json(json_data):
