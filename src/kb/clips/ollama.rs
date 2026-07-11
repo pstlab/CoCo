@@ -2,7 +2,7 @@ use crate::{
     CoCo, CoCoModule,
     db::Database,
     kb::{KnowledgeBase, clips::CLIPSKnowledgeBase},
-    model::{CoCoClass, CoCoError, CoCoProperty, CoCoValue},
+    model::{CoCoError, CoCoProperty, CoCoValue},
 };
 use async_trait::async_trait;
 use chrono::Utc;
@@ -32,20 +32,6 @@ impl OllamaModule {
         let client = Client::new();
         Self { model, url, client }
     }
-
-    fn make_request(&self, prompt: &str, tools: &HashMap<String, HashSet<CoCoProperty>>) -> ChatRequest {
-        let messages = vec![json!({"role": "user", "content": prompt})];
-        let tools_json: Vec<serde_json::Value> = tools
-            .iter()
-            .map(|(class, props)| {
-                json!({
-                    "name": class,
-                    "properties": props.iter().cloned().collect::<Vec<_>>(),
-                })
-            })
-            .collect();
-        ChatRequest { model: self.model.clone(), stream: true, messages, tools: tools_json }
-    }
 }
 
 impl Default for OllamaModule {
@@ -60,12 +46,12 @@ impl Default for OllamaModule {
 #[async_trait]
 impl<DB: Database> CoCoModule<DB, CLIPSKnowledgeBase> for OllamaModule {
     async fn init(&self, _db: DB, kb: CLIPSKnowledgeBase, _coco: CoCo) -> Result<(), CoCoError> {
+        let model = self.model.clone();
         let client = self.client.clone();
         let url = self.url.clone();
         let (values_tx, mut values_rx) = mpsc::unbounded_channel::<OllamaMessage>();
         let values_kb = kb.clone();
 
-        let model = self.model.clone();
         tokio::spawn(async move {
             while let Some(update) = values_rx.recv().await {
                 match update {
@@ -157,6 +143,20 @@ impl<DB: Database> CoCoModule<DB, CLIPSKnowledgeBase> for OllamaModule {
                                                         if let Some(desc) = description {
                                                             param["description"] = serde_json::Value::String(desc.clone());
                                                         }
+                                                        let mut instances = HashSet::new();
+                                                        for class in classes {
+                                                            match values_kb.get_class_instances(class).await {
+                                                                Ok(class_instances) => {
+                                                                    instances.extend(class_instances);
+                                                                }
+                                                                Err(e) => {
+                                                                    error!("Failed to get instances for class {}: {}", class, e);
+                                                                }
+                                                            }
+                                                        }
+                                                        if !instances.is_empty() {
+                                                            param["enum"] = serde_json::Value::Array(instances.into_iter().map(|v| serde_json::Value::String(v)).collect());
+                                                        }
                                                         param
                                                     }
                                                     CoCoProperty::BoolArray { description, .. } => {
@@ -220,6 +220,20 @@ impl<DB: Database> CoCoModule<DB, CLIPSKnowledgeBase> for OllamaModule {
                                                         if let Some(desc) = description {
                                                             param["description"] = serde_json::Value::String(desc.clone());
                                                         }
+                                                        let mut instances = HashSet::new();
+                                                        for class in classes {
+                                                            match values_kb.get_class_instances(class).await {
+                                                                Ok(class_instances) => {
+                                                                    instances.extend(class_instances);
+                                                                }
+                                                                Err(e) => {
+                                                                    error!("Failed to get instances for class {}: {}", class, e);
+                                                                }
+                                                            }
+                                                        }
+                                                        if !instances.is_empty() {
+                                                            param["enum"] = serde_json::Value::Array(instances.into_iter().map(|v| serde_json::Value::String(v)).collect());
+                                                        }
                                                         param
                                                     }
                                                 },
@@ -229,6 +243,7 @@ impl<DB: Database> CoCoModule<DB, CLIPSKnowledgeBase> for OllamaModule {
                                             "type": "object",
                                             "properties": params,
                                         });
+                                        tools.push(tool);
                                     }
                                 }
                                 let _ = resp_tx.send(Ok(tools));
@@ -243,7 +258,6 @@ impl<DB: Database> CoCoModule<DB, CLIPSKnowledgeBase> for OllamaModule {
             }
         });
 
-        let model = self.model.clone();
         kb.add_udf(
             "prompt",
             None,
@@ -280,7 +294,7 @@ impl<DB: Database> CoCoModule<DB, CLIPSKnowledgeBase> for OllamaModule {
                 tokio::spawn(async move {
                     let (resp_tx, resp_rx) = oneshot::channel();
                     let _ = values_tx.send(OllamaMessage::GetTools { tools: tools.clone(), resp_tx });
-                    let prompt_context = match resp_rx.await {
+                    let tools = match resp_rx.await {
                         Ok(Ok(props)) => props,
                         Ok(Err(e)) => {
                             error!("Failed to get prompt context: {}", e);
@@ -291,6 +305,30 @@ impl<DB: Database> CoCoModule<DB, CLIPSKnowledgeBase> for OllamaModule {
                             return;
                         }
                     };
+                    let body = json!({
+                        "model": model,
+                        "stream": false,
+                        "messages": [
+                            {
+                                "role": "user",
+                                "content": prompt,
+                            }
+                        ],
+                        "tools": tools,
+                    });
+                    match client.post(&url).json(&body).send().await {
+                        Ok(resp) => match resp.json::<serde_json::Value>().await {
+                            Ok(json_resp) => {
+                                trace!("Received response from Ollama API: {}", json_resp);
+                            }
+                            Err(e) => {
+                                error!("Failed to parse JSON response from Ollama API: {}", e);
+                            }
+                        },
+                        Err(e) => {
+                            error!("Failed to send request to Ollama API: {}", e);
+                        }
+                    }
                 });
                 ClipsValue::Void()
             }),
@@ -328,12 +366,4 @@ struct ToolCall {
 struct FunctionCall {
     name: String,
     arguments: serde_json::Value,
-}
-
-#[derive(Serialize)]
-struct ChatRequest {
-    model: String,
-    stream: bool,
-    messages: Vec<serde_json::Value>,
-    tools: Vec<serde_json::Value>,
 }
