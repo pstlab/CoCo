@@ -113,7 +113,7 @@ def _tls_wrap(tcp_sock, host, verify_ssl):
         kwargs = {"server_hostname": host}
         if not verify_ssl:
             kwargs["cert_reqs"] = ssl.CERT_NONE
-        return ssl.wrap_socket(tcp_sock, **kwargs)
+        return ssl.wrap_socket(tcp_sock, **kwargs)  # type: ignore
 
 
 class CoCo:
