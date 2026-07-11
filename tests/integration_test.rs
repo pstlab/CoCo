@@ -47,6 +47,7 @@ async fn create_objects() {
 
     coco.create_class(CoCoClass {
         name: "Sensor".to_string(),
+        description: Some("A generic sensor class".to_string()),
         parents: None,
         static_properties: None,
         dynamic_properties: None,
@@ -56,6 +57,7 @@ async fn create_objects() {
 
     coco.create_class(CoCoClass {
         name: "TemperatureSensor".to_string(),
+        description: Some("A temperature sensor class".to_string()),
         parents: Some(HashSet::from(["Sensor".to_string()])),
         static_properties: None,
         dynamic_properties: Some(HashMap::from([(
@@ -73,6 +75,7 @@ async fn create_objects() {
 
     coco.create_class(CoCoClass {
         name: "Patient".to_string(),
+        description: Some("A patient class".to_string()),
         parents: None,
         static_properties: None,
         dynamic_properties: Some(HashMap::from([
@@ -101,6 +104,7 @@ async fn create_objects() {
 
     coco.create_class(CoCoClass {
         name: "PhysiologicalSensor".to_string(),
+        description: Some("A physiological sensor class".to_string()),
         parents: Some(HashSet::from(["Sensor".to_string()])),
         static_properties: None,
         dynamic_properties: Some(HashMap::from([(
@@ -117,6 +121,7 @@ async fn create_objects() {
 
     coco.create_class(CoCoClass {
         name: "BloodPressureSensor".to_string(),
+        description: Some("A blood pressure sensor class".to_string()),
         parents: Some(HashSet::from(["PhysiologicalSensor".to_string()])),
         static_properties: None,
         dynamic_properties: Some(HashMap::from([

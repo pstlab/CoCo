@@ -324,6 +324,7 @@ mod tests {
 
         let class = CoCoClass {
             name: "sensor".to_owned(),
+            description: Some("A sensor class".to_owned()),
             parents: None,
             static_properties: None,
             dynamic_properties: None,
@@ -379,6 +380,7 @@ mod tests {
             &db,
             CoCoClass {
                 name: "sensor".to_owned(),
+                description: Some("A sensor class".to_owned()),
                 parents: None,
                 static_properties: None,
                 dynamic_properties: None,
@@ -391,6 +393,7 @@ mod tests {
             &db,
             CoCoClass {
                 name: "actuator".to_owned(),
+                description: Some("An actuator class".to_owned()),
                 parents: None,
                 static_properties: None,
                 dynamic_properties: None,

@@ -326,6 +326,8 @@ impl fmt::Display for CoCoValue {
 #[cfg_attr(feature = "server", derive(ToSchema))]
 pub struct CoCoClass {
     pub name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
     pub parents: Option<HashSet<String>>,
     pub static_properties: Option<HashMap<String, CoCoProperty>>,
     pub dynamic_properties: Option<HashMap<String, CoCoProperty>>,
@@ -333,7 +335,7 @@ pub struct CoCoClass {
 
 impl fmt::Display for CoCoClass {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "class {} parents: {:?} static_properties: {:?} dynamic_properties: {:?}", self.name, self.parents, self.static_properties, self.dynamic_properties)
+        write!(f, "class {} description: {:?} parents: {:?} static_properties: {:?} dynamic_properties: {:?}", self.name, self.description, self.parents, self.static_properties, self.dynamic_properties)
     }
 }
 

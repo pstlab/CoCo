@@ -2,20 +2,21 @@ use crate::{
     CoCo, CoCoModule,
     db::Database,
     kb::{KnowledgeBase, clips::CLIPSKnowledgeBase},
-    model::{CoCoError, CoCoProperty, CoCoValue},
+    model::{CoCoClass, CoCoError, CoCoProperty, CoCoValue},
 };
 use async_trait::async_trait;
 use chrono::Utc;
 use clips::{ClipsValue, Type, UDFContext};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
+use serde_json::json;
 use std::collections::{HashMap, HashSet};
 use tokio::sync::{mpsc, oneshot};
 use tracing::{error, info, trace};
 
 enum OllamaMessage {
     AddValues { object_id: String, text: String, values: HashMap<String, CoCoValue> },
-    GetPromptContext { tools: HashMap<String, HashSet<String>>, resp_tx: oneshot::Sender<Result<HashMap<String, HashMap<String, CoCoProperty>>, CoCoError>> },
+    GetTools { tools: HashMap<String, HashSet<String>>, resp_tx: oneshot::Sender<Result<Vec<serde_json::Value>, CoCoError>> },
 }
 
 pub struct OllamaModule {
@@ -30,6 +31,20 @@ impl OllamaModule {
         info!("Initializing OllamaModule with model '{}' at {}", model, url);
         let client = Client::new();
         Self { model, url, client }
+    }
+
+    fn make_request(&self, prompt: &str, tools: &HashMap<String, HashSet<CoCoProperty>>) -> ChatRequest {
+        let messages = vec![json!({"role": "user", "content": prompt})];
+        let tools_json: Vec<serde_json::Value> = tools
+            .iter()
+            .map(|(class, props)| {
+                json!({
+                    "name": class,
+                    "properties": props.iter().cloned().collect::<Vec<_>>(),
+                })
+            })
+            .collect();
+        ChatRequest { model: self.model.clone(), stream: true, messages, tools: tools_json }
     }
 }
 
@@ -47,10 +62,10 @@ impl<DB: Database> CoCoModule<DB, CLIPSKnowledgeBase> for OllamaModule {
     async fn init(&self, _db: DB, kb: CLIPSKnowledgeBase, _coco: CoCo) -> Result<(), CoCoError> {
         let client = self.client.clone();
         let url = self.url.clone();
-        let model = self.model.clone();
         let (values_tx, mut values_rx) = mpsc::unbounded_channel::<OllamaMessage>();
         let values_kb = kb.clone();
 
+        let model = self.model.clone();
         tokio::spawn(async move {
             while let Some(update) = values_rx.recv().await {
                 match update {
@@ -61,8 +76,8 @@ impl<DB: Database> CoCoModule<DB, CLIPSKnowledgeBase> for OllamaModule {
                             error!("Failed to add values to object {}: {}", object_id, e);
                         }
                     }
-                    OllamaMessage::GetPromptContext { tools, resp_tx } => {
-                        trace!("Received GetPromptContext request with tools: {:?}", tools);
+                    OllamaMessage::GetTools { tools, resp_tx } => {
+                        trace!("Received GetTools request with tools: {:?}", tools);
                         match values_kb.get_dynamic_properties(tools.keys().cloned().collect()).await {
                             Ok(mut props) => {
                                 props.retain(|class, class_props| {
@@ -73,7 +88,150 @@ impl<DB: Database> CoCoModule<DB, CLIPSKnowledgeBase> for OllamaModule {
                                         false // remove class if not requested
                                     }
                                 });
-                                let _ = resp_tx.send(Ok(props));
+                                let mut tools = Vec::new();
+                                for (class, class_props) in &props {
+                                    if let Ok(class) = values_kb.get_class(class).await {
+                                        let mut tool = json!({
+                                            "name": class.name,
+                                        });
+                                        if let Some(desc) = &class.description {
+                                            tool["description"] = serde_json::Value::String(desc.clone());
+                                        }
+                                        let mut params = serde_json::Map::new();
+                                        for (prop_name, prop) in class_props {
+                                            params.insert(
+                                                prop_name.clone(),
+                                                match prop {
+                                                    CoCoProperty::Bool { description, .. } => {
+                                                        let mut param = json!({
+                                                            "type": "boolean",
+                                                        });
+                                                        if let Some(desc) = description {
+                                                            param["description"] = serde_json::Value::String(desc.clone());
+                                                        }
+                                                        param
+                                                    }
+                                                    CoCoProperty::Int { description, .. } => {
+                                                        let mut param = json!({
+                                                            "type": "integer",
+                                                        });
+                                                        if let Some(desc) = description {
+                                                            param["description"] = serde_json::Value::String(desc.clone());
+                                                        }
+                                                        param
+                                                    }
+                                                    CoCoProperty::Float { description, .. } => {
+                                                        let mut param = json!({
+                                                            "type": "number",
+                                                        });
+                                                        if let Some(desc) = description {
+                                                            param["description"] = serde_json::Value::String(desc.clone());
+                                                        }
+                                                        param
+                                                    }
+                                                    CoCoProperty::String { description, .. } => {
+                                                        let mut param = json!({
+                                                            "type": "string",
+                                                        });
+                                                        if let Some(desc) = description {
+                                                            param["description"] = serde_json::Value::String(desc.clone());
+                                                        }
+                                                        param
+                                                    }
+                                                    CoCoProperty::Symbol { description, allowed_values, .. } => {
+                                                        let mut param = json!({
+                                                            "type": "string",
+                                                        });
+                                                        if let Some(desc) = description {
+                                                            param["description"] = serde_json::Value::String(desc.clone());
+                                                        }
+                                                        if let Some(allowed) = allowed_values {
+                                                            param["enum"] = serde_json::Value::Array(allowed.iter().map(|v| serde_json::Value::String(v.clone())).collect());
+                                                        }
+                                                        param
+                                                    }
+                                                    CoCoProperty::Object { classes, description, .. } => {
+                                                        let mut param = json!({
+                                                            "type": "string",
+                                                        });
+                                                        if let Some(desc) = description {
+                                                            param["description"] = serde_json::Value::String(desc.clone());
+                                                        }
+                                                        param
+                                                    }
+                                                    CoCoProperty::BoolArray { description, .. } => {
+                                                        let mut param = json!({
+                                                            "type": "array",
+                                                            "items": { "type": "boolean" },
+                                                        });
+                                                        if let Some(desc) = description {
+                                                            param["description"] = serde_json::Value::String(desc.clone());
+                                                        }
+                                                        param
+                                                    }
+                                                    CoCoProperty::IntArray { description, .. } => {
+                                                        let mut param = json!({
+                                                            "type": "array",
+                                                            "items": { "type": "integer" },
+                                                        });
+                                                        if let Some(desc) = description {
+                                                            param["description"] = serde_json::Value::String(desc.clone());
+                                                        }
+                                                        param
+                                                    }
+                                                    CoCoProperty::FloatArray { description, .. } => {
+                                                        let mut param = json!({
+                                                            "type": "array",
+                                                            "items": { "type": "number" },
+                                                        });
+                                                        if let Some(desc) = description {
+                                                            param["description"] = serde_json::Value::String(desc.clone());
+                                                        }
+                                                        param
+                                                    }
+                                                    CoCoProperty::StringArray { description, .. } => {
+                                                        let mut param = json!({
+                                                            "type": "array",
+                                                            "items": { "type": "string" },
+                                                        });
+                                                        if let Some(desc) = description {
+                                                            param["description"] = serde_json::Value::String(desc.clone());
+                                                        }
+                                                        param
+                                                    }
+                                                    CoCoProperty::SymbolArray { description, allowed_values, .. } => {
+                                                        let mut param = json!({
+                                                            "type": "array",
+                                                            "items": { "type": "string" },
+                                                        });
+                                                        if let Some(desc) = description {
+                                                            param["description"] = serde_json::Value::String(desc.clone());
+                                                        }
+                                                        if let Some(allowed) = allowed_values {
+                                                            param["enum"] = serde_json::Value::Array(allowed.iter().map(|v| serde_json::Value::String(v.clone())).collect());
+                                                        }
+                                                        param
+                                                    }
+                                                    CoCoProperty::ObjectArray { classes, description, .. } => {
+                                                        let mut param = json!({
+                                                            "type": "array",
+                                                            "items": { "type": "string" },
+                                                        });
+                                                        if let Some(desc) = description {
+                                                            param["description"] = serde_json::Value::String(desc.clone());
+                                                        }
+                                                        param
+                                                    }
+                                                },
+                                            );
+                                        }
+                                        tool["parameters"] = json!({
+                                            "type": "object",
+                                            "properties": params,
+                                        });
+                                    }
+                                }
+                                let _ = resp_tx.send(Ok(tools));
                             }
                             Err(e) => {
                                 error!("Failed to get dynamic properties for tools {:?}: {}", tools, e);
@@ -85,6 +243,7 @@ impl<DB: Database> CoCoModule<DB, CLIPSKnowledgeBase> for OllamaModule {
             }
         });
 
+        let model = self.model.clone();
         kb.add_udf(
             "prompt",
             None,
@@ -120,7 +279,7 @@ impl<DB: Database> CoCoModule<DB, CLIPSKnowledgeBase> for OllamaModule {
                 let values_tx = values_tx.clone();
                 tokio::spawn(async move {
                     let (resp_tx, resp_rx) = oneshot::channel();
-                    let _ = values_tx.send(OllamaMessage::GetPromptContext { tools: tools.clone(), resp_tx });
+                    let _ = values_tx.send(OllamaMessage::GetTools { tools: tools.clone(), resp_tx });
                     let prompt_context = match resp_rx.await {
                         Ok(Ok(props)) => props,
                         Ok(Err(e)) => {
@@ -172,10 +331,9 @@ struct FunctionCall {
 }
 
 #[derive(Serialize)]
-struct ChatRequest<'a> {
-    model: &'a str,
+struct ChatRequest {
+    model: String,
     stream: bool,
     messages: Vec<serde_json::Value>,
     tools: Vec<serde_json::Value>,
-    tool_choice: &'a str,
 }
