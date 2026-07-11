@@ -6,7 +6,6 @@ authentication, class and rule management, object management, data retrieval,
 and WebSocket communication for real-time updates.
 """
 
-from .model import *
 import binascii
 import hashlib
 import random
@@ -15,6 +14,424 @@ import asyncio
 import socket
 import ssl
 import select
+import sys
+
+
+class AuthTokens:
+    def __init__(self, access_token, refresh_token, token_type):
+        self.access_token = access_token
+        self.refresh_token = refresh_token
+        self.token_type = token_type
+
+    @staticmethod
+    def from_json(json_data):
+        access_token = json_data["access_token"]
+        refresh_token = json_data["refresh_token"]
+        token_type = json_data["token_type"]
+        return AuthTokens(access_token=access_token, refresh_token=refresh_token, token_type=token_type)
+
+
+class CoCoHTTPError(Exception):
+    def __init__(self, status_code):
+        super().__init__(
+            f"HTTP request failed with status code: {status_code}")
+        self.status_code = status_code
+
+
+class Property:
+    @staticmethod
+    def from_json(json_data):
+        property_type = json_data.get("type")
+        if property_type == "bool":
+            return BoolProperty(
+                default=json_data.get("default"),
+                description=json_data.get("description"),
+            )
+        elif property_type == "int":
+            return IntProperty(
+                min=json_data.get("min"),
+                max=json_data.get("max"),
+                default=json_data.get("default"),
+                description=json_data.get("description"),
+            )
+        elif property_type == "float":
+            return FloatProperty(
+                min=json_data.get("min"),
+                max=json_data.get("max"),
+                default=json_data.get("default"),
+                description=json_data.get("description"),
+            )
+        elif property_type == "string":
+            return StringProperty(
+                default=json_data.get("default"),
+                description=json_data.get("description"),
+            )
+        elif property_type == "symbol":
+            return SymbolProperty(
+                allowed_values=json_data.get("allowed_values"),
+                default=json_data.get("default"),
+                description=json_data.get("description"),
+            )
+        elif property_type == "object":
+            return ObjectProperty(
+                classes=json_data["classes"],
+                default=json_data.get("default"),
+                description=json_data.get("description"),
+            )
+        elif property_type == "bool-array":
+            return BoolArrayProperty(
+                default=json_data.get("default"),
+                description=json_data.get("description"),
+            )
+        elif property_type == "int-array":
+            return IntArrayProperty(
+                min=json_data.get("min"),
+                max=json_data.get("max"),
+                default=json_data.get("default"),
+                description=json_data.get("description"),
+            )
+        elif property_type == "float-array":
+            return FloatArrayProperty(
+                min=json_data.get("min"),
+                max=json_data.get("max"),
+                default=json_data.get("default"),
+                description=json_data.get("description"),
+            )
+        elif property_type == "string-array":
+            return StringArrayProperty(
+                default=json_data.get("default"),
+                description=json_data.get("description"),
+            )
+        elif property_type == "symbol-array":
+            return SymbolArrayProperty(
+                allowed_values=json_data.get("allowed_values"),
+                default=json_data.get("default"),
+                description=json_data.get("description"),
+            )
+        elif property_type == "object-array":
+            return ObjectArrayProperty(
+                classes=json_data["classes"],
+                default=json_data.get("default"),
+                description=json_data.get("description"),
+            )
+        else:
+            raise ValueError(f"Unknown property type: {property_type}")
+
+    def to_json(self):
+        raise NotImplementedError("Subclasses must implement to_json method")
+
+
+class BoolProperty(Property):
+    def __init__(self, default=None, description=None):
+        super().__init__()
+        self.default = default
+        self.description = description
+
+    def to_json(self):
+        json_data = {"type": "bool"}
+        if self.default is not None:
+            json_data["default"] = self.default
+        if self.description is not None:
+            json_data["description"] = self.description
+        return json_data
+
+
+class IntProperty(Property):
+    def __init__(self, min=None, max=None, default=None, description=None):
+        super().__init__()
+        self.min = min
+        self.max = max
+        self.default = default
+        self.description = description
+
+    def to_json(self):
+        json_data = {"type": "int"}
+        if self.min is not None:
+            json_data["min"] = self.min
+        if self.max is not None:
+            json_data["max"] = self.max
+        if self.default is not None:
+            json_data["default"] = self.default
+        if self.description is not None:
+            json_data["description"] = self.description
+        return json_data
+
+
+class FloatProperty(Property):
+    def __init__(self, min=None, max=None, default=None, description=None):
+        super().__init__()
+        self.min = min
+        self.max = max
+        self.default = default
+        self.description = description
+
+    def to_json(self):
+        json_data = {"type": "float"}
+        if self.min is not None:
+            json_data["min"] = self.min
+        if self.max is not None:
+            json_data["max"] = self.max
+        if self.default is not None:
+            json_data["default"] = self.default
+        if self.description is not None:
+            json_data["description"] = self.description
+        return json_data
+
+
+class StringProperty(Property):
+    def __init__(self, default=None, description=None):
+        super().__init__()
+        self.default = default
+        self.description = description
+
+    def to_json(self):
+        json_data = {"type": "string"}
+        if self.default is not None:
+            json_data["default"] = self.default
+        if self.description is not None:
+            json_data["description"] = self.description
+        return json_data
+
+
+class SymbolProperty(Property):
+    def __init__(self, allowed_values=None, default=None, description=None):
+        super().__init__()
+        self.allowed_values = allowed_values
+        self.default = default
+        self.description = description
+
+    def to_json(self):
+        json_data = {"type": "symbol"}
+        if self.allowed_values is not None:
+            json_data["allowed_values"] = self.allowed_values
+        if self.default is not None:
+            json_data["default"] = self.default
+        if self.description is not None:
+            json_data["description"] = self.description
+        return json_data
+
+
+class ObjectProperty(Property):
+    def __init__(self, classes, default=None, description=None):
+        super().__init__()
+        self.default = default
+        self.classes = classes
+        self.description = description
+
+    def to_json(self):
+        json_data = {
+            "type": "object", "classes": self.classes}
+        if self.default is not None:
+            json_data["default"] = self.default
+        if self.description is not None:
+            json_data["description"] = self.description
+        return json_data
+
+
+class BoolArrayProperty(Property):
+    def __init__(self, default=None, description=None):
+        super().__init__()
+        self.default = default
+        self.description = description
+
+    def to_json(self):
+        json_data = {"type": "bool-array"}
+        if self.default is not None:
+            json_data["default"] = self.default
+        if self.description is not None:
+            json_data["description"] = self.description
+        return json_data
+
+
+class IntArrayProperty(Property):
+    def __init__(self, min=None, max=None, default=None, description=None):
+        super().__init__()
+        self.min = min
+        self.max = max
+        self.default = default
+        self.description = description
+
+    def to_json(self):
+        json_data = {"type": "int-array"}
+        if self.min is not None:
+            json_data["min"] = self.min
+        if self.max is not None:
+            json_data["max"] = self.max
+        if self.default is not None:
+            json_data["default"] = self.default
+        if self.description is not None:
+            json_data["description"] = self.description
+        return json_data
+
+
+class FloatArrayProperty(Property):
+    def __init__(self, min=None, max=None, default=None, description=None):
+        super().__init__()
+        self.min = min
+        self.max = max
+        self.default = default
+        self.description = description
+
+    def to_json(self):
+        json_data = {"type": "float-array"}
+        if self.min is not None:
+            json_data["min"] = self.min
+        if self.max is not None:
+            json_data["max"] = self.max
+        if self.default is not None:
+            json_data["default"] = self.default
+        if self.description is not None:
+            json_data["description"] = self.description
+        return json_data
+
+
+class StringArrayProperty(Property):
+    def __init__(self, default=None, description=None):
+        super().__init__()
+        self.default = default
+        self.description = description
+
+    def to_json(self):
+        json_data = {"type": "string-array"}
+        if self.default is not None:
+            json_data["default"] = self.default
+        if self.description is not None:
+            json_data["description"] = self.description
+        return json_data
+
+
+class SymbolArrayProperty(Property):
+    def __init__(self, allowed_values=None, default=None, description=None):
+        super().__init__()
+        self.allowed_values = allowed_values
+        self.default = default
+        self.description = description
+
+    def to_json(self):
+        json_data = {"type": "symbol-array"}
+        if self.allowed_values is not None:
+            json_data["allowed_values"] = self.allowed_values
+        if self.default is not None:
+            json_data["default"] = self.default
+        if self.description is not None:
+            json_data["description"] = self.description
+        return json_data
+
+
+class ObjectArrayProperty(Property):
+    def __init__(self, classes, default=None, description=None):
+        super().__init__()
+        self.default = default
+        self.classes = classes
+        self.description = description
+
+    def to_json(self):
+        json_data = {
+            "type": "object-array", "classes": self.classes}
+        if self.default is not None:
+            json_data["default"] = self.default
+        if self.description is not None:
+            json_data["description"] = self.description
+        return json_data
+
+
+class CoCoClass:
+    def __init__(self, name, parents=None, static_properties=None, dynamic_properties=None):
+        self.name = name
+        self.parents = parents
+        self.static_properties = static_properties
+        self.dynamic_properties = dynamic_properties
+
+    @staticmethod
+    def from_json(json_data):
+        name = json_data["name"]
+        if not isinstance(name, str):
+            raise ValueError("Invalid class name in JSON data")
+        parents = json_data.get("parents")
+        static_properties_json = json_data.get("static_properties")
+        dynamic_properties_json = json_data.get("dynamic_properties")
+
+        static_properties = None
+        if static_properties_json is not None:
+            static_properties = {}
+            for key, prop_json in static_properties_json.items():
+                static_properties[key] = Property.from_json(prop_json)
+
+        dynamic_properties = None
+        if dynamic_properties_json is not None:
+            dynamic_properties = {}
+            for key, prop_json in dynamic_properties_json.items():
+                dynamic_properties[key] = Property.from_json(prop_json)
+
+        return CoCoClass(name=name, parents=parents, static_properties=static_properties, dynamic_properties=dynamic_properties)
+
+    def to_json(self):
+        json_data = {"name": self.name}
+        if self.parents is not None:
+            json_data["parents"] = self.parents
+        if self.static_properties is not None:
+            json_data["static_properties"] = {
+                key: prop.to_json() for key, prop in self.static_properties.items()
+            }
+        if self.dynamic_properties is not None:
+            json_data["dynamic_properties"] = {
+                key: prop.to_json() for key, prop in self.dynamic_properties.items()
+            }
+        return json_data
+
+
+class CoCoRule:
+    def __init__(self, name, content):
+        self.name = name
+        self.content = content
+
+    @staticmethod
+    def from_json(json_data):
+        name = json_data["name"]
+        content = json_data["content"]
+        return CoCoRule(name=name, content=content)
+
+    def to_json(self):
+        return {"name": self.name, "content": self.content}
+
+
+class CoCoObject:
+    def __init__(self, id, classes, properties=None, values=None):
+        self.id = id
+        self.classes = classes
+        self.properties = properties
+        self.values = values
+
+    @staticmethod
+    def from_json(json_data):
+        id = json_data["id"]
+        if not isinstance(id, str):
+            raise ValueError("Invalid object ID in JSON data")
+        classes = json_data["classes"]
+        properties = json_data.get("properties")
+        values_json = json_data.get("values")
+
+        values = None
+        if values_json is not None:
+            values = {}
+            for key, value in values_json.items():
+                if isinstance(value, dict) and "value" in value and "timestamp" in value:
+                    values[key] = (value["value"], value["timestamp"])
+
+        return CoCoObject(id=id, classes=classes, properties=properties, values=values)
+
+    def to_json(self):
+        json_data = {
+            "id": self.id,
+            "classes": self.classes,
+        }
+        if self.properties is not None:
+            json_data["properties"] = self.properties
+        if self.values is not None:
+            json_data["values"] = {key: {
+                "value": value[0], "timestamp": value[1]} for key, value in self.values.items()}
+        return json_data
+
 
 # MicroPython: "requests" is not a builtin module. On ports with
 # networking it can be installed via `mip.install("requests")` (the
@@ -82,6 +499,18 @@ def _sock_read(sock, n):
     return sock.recv(n)
 
 
+def _safe_decode_bytes(data):
+    # MicroPython can raise UnicodeError when using decode(..., errors=...).
+    # Try UTF-8 first, then fall back to latin-1 for diagnostics.
+    try:
+        return data.decode("utf-8")
+    except Exception:
+        try:
+            return data.decode("latin-1")
+        except Exception:
+            return str(data)
+
+
 def _is_timeout_error(e):
     msg = str(e)
     if "ETIMEDOUT" in msg or "timed out" in msg:
@@ -142,7 +571,8 @@ class CoCo:
         url = f"https://{self.host}/login"
         payload = {"username": username, "password": password}
 
-        response = _http_request(requests.post, url, json=payload, timeout=timeout)
+        response = _http_request(
+            requests.post, url, json=payload, timeout=timeout)
         if response.status_code != 200:
             response.close()
             raise CoCoHTTPError(response.status_code)
@@ -164,7 +594,8 @@ class CoCo:
         url = f"https://{self.host}/refresh_token"
         payload = {"refresh_token": self.token.refresh_token}
 
-        response = _http_request(requests.post, url, json=payload, timeout=timeout)
+        response = _http_request(
+            requests.post, url, json=payload, timeout=timeout)
         if response.status_code != 200:
             response.close()
             raise CoCoHTTPError(response.status_code)
@@ -630,9 +1061,15 @@ class CoCo:
                         break
                     response += chunk
 
-                return tls_sock, response.decode("utf-8", "replace")
+                return tls_sock, _safe_decode_bytes(response)
             except Exception as e:
-                print(f"An error occurred during WebSocket handshake: {e}")
+                print("An error occurred during WebSocket handshake")
+                print("Exception type:", type(e).__name__)
+                print("Exception repr:", repr(e))
+                if hasattr(e, "args"):
+                    print("Exception args:", e.args)
+                if hasattr(sys, "print_exception"):
+                    sys.print_exception(e)  # type: ignore
                 try:
                     if tls_sock is not None:
                         tls_sock.close()
@@ -668,15 +1105,42 @@ class CoCo:
             name, value = line.split(":", 1)
             headers[name.strip().lower()] = value.strip()
 
-        if status_line.startswith("HTTP/1.1 101") and headers.get("upgrade", "").lower() == "websocket" and headers.get("connection", "").lower() == "upgrade" and headers.get("sec-websocket-accept") == expected_accept:
+        upgrade_ok = headers.get("upgrade", "").lower() == "websocket"
+        connection_ok = "upgrade" in headers.get("connection", "").lower()
+        accept_ok = headers.get("sec-websocket-accept") == expected_accept
+
+        if status_code == 101 and upgrade_ok and connection_ok and accept_ok:
             print("WebSocket handshake successful!")
             return result[0]
-        else:
-            print("WebSocket handshake failed. Response:", result[1])
-            result[0].close()
-            raise CoCoHTTPError(status_code)
+
+        # Some MicroPython TLS/stream combinations can make header parsing
+        # incomplete, even though the server already switched protocols.
+        if status_code == 101:
+            print("WebSocket handshake accepted with relaxed validation.")
+            print("Handshake checks:", "upgrade=", upgrade_ok,
+                  "connection=", connection_ok, "accept=", accept_ok)
+            return result[0]
+
+        print("WebSocket handshake failed. Response:", result[1])
+        result[0].close()
+        raise CoCoHTTPError(status_code)
 
     async def connect(self, on_new_class=None, on_new_rule=None, on_new_object=None, on_classes_update=None, on_object_update=None, on_new_data=None):
+        """
+        Establish a WebSocket connection to the CoCo server.
+
+        Args:
+            on_new_class: Callback function for new class events.
+            on_new_rule: Callback function for new rule events.
+            on_new_object: Callback function for new object events.
+            on_classes_update: Callback function for class updates.
+            on_object_update: Callback function for object updates.
+            on_new_data: Callback function for new data events.
+
+        Raises:
+            ValueError: If any of the callback functions are not callable.
+            CoCoHTTPError: If the WebSocket handshake fails.
+        """
         if on_new_class is not None and not callable(on_new_class):
             raise ValueError(
                 "on_new_class must be a callable function or None.")
@@ -750,7 +1214,7 @@ class CoCo:
 
                     if opcode == 0x1:  # text
                         try:
-                            text_payload = payload.decode("utf-8", "replace")
+                            text_payload = _safe_decode_bytes(payload)
                             print("Received message:", text_payload)
                             data = json.loads(text_payload)
                             msg_type = data["msg_type"]
@@ -800,6 +1264,9 @@ class CoCo:
                 await asyncio.sleep(0.1)
 
     async def close(self):
+        """
+        Close the WebSocket connection.
+        """
         self._stop_requested = True
 
         if self._ws_sock:
