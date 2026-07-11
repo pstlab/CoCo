@@ -42,7 +42,13 @@ def test_get_classes(coco, credentials):
 
 async def test_ws(coco, credentials):
     coco.login(credentials["username"], credentials["password"])
-    connect_task = asyncio.create_task(coco.connect())
+
+    def on_init(classes, rules, objects):
+        print("Received init message:")
+        print("Classes:", classes)
+        print("Rules:", rules)
+        print("Objects:", objects)
+    connect_task = asyncio.create_task(coco.connect(on_init=on_init))
     await asyncio.sleep(5)
     await coco.close()
     await connect_task

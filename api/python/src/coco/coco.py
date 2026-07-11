@@ -916,7 +916,7 @@ class CoCo:
             raise CoCoHTTPError(response.status_code)
 
         try:
-            return CoCoObject.from_json(response.json())
+            return response.text
         finally:
             response.close()
 
@@ -1122,11 +1122,12 @@ class CoCo:
         result[0].close()
         raise CoCoHTTPError(status_code)
 
-    async def connect(self, on_new_class=None, on_new_rule=None, on_new_object=None, on_classes_update=None, on_object_update=None, on_new_data=None):
+    async def connect(self, on_init=None, on_new_class=None, on_new_rule=None, on_new_object=None, on_classes_update=None, on_object_update=None, on_new_data=None):
         """
         Establish a WebSocket connection to the CoCo server.
 
         Args:
+            on_init: Callback function for initialization events.
             on_new_class: Callback function for new class events.
             on_new_rule: Callback function for new rule events.
             on_new_object: Callback function for new object events.
@@ -1138,24 +1139,20 @@ class CoCo:
             ValueError: If any of the callback functions are not callable.
             CoCoHTTPError: If the WebSocket handshake fails.
         """
+        if on_init is not None and not callable(on_init):
+            raise ValueError("on_init must be a callable function or None.")
         if on_new_class is not None and not callable(on_new_class):
-            raise ValueError(
-                "on_new_class must be a callable function or None.")
+            raise ValueError("on_new_class must be a callable function or None.")
         if on_new_rule is not None and not callable(on_new_rule):
-            raise ValueError(
-                "on_new_rule must be a callable function or None.")
+            raise ValueError("on_new_rule must be a callable function or None.")
         if on_new_object is not None and not callable(on_new_object):
-            raise ValueError(
-                "on_new_object must be a callable function or None.")
+            raise ValueError("on_new_object must be a callable function or None.")
         if on_classes_update is not None and not callable(on_classes_update):
-            raise ValueError(
-                "on_classes_update must be a callable function or None.")
+            raise ValueError("on_classes_update must be a callable function or None.")
         if on_object_update is not None and not callable(on_object_update):
-            raise ValueError(
-                "on_object_update must be a callable function or None.")
+            raise ValueError("on_object_update must be a callable function or None.")
         if on_new_data is not None and not callable(on_new_data):
-            raise ValueError(
-                "on_new_data must be a callable function or None.")
+            raise ValueError("on_new_data must be a callable function or None.")
         if self.token is None:
             raise ValueError("No token available. Please login first.")
 
@@ -1163,8 +1160,7 @@ class CoCo:
         while not self._stop_requested:
             ws_sock = self._handshake()
             if ws_sock is None:
-                print(
-                    "Failed to establish WebSocket connection. Retrying in 5 seconds...")
+                print("Failed to establish WebSocket connection. Retrying in 5 seconds...")
                 for _ in range(50):
                     if self._stop_requested:
                         break
@@ -1215,6 +1211,8 @@ class CoCo:
                             print("Received message:", text_payload)
                             data = json.loads(text_payload)
                             msg_type = data["msg_type"]
+                            if msg_type == "coco" and on_init is not None:
+                                on_init([CoCoClass.from_json({"name": name, **cls_json}) for name, cls_json in data["classes"].items()], [CoCoRule.from_json({"name": name, **rule_json}) for name, rule_json in data["rules"].items()], [CoCoObject.from_json({"id": obj_id, **obj_json}) for obj_id, obj_json in data["objects"].items()])
                             if msg_type == "new-class" and on_new_class is not None:
                                 on_new_class(CoCoClass.from_json(data))
                             if msg_type == "new-rule" and on_new_rule is not None:
