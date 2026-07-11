@@ -62,8 +62,9 @@ pub trait KnowledgeBase: Clone + Send + Sync + 'static {
     async fn get_classes(&self) -> Result<Vec<CoCoClass>, KnowledgeBaseError>;
     async fn get_class(&self, name: &str) -> Result<CoCoClass, KnowledgeBaseError>;
     async fn create_class(&self, class: CoCoClass) -> Result<(), KnowledgeBaseError>;
-    async fn get_static_properties(&self, classe_names: HashSet<String>) -> Result<HashMap<String, HashMap<String, CoCoProperty>>, KnowledgeBaseError>;
-    async fn get_dynamic_properties(&self, classe_names: HashSet<String>) -> Result<HashMap<String, HashMap<String, CoCoProperty>>, KnowledgeBaseError>;
+    async fn get_static_properties(&self, class_names: HashSet<String>) -> Result<HashMap<String, HashMap<String, CoCoProperty>>, KnowledgeBaseError>;
+    async fn get_dynamic_properties(&self, class_names: HashSet<String>) -> Result<HashMap<String, HashMap<String, CoCoProperty>>, KnowledgeBaseError>;
+    async fn get_class_instances(&self, class_name: &str) -> Result<Vec<String>, KnowledgeBaseError>;
 
     async fn get_rules(&self) -> Result<Vec<CoCoRule>, KnowledgeBaseError>;
     async fn get_rule(&self, name: &str) -> Result<CoCoRule, KnowledgeBaseError>;

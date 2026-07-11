@@ -28,6 +28,7 @@ enum KBCommand {
     CreateObject(CoCoObject, oneshot::Sender<Result<(), KnowledgeBaseError>>),
     GetStaticProperties(HashSet<String>, oneshot::Sender<Result<ClassPropertyMap, KnowledgeBaseError>>),
     GetDynamicProperties(HashSet<String>, oneshot::Sender<Result<ClassPropertyMap, KnowledgeBaseError>>),
+    GetClassInstances(String, oneshot::Sender<Result<Vec<String>, KnowledgeBaseError>>),
     AddClass(String, String, oneshot::Sender<Result<(), KnowledgeBaseError>>),
     GetObjectClasses(String, oneshot::Sender<Result<HashSet<String>, KnowledgeBaseError>>),
     SetProperties(String, HashMap<String, CoCoValue>, oneshot::Sender<Result<(), KnowledgeBaseError>>),
@@ -124,6 +125,14 @@ impl ActorState {
         }
 
         Ok(class_properties)
+    }
+
+    fn get_class_instances(&self, class_name: &str) -> Result<Vec<String>, KnowledgeBaseError> {
+        if !self.classes.contains_key(class_name) {
+            return Err(KnowledgeBaseError::ClassNotFound(class_name.to_string()));
+        }
+        let instances = self.instances.get(class_name).map(|m| m.keys().cloned().collect()).unwrap_or_else(Vec::new);
+        Ok(instances)
     }
 
     fn get_classes(&self) -> Vec<CoCoClass> {
@@ -609,6 +618,9 @@ impl CLIPSKnowledgeBase {
                     KBCommand::GetDynamicProperties(class_names, reply) => {
                         let _ = reply.send(state_build.borrow().get_dynamic_properties(&class_names));
                     }
+                    KBCommand::GetClassInstances(class_name, reply) => {
+                        let _ = reply.send(state_build.borrow().get_class_instances(&class_name));
+                    }
                     KBCommand::AddClass(object_id, class_name, reply) => {
                         let result = state_build.borrow_mut().add_class(&mut env, &object_id, &class_name);
                         if result.is_ok() {
@@ -677,6 +689,11 @@ impl KnowledgeBase for CLIPSKnowledgeBase {
         let (resp_tx, resp_rx) = oneshot::channel();
         self.command_tx.send(KBCommand::GetDynamicProperties(class_names, resp_tx)).map_err(|_| KnowledgeBaseError::KBError("Failed to send GetDynamicProperties command to CLIPS knowledge base actor".to_owned()))?;
         resp_rx.await.map_err(|_| KnowledgeBaseError::KBError("Failed to receive response for GetDynamicProperties command from CLIPS knowledge base actor".to_owned()))?
+    }
+    async fn get_class_instances(&self, class_name: &str) -> Result<Vec<String>, KnowledgeBaseError> {
+        let (resp_tx, resp_rx) = oneshot::channel();
+        self.command_tx.send(KBCommand::GetClassInstances(class_name.to_owned(), resp_tx)).map_err(|_| KnowledgeBaseError::KBError("Failed to send GetClassInstances command to CLIPS knowledge base actor".to_owned()))?;
+        resp_rx.await.map_err(|_| KnowledgeBaseError::KBError("Failed to receive response for GetClassInstances command from CLIPS knowledge base actor".to_owned()))?
     }
 
     async fn get_rules(&self) -> Result<Vec<CoCoRule>, KnowledgeBaseError> {
