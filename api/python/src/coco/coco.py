@@ -633,6 +633,43 @@ def _sock_read(sock, n):
     return sock.recv(n)
 
 
+def _make_reader(sock, prebuffer):
+    """
+    Wrap a socket's read in a plain callable that first drains any
+    pre-buffered bytes (e.g. bytes over-read past the HTTP handshake
+    response, which belong to the first WebSocket frame) before
+    falling through to real socket reads.
+
+    This is deliberately NOT a socket-like wrapper object: select.select()
+    needs a real stream/socket to poll, so the raw socket returned by
+    _handshake() is still what gets passed to select() and used for
+    writes. Only frame *reading* goes through this callable, so the
+    leftover bytes get replayed exactly once, in order, before the
+    stream continues from the socket as normal.
+    """
+    buf = bytes(prebuffer)
+    pos = 0
+
+    def _read(n):
+        nonlocal pos
+        remaining = len(buf) - pos
+        if remaining > 0:
+            if remaining >= n:
+                data = buf[pos:pos + n]
+                pos += n
+                return data
+
+            data = buf[pos:]
+            pos = len(buf)
+            more = _sock_read(sock, n - len(data))
+            if more:
+                data += more
+            return data
+        return _sock_read(sock, n)
+
+    return _read
+
+
 def _safe_decode_bytes(data):
     # MicroPython can raise UnicodeError when using decode(..., errors=...).
     # Try UTF-8 first, then fall back to latin-1 for diagnostics.
@@ -693,6 +730,7 @@ class CoCo:
 
         self._stop_requested = False
         self._ws_sock = None
+        self._ws_read_fn = None
 
     def login(self, username, password, timeout=5):
         """
@@ -1189,13 +1227,36 @@ class CoCo:
 
                 _sock_write(tls_sock, request.encode())
                 response = b""
-                while b"\r\n\r\n" not in response:
+                header_end = -1
+                while header_end == -1:
                     chunk = _sock_read(tls_sock, 1024)
                     if not chunk:
                         break
                     response += chunk
+                    header_end = response.find(b"\r\n\r\n")
 
-                return tls_sock, _safe_decode_bytes(response)
+                if header_end == -1:
+                    # Connection closed before headers completed; treat
+                    # whatever we got as the header block, no leftover.
+                    header_bytes = response
+                    leftover = b""
+                else:
+                    # IMPORTANT: the read above pulls data in 1024-byte
+                    # chunks and only stops once "\r\n\r\n" shows up
+                    # *somewhere* in what's been read so far. A chunk can
+                    # (and routinely does) contain bytes belonging to the
+                    # first WebSocket frame(s) the server pushes right
+                    # after the 101 response, since TLS/TCP reads don't
+                    # respect HTTP message boundaries. Those extra bytes
+                    # must be split off and handed to the frame reader --
+                    # discarding them (as the old code did) permanently
+                    # desyncs every frame read afterwards, which is what
+                    # produced the "relaxed validation" header-check
+                    # failures and the truncated/garbled JSON.
+                    header_bytes = response[:header_end]
+                    leftover = response[header_end + 4:]
+
+                return tls_sock, _safe_decode_bytes(header_bytes), leftover
             except Exception as e:
                 print("An error occurred during WebSocket handshake")
                 print("Exception type:", type(e).__name__)
@@ -1244,6 +1305,7 @@ class CoCo:
 
         if status_code == 101 and upgrade_ok and connection_ok and accept_ok:
             print("WebSocket handshake successful!")
+            self._ws_read_fn = _make_reader(result[0], result[2])
             return result[0]
 
         # Some MicroPython TLS/stream combinations can make header parsing
@@ -1251,6 +1313,7 @@ class CoCo:
         if status_code == 101:
             print("WebSocket handshake accepted with relaxed validation.")
             print("Handshake checks:", "upgrade=", upgrade_ok, "connection=", connection_ok, "accept=", accept_ok)
+            self._ws_read_fn = _make_reader(result[0], result[2])
             return result[0]
 
         print("WebSocket handshake failed. Response:", result[1])
@@ -1329,7 +1392,7 @@ class CoCo:
                         continue
 
                     try:
-                        opcode, payload = _ws_read_frame(ws_sock)
+                        opcode, payload = _ws_read_frame(self._ws_read_fn)
                     except OSError as e:
                         if _is_timeout_error(e):
                             await asyncio.sleep(0)
@@ -1347,7 +1410,25 @@ class CoCo:
                             data = json.loads(text_payload)
                             msg_type = data["msg_type"]
                             if msg_type == "coco" and on_init is not None:
-                                on_init([CoCoClass.from_json({"name": name, **cls_json}) for name, cls_json in data["classes"].items()], [CoCoRule.from_json({"name": name, **rule_json}) for name, rule_json in data["rules"].items()], [CoCoObject.from_json({"id": obj_id, **obj_json}) for obj_id, obj_json in data["objects"].items()])
+                                classes = []
+                                for name, cls_json in data["classes"].items():
+                                    cls_data = dict(cls_json)
+                                    cls_data["name"] = name
+                                    classes.append(CoCoClass.from_json(cls_data))
+
+                                rules = []
+                                for name, rule_json in data["rules"].items():
+                                    rule_data = dict(rule_json)
+                                    rule_data["name"] = name
+                                    rules.append(CoCoRule.from_json(rule_data))
+
+                                objects = []
+                                for obj_id, obj_json in data["objects"].items():
+                                    obj_data = dict(obj_json)
+                                    obj_data["id"] = obj_id
+                                    objects.append(CoCoObject.from_json(obj_data))
+
+                                on_init(classes, rules, objects)
                             if msg_type == "new-class" and on_new_class is not None:
                                 on_new_class(CoCoClass.from_json(data))
                             if msg_type == "new-rule" and on_new_rule is not None:
@@ -1405,18 +1486,18 @@ class CoCo:
                 self._ws_sock = None
 
 
-def _read_exact(sock, n):
+def _read_exact(read_fn, n):
     data = b""
     while len(data) < n:
-        chunk = _sock_read(sock, n - len(data))
+        chunk = read_fn(n - len(data))
         if not chunk:
             return None
         data += chunk
     return data
 
 
-def _ws_read_frame(sock):
-    hdr = _read_exact(sock, 2)
+def _ws_read_frame(read_fn):
+    hdr = _read_exact(read_fn, 2)
     if not hdr:
         return None, None
 
@@ -1427,12 +1508,12 @@ def _ws_read_frame(sock):
     plen = b1 & 0x7F
 
     if plen == 126:
-        ext = _read_exact(sock, 2)
+        ext = _read_exact(read_fn, 2)
         if not ext:
             return None, None
         plen = (ext[0] << 8) | ext[1]
     elif plen == 127:
-        ext = _read_exact(sock, 8)
+        ext = _read_exact(read_fn, 8)
         if not ext:
             return None, None
         plen = 0
@@ -1441,11 +1522,11 @@ def _ws_read_frame(sock):
 
     mask_key = b""
     if masked:
-        mask_key = _read_exact(sock, 4)
+        mask_key = _read_exact(read_fn, 4)
         if not mask_key:
             return None, None
 
-    payload = _read_exact(sock, plen) if plen else b""
+    payload = _read_exact(read_fn, plen) if plen else b""
     if payload is None:
         return None, None
 

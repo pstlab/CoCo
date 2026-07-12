@@ -454,8 +454,8 @@ impl CLIPSKnowledgeBase {
                 trace!("CLIPS UDF 'set-properties' called with object_id='{}' and properties={:?}", object_id, properties);
                 match state.set_properties(env, &object_id, &properties) {
                     Ok(_) => {
-                        trace!("Successfully set properties {:?} for object '{}'", properties, object_id);
-                        let _ = event_tx_set_properties.send(KnowledgeBaseEvent::UpdatedProperties(object_id.clone(), properties.clone()));
+                        trace!("Successfully set properties {:?} for object '{}'", &properties, &object_id);
+                        let _ = event_tx_set_properties.send(KnowledgeBaseEvent::UpdatedProperties(object_id, properties));
                     }
                     Err(e) => {
                         error!("Error setting properties {:?} for object '{}': {}", properties, object_id, e);
@@ -546,11 +546,11 @@ impl CLIPSKnowledgeBase {
                 trace!("CLIPS UDF 'add-data' called with object_id='{}', values={:?}, and timestamp={}", object_id, values, timestamp);
                 match state.add_values(env, &object_id, &values, timestamp) {
                     Ok(_) => {
-                        trace!("Successfully added values {:?} to object '{}' at {}", values, object_id, timestamp);
-                        let _ = event_tx_add_data.send(KnowledgeBaseEvent::AddedValues(object_id.clone(), values.clone(), timestamp));
+                        trace!("Successfully added values {:?} to object '{}' at {}", &values, &object_id, &timestamp);
+                        let _ = event_tx_add_data.send(KnowledgeBaseEvent::AddedValues(object_id, values, timestamp));
                     }
                     Err(e) => {
-                        error!("Error adding values {:?} to object '{}' at {}: {}", values, object_id, timestamp, e);
+                        error!("Error adding values {:?} to object '{}' at {}: {}", &values, &object_id, &timestamp, e);
                     }
                 }
 
