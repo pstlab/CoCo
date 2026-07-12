@@ -90,7 +90,7 @@ impl CoCo {
                     KnowledgeBaseEvent::UpdatedProperties(object_id, properties) => {
                         let _ = event_tx_for_kb.send(CoCoEvent::PropertiesUpdated(object_id, properties));
                     }
-                    KnowledgeBaseEvent::AddedValues(object_id, values, timestamp) if let Err(e) = event_db.add_values(object_id.clone(), values.clone(), timestamp).await => {
+                    KnowledgeBaseEvent::AddedValues(object_id, values, timestamp) if let Err(e) = event_db.add_values(object_id.clone(), &values, timestamp).await => {
                         error!("Failed to add values to database: {}", e);
                     }
                     KnowledgeBaseEvent::AddedValues(object_id, values, timestamp) => {
@@ -249,7 +249,7 @@ impl CoCo {
                     CoCoCommand::AddValues(object_id, values, timestamp, response_tx) => {
                         let result = async {
                             command_kb.add_values(object_id.clone(), values.clone(), timestamp).await.map_err(|e| CoCoError::KnowledgeBaseError(e.to_string()))?;
-                            command_db.add_values(object_id.clone(), values.clone(), timestamp).await.map_err(|e| CoCoError::DatabaseError(e.to_string()))?;
+                            command_db.add_values(object_id.clone(), &values, timestamp).await.map_err(|e| CoCoError::DatabaseError(e.to_string()))?;
                             Ok::<(), CoCoError>(())
                         }
                         .await;

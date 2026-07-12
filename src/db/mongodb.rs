@@ -183,7 +183,7 @@ impl Database for MongoDB {
         Ok(())
     }
 
-    async fn add_values(&self, object_id: String, values: HashMap<String, CoCoValue>, timestamp: DateTime<Utc>) -> Result<(), DatabaseError> {
+    async fn add_values(&self, object_id: String, values: &HashMap<String, CoCoValue>, timestamp: DateTime<Utc>) -> Result<(), DatabaseError> {
         let db = self.client.database(&self.name);
         let collection = db.collection::<MongoObject>("objects");
         let oid = ObjectId::parse_str(object_id.clone()).map_err(|e| DatabaseError::InvalidInput(format!("Invalid object id: {e}")))?;

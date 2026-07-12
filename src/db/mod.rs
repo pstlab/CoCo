@@ -42,7 +42,7 @@ pub trait Database: Clone + Send + Sync + 'static {
     async fn create_object(&self, object: CoCoObject) -> Result<String, DatabaseError>;
     async fn add_class(&self, object_id: String, class_name: String) -> Result<(), DatabaseError>;
     async fn set_properties(&self, object_id: String, properties: &HashMap<String, CoCoValue>) -> Result<(), DatabaseError>;
-    async fn add_values(&self, object_id: String, values: HashMap<String, CoCoValue>, timestamp: DateTime<Utc>) -> Result<(), DatabaseError>;
+    async fn add_values(&self, object_id: String, values: &HashMap<String, CoCoValue>, timestamp: DateTime<Utc>) -> Result<(), DatabaseError>;
     async fn get_values(&self, object_id: String, start_time: Option<DateTime<Utc>>, end_time: Option<DateTime<Utc>>) -> Result<Vec<(HashMap<String, CoCoValue>, DateTime<Utc>)>, DatabaseError>;
 
     async fn drop_database(&self) -> Result<(), DatabaseError>;
