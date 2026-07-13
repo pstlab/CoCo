@@ -70,9 +70,11 @@ async fn get_classes(State(coco): State<CoCo>) -> impl IntoResponse {
 async fn get_class(State(coco): State<CoCo>, Path(name): Path<String>) -> impl IntoResponse {
     trace!("Handling request to get class with name: {}", name);
     match coco.get_class(name.clone()).await {
-        Ok(Some(class)) => Json(class).into_response(),
-        Ok(None) => (StatusCode::NOT_FOUND, format!("Class '{}' not found", name)).into_response(),
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to get class '{}': {}", name, e)).into_response(),
+        Ok(class) => Json(class).into_response(),
+        Err(e) => match e {
+            CoCoError::ClassNotFound(_) => (StatusCode::NOT_FOUND, format!("Class '{}' not found", name)).into_response(),
+            _ => (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to get class '{}': {}", name, e)).into_response(),
+        },
     }
 }
 
@@ -134,9 +136,11 @@ async fn get_rules(State(coco): State<CoCo>) -> impl IntoResponse {
 async fn get_rule(State(coco): State<CoCo>, Path(name): Path<String>) -> impl IntoResponse {
     trace!("Handling request to get rule with name: {}", name);
     match coco.get_rule(name.clone()).await {
-        Ok(Some(rule)) => Json(rule).into_response(),
-        Ok(None) => (StatusCode::NOT_FOUND, format!("Rule '{}' not found", name)).into_response(),
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to get rule '{}': {}", name, e)).into_response(),
+        Ok(rule) => Json(rule).into_response(),
+        Err(e) => match e {
+            CoCoError::RuleNotFound(_) => (StatusCode::NOT_FOUND, format!("Rule '{}' not found", name)).into_response(),
+            _ => (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to get rule '{}': {}", name, e)).into_response(),
+        },
     }
 }
 
@@ -221,15 +225,17 @@ async fn get_objects(State(coco): State<CoCo>, Query(filter): Query<ObjectFilter
 async fn get_object(State(coco): State<CoCo>, Path(id): Path<String>) -> impl IntoResponse {
     trace!("Handling request to get object with ID: {}", id);
     match coco.get_object(id.clone()).await {
-        Ok(Some(mut object)) => match coco.get_object_classes(id.clone()).await {
+        Ok(mut object) => match coco.get_object_classes(id.clone()).await {
             Ok(classes) => {
                 object.classes = classes;
                 Json(object).into_response()
             }
             Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to get classes for object with ID '{}': {}", id, e)).into_response(),
         },
-        Ok(None) => (StatusCode::NOT_FOUND, format!("Object with ID '{}' not found", id)).into_response(),
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to get object with ID '{}': {}", id, e)).into_response(),
+        Err(e) => match e {
+            CoCoError::ObjectNotFound(_) => (StatusCode::NOT_FOUND, format!("Object with ID '{}' not found", id)).into_response(),
+            _ => (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to get object with ID '{}': {}", id, e)).into_response(),
+        },
     }
 }
 
@@ -470,25 +476,29 @@ async fn handle_socket(mut socket: WebSocket, coco: CoCo) {
                 };
                 let send_result = match event {
                     CoCoEvent::ClassCreated(class_name) => match coco.get_class(class_name).await {
-                        Ok(Some(class)) => {
+                        Ok(class) => {
                             let mut update_msg = serde_json::to_value(class).unwrap();
                             update_msg["msg_type"] = serde_json::json!("class-created");
                             socket.send(Message::Text(serde_json::to_string(&update_msg).unwrap().into())).await
                         }
-                        Ok(None) => Ok(()),
-                        Err(_) => Ok(()),
+                        Err(e) => {
+                            error!("Failed to get class after creation event: {}", e);
+                            Ok(())
+                        }
                     },
                     CoCoEvent::RuleCreated(rule) => match coco.get_rule(rule).await {
-                        Ok(Some(rule)) => {
+                        Ok(rule) => {
                             let mut update_msg = serde_json::to_value(rule).unwrap();
                             update_msg["msg_type"] = serde_json::json!("rule-created");
                             socket.send(Message::Text(serde_json::to_string(&update_msg).unwrap().into())).await
                         }
-                        Ok(None) => Ok(()),
-                        Err(_) => Ok(()),
+                        Err(e) => {
+                            error!("Failed to get rule after creation event: {}", e);
+                            Ok(())
+                        }
                     },
                     CoCoEvent::ObjectCreated(object_id) => match coco.get_object(object_id).await {
-                        Ok(Some(mut object)) => {
+                        Ok(mut object) => {
                             match coco.get_object_classes(object.id.clone().unwrap_or_default()).await {
                                 Ok(classes) => object.classes = classes,
                                 Err(_) => return,
@@ -497,8 +507,10 @@ async fn handle_socket(mut socket: WebSocket, coco: CoCo) {
                             update_msg["msg_type"] = serde_json::json!("object-created");
                             socket.send(Message::Text(serde_json::to_string(&update_msg).unwrap().into())).await
                         }
-                        Ok(None) => Ok(()),
-                        Err(_) => Ok(()),
+                        Err(e) => {
+                            error!("Failed to get object after creation event: {}", e);
+                            Ok(())
+                        }
                     },
                     CoCoEvent::ClassesUpdated(object_id, classes) => {
                         let update_msg = serde_json::json!({

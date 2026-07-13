@@ -1,8 +1,7 @@
 use crate::{
     CoCo, CoCoModule,
     db::Database,
-    kb::KnowledgeBase,
-    kb::clips::CLIPSKnowledgeBase,
+    kb::{KnowledgeBase, KnowledgeBaseError, clips::CLIPSKnowledgeBase},
     model::{CoCoClass, CoCoError, CoCoObject, CoCoProperty, CoCoValue},
 };
 use async_trait::async_trait;
@@ -27,194 +26,249 @@ impl Default for ChronoxideModule {
 #[async_trait]
 impl<DB: Database> CoCoModule<DB, CLIPSKnowledgeBase> for ChronoxideModule {
     async fn init(&self, _db: DB, kb: CLIPSKnowledgeBase, coco: CoCo) -> Result<(), CoCoError> {
-        if kb.get_class("Class").await.map_err(|_| CoCoError::DatabaseError("Failed to retrieve 'Class' class from database".to_string()))?.is_none() {
-            coco.create_class(CoCoClass {
-                name: "Class".to_string(),
-                static_properties: Some(HashMap::from([
-                    (
-                        "name".to_string(),
-                        CoCoProperty::Symbol {
-                            default: None,
-                            allowed_values: None,
-                            description: Some("The name of the class".to_string()),
-                        },
-                    ),
-                    ("content".to_string(), CoCoProperty::String { default: None, description: Some("The content of the class, in RiDDLe format".to_string()) }),
-                ])),
-                dynamic_properties: None,
-                parents: None,
-            })
-            .await?;
+        if let Err(e) = kb.get_class("Class").await {
+            match e {
+                KnowledgeBaseError::ClassNotFound(class) if class == "Class" => {
+                    coco.create_class(CoCoClass {
+                        name: "Class".to_string(),
+                        description: Some("A class in the knowledge base".to_string()),
+                        static_properties: Some(HashMap::from([
+                            (
+                                "name".to_string(),
+                                CoCoProperty::Symbol {
+                                    default: None,
+                                    allowed_values: None,
+                                    description: Some("The name of the class".to_string()),
+                                },
+                            ),
+                            ("content".to_string(), CoCoProperty::String { default: None, description: Some("The content of the class, in RiDDLe format".to_string()) }),
+                        ])),
+                        dynamic_properties: None,
+                        parents: None,
+                    })
+                    .await?;
 
-            info!("Successfully created 'Class' class in database");
-        }
-        if kb.get_class("Predicate").await.map_err(|_| CoCoError::DatabaseError("Failed to retrieve 'Predicate' class from database".to_string()))?.is_none() {
-            coco.create_class(CoCoClass {
-                name: "Predicate".to_string(),
-                static_properties: Some(HashMap::from([
-                    (
-                        "name".to_string(),
-                        CoCoProperty::Symbol {
-                            default: None,
-                            allowed_values: None,
-                            description: Some("The name of the predicate".to_string()),
-                        },
-                    ),
-                    (
-                        "class".to_string(),
-                        CoCoProperty::Object {
-                            default: None,
-                            classes: vec!["Class".to_string()],
-                            description: Some("The class this predicate belongs to".to_string()),
-                        },
-                    ),
-                    ("parameters".to_string(), CoCoProperty::StringArray { default: None, description: Some("The parameters of the predicate".to_string()) }),
-                    (
-                        "content".to_string(),
-                        CoCoProperty::String {
-                            default: None,
-                            description: Some("The content of the predicate, in RiDDLe format".to_string()),
-                        },
-                    ),
-                ])),
-                dynamic_properties: None,
-                parents: None,
-            })
-            .await?;
+                    info!("Successfully created 'Class' class in database");
+                }
+                _ => {
+                    return Err(CoCoError::KnowledgeBaseError(format!("Failed to retrieve 'Class' class from database: {}", e)));
+                }
+            }
+        };
+        if let Err(e) = kb.get_class("Predicate").await {
+            match e {
+                KnowledgeBaseError::ClassNotFound(class) if class == "Predicate" => {
+                    coco.create_class(CoCoClass {
+                        name: "Predicate".to_string(),
+                        description: Some("A predicate in the knowledge base".to_string()),
+                        static_properties: Some(HashMap::from([
+                            (
+                                "name".to_string(),
+                                CoCoProperty::Symbol {
+                                    default: None,
+                                    allowed_values: None,
+                                    description: Some("The name of the predicate".to_string()),
+                                },
+                            ),
+                            (
+                                "class".to_string(),
+                                CoCoProperty::Object {
+                                    default: None,
+                                    classes: vec!["Class".to_string()],
+                                    description: Some("The class this predicate belongs to".to_string()),
+                                },
+                            ),
+                            ("parameters".to_string(), CoCoProperty::StringArray { default: None, description: Some("The parameters of the predicate".to_string()) }),
+                            (
+                                "content".to_string(),
+                                CoCoProperty::String {
+                                    default: None,
+                                    description: Some("The content of the predicate, in RiDDLe format".to_string()),
+                                },
+                            ),
+                        ])),
+                        dynamic_properties: None,
+                        parents: None,
+                    })
+                    .await?;
 
-            info!("Successfully created 'Predicate' class in database");
-        }
-        if kb.get_class("Impulse").await.map_err(|_| CoCoError::DatabaseError("Failed to retrieve 'Impulse' class from database".to_string()))?.is_none() {
-            coco.create_class(CoCoClass {
-                name: "Impulse".to_string(),
-                static_properties: Some(HashMap::from([(
-                    "at".to_string(),
-                    CoCoProperty::Float {
-                        default: None,
-                        min: Some(0.0),
-                        max: None,
-                        description: Some("The time at which the impulse occurs".to_string()),
-                    },
-                )])),
-                dynamic_properties: None,
-                parents: Some(HashSet::from(["Predicate".to_string()])),
-            })
-            .await?;
+                    info!("Successfully created 'Predicate' class in database");
+                }
+                _ => {
+                    return Err(CoCoError::KnowledgeBaseError(format!("Failed to retrieve 'Predicate' class from database: {}", e)));
+                }
+            }
+        };
+        if let Err(e) = kb.get_class("Impulse").await {
+            match e {
+                KnowledgeBaseError::ClassNotFound(class) if class == "Impulse" => {
+                    coco.create_class(CoCoClass {
+                        name: "Impulse".to_string(),
+                        description: Some("The impulse predicate in the knowledge base".to_string()),
+                        static_properties: Some(HashMap::from([(
+                            "at".to_string(),
+                            CoCoProperty::Float {
+                                default: None,
+                                min: Some(0.0),
+                                max: None,
+                                description: Some("The time at which the impulse occurs".to_string()),
+                            },
+                        )])),
+                        dynamic_properties: None,
+                        parents: Some(HashSet::from(["Predicate".to_string()])),
+                    })
+                    .await?;
 
-            info!("Successfully created 'Impulse' class in database");
-        }
-        if kb.get_class("Interval").await.map_err(|_| CoCoError::DatabaseError("Failed to retrieve 'Interval' class from database".to_string()))?.is_none() {
-            coco.create_class(CoCoClass {
-                name: "Interval".to_string(),
-                static_properties: Some(HashMap::from([
-                    (
-                        "start".to_string(),
-                        CoCoProperty::Float {
-                            default: None,
-                            min: Some(0.0),
-                            max: None,
-                            description: Some("The start time of the interval".to_string()),
-                        },
-                    ),
-                    (
-                        "end".to_string(),
-                        CoCoProperty::Float {
-                            default: None,
-                            min: Some(0.0),
-                            max: None,
-                            description: Some("The end time of the interval".to_string()),
-                        },
-                    ),
-                ])),
-                dynamic_properties: None,
-                parents: Some(HashSet::from(["Predicate".to_string()])),
-            })
-            .await?;
+                    info!("Successfully created 'Impulse' class in database");
+                }
+                _ => {
+                    return Err(CoCoError::KnowledgeBaseError(format!("Failed to retrieve 'Impulse' class from database: {}", e)));
+                }
+            }
+        };
+        if let Err(e) = kb.get_class("Interval").await {
+            match e {
+                KnowledgeBaseError::ClassNotFound(class) if class == "Interval" => {
+                    coco.create_class(CoCoClass {
+                        name: "Interval".to_string(),
+                        description: Some("The interval predicate in the knowledge base".to_string()),
+                        static_properties: Some(HashMap::from([
+                            (
+                                "start".to_string(),
+                                CoCoProperty::Float {
+                                    default: None,
+                                    min: Some(0.0),
+                                    max: None,
+                                    description: Some("The start time of the interval".to_string()),
+                                },
+                            ),
+                            (
+                                "end".to_string(),
+                                CoCoProperty::Float {
+                                    default: None,
+                                    min: Some(0.0),
+                                    max: None,
+                                    description: Some("The end time of the interval".to_string()),
+                                },
+                            ),
+                        ])),
+                        dynamic_properties: None,
+                        parents: Some(HashSet::from(["Predicate".to_string()])),
+                    })
+                    .await?;
 
-            info!("Successfully created 'Interval' class in database");
-        }
+                    info!("Successfully created 'Interval' class in database");
+                }
+                _ => {
+                    return Err(CoCoError::KnowledgeBaseError(format!("Failed to retrieve 'Interval' class from database: {}", e)));
+                }
+            }
+        };
+        if let Err(e) = kb.get_class("StateVariable").await {
+            match e {
+                KnowledgeBaseError::ClassNotFound(class) if class == "StateVariable" => {
+                    coco.create_class(CoCoClass {
+                        name: "StateVariable".to_string(),
+                        description: Some("The state-variable class in the knowledge base".to_string()),
+                        static_properties: None,
+                        dynamic_properties: None,
+                        parents: Some(HashSet::from(["Class".to_string()])),
+                    })
+                    .await?;
 
-        if kb.get_class("StateVariable").await.map_err(|_| CoCoError::DatabaseError("Failed to retrieve 'StateVariable' class from database".to_string()))?.is_none() {
-            coco.create_class(CoCoClass {
-                name: "StateVariable".to_string(),
-                static_properties: None,
-                dynamic_properties: None,
-                parents: Some(HashSet::from(["Class".to_string()])),
-            })
-            .await?;
+                    info!("Successfully created 'StateVariable' class in database");
+                }
+                _ => {
+                    return Err(CoCoError::KnowledgeBaseError(format!("Failed to retrieve 'StateVariable' class from database: {}", e)));
+                }
+            }
+        };
+        if let Err(e) = kb.get_class("ReusableResource").await {
+            match e {
+                KnowledgeBaseError::ClassNotFound(class) if class == "ReusableResource" => {
+                    coco.create_class(CoCoClass {
+                        name: "ReusableResource".to_string(),
+                        description: Some("The reusable-resource class in the knowledge base".to_string()),
+                        static_properties: Some(HashMap::from([(
+                            "capacity".to_string(),
+                            CoCoProperty::Float {
+                                default: None,
+                                min: Some(0.0),
+                                max: None,
+                                description: Some("The maximum capacity of the resource".to_string()),
+                            },
+                        )])),
+                        dynamic_properties: None,
+                        parents: Some(HashSet::from(["Class".to_string()])),
+                    })
+                    .await?;
+                    coco.create_object(CoCoObject {
+                        id: None,
+                        classes: HashSet::from(["Interval".to_string()]),
+                        properties: Some(HashMap::from([("name".to_string(), CoCoValue::Symbol("Use".to_string())), ("parameters".to_string(), CoCoValue::StringArray(vec!["real amount".to_string()])), ("content".to_string(), CoCoValue::String("".to_string()))])),
+                        values: None,
+                    })
+                    .await?;
 
-            info!("Successfully created 'StateVariable' class in database");
-        }
-        if kb.get_class("ReusableResource").await.map_err(|_| CoCoError::DatabaseError("Failed to retrieve 'ReusableResource' class from database".to_string()))?.is_none() {
-            coco.create_class(CoCoClass {
-                name: "ReusableResource".to_string(),
-                static_properties: Some(HashMap::from([(
-                    "capacity".to_string(),
-                    CoCoProperty::Float {
-                        default: None,
-                        min: Some(0.0),
-                        max: None,
-                        description: Some("The maximum capacity of the resource".to_string()),
-                    },
-                )])),
-                dynamic_properties: None,
-                parents: Some(HashSet::from(["Class".to_string()])),
-            })
-            .await?;
-            coco.create_object(CoCoObject {
-                id: None,
-                classes: HashSet::from(["Interval".to_string()]),
-                properties: Some(HashMap::from([("name".to_string(), CoCoValue::Symbol("Use".to_string())), ("parameters".to_string(), CoCoValue::StringArray(vec!["real amount".to_string()])), ("content".to_string(), CoCoValue::String("".to_string()))])),
-                values: None,
-            })
-            .await?;
+                    info!("Successfully created 'ReusableResource' class in database");
+                }
+                _ => {
+                    return Err(CoCoError::KnowledgeBaseError(format!("Failed to retrieve 'ReusableResource' class from database: {}", e)));
+                }
+            }
+        };
+        if let Err(e) = kb.get_class("ConsumableResource").await {
+            match e {
+                KnowledgeBaseError::ClassNotFound(class) if class == "ConsumableResource" => {
+                    coco.create_class(CoCoClass {
+                        name: "ConsumableResource".to_string(),
+                        description: Some("The consumable-resource class in the knowledge base".to_string()),
+                        static_properties: Some(HashMap::from([
+                            (
+                                "capacity".to_string(),
+                                CoCoProperty::Float {
+                                    default: None,
+                                    min: Some(0.0),
+                                    max: None,
+                                    description: Some("The maximum capacity of the resource".to_string()),
+                                },
+                            ),
+                            (
+                                "initial_amount".to_string(),
+                                CoCoProperty::Float {
+                                    default: Some(0.0),
+                                    min: Some(0.0),
+                                    max: None,
+                                    description: Some("The initial amount of the resource".to_string()),
+                                },
+                            ),
+                        ])),
+                        dynamic_properties: None,
+                        parents: Some(HashSet::from(["Class".to_string()])),
+                    })
+                    .await?;
+                    coco.create_object(CoCoObject {
+                        id: None,
+                        classes: HashSet::from(["Interval".to_string()]),
+                        properties: Some(HashMap::from([("name".to_string(), CoCoValue::Symbol("Produce".to_string())), ("parameters".to_string(), CoCoValue::StringArray(vec!["real amount".to_string()])), ("content".to_string(), CoCoValue::String("".to_string()))])),
+                        values: None,
+                    })
+                    .await?;
+                    coco.create_object(CoCoObject {
+                        id: None,
+                        classes: HashSet::from(["Interval".to_string()]),
+                        properties: Some(HashMap::from([("name".to_string(), CoCoValue::Symbol("Consume".to_string())), ("parameters".to_string(), CoCoValue::StringArray(vec!["real amount".to_string()])), ("content".to_string(), CoCoValue::String("".to_string()))])),
+                        values: None,
+                    })
+                    .await?;
 
-            info!("Successfully created 'ReusableResource' class in database");
-        }
-        if kb.get_class("ConsumableResource").await.map_err(|_| CoCoError::DatabaseError("Failed to retrieve 'ConsumableResource' class from database".to_string()))?.is_none() {
-            coco.create_class(CoCoClass {
-                name: "ConsumableResource".to_string(),
-                static_properties: Some(HashMap::from([
-                    (
-                        "capacity".to_string(),
-                        CoCoProperty::Float {
-                            default: None,
-                            min: Some(0.0),
-                            max: None,
-                            description: Some("The maximum capacity of the resource".to_string()),
-                        },
-                    ),
-                    (
-                        "initial_amount".to_string(),
-                        CoCoProperty::Float {
-                            default: Some(0.0),
-                            min: Some(0.0),
-                            max: None,
-                            description: Some("The initial amount of the resource".to_string()),
-                        },
-                    ),
-                ])),
-                dynamic_properties: None,
-                parents: Some(HashSet::from(["Class".to_string()])),
-            })
-            .await?;
-            coco.create_object(CoCoObject {
-                id: None,
-                classes: HashSet::from(["Interval".to_string()]),
-                properties: Some(HashMap::from([("name".to_string(), CoCoValue::Symbol("Produce".to_string())), ("parameters".to_string(), CoCoValue::StringArray(vec!["real amount".to_string()])), ("content".to_string(), CoCoValue::String("".to_string()))])),
-                values: None,
-            })
-            .await?;
-            coco.create_object(CoCoObject {
-                id: None,
-                classes: HashSet::from(["Interval".to_string()]),
-                properties: Some(HashMap::from([("name".to_string(), CoCoValue::Symbol("Consume".to_string())), ("parameters".to_string(), CoCoValue::StringArray(vec!["real amount".to_string()])), ("content".to_string(), CoCoValue::String("".to_string()))])),
-                values: None,
-            })
-            .await?;
-
-            info!("Successfully created 'ConsumableResource' class in database");
-        }
+                    info!("Successfully created 'ConsumableResource' class in database");
+                }
+                _ => {
+                    return Err(CoCoError::KnowledgeBaseError(format!("Failed to retrieve 'ConsumableResource' class from database: {}", e)));
+                }
+            }
+        };
 
         kb.add_udf(
             "create-solver",

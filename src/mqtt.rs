@@ -49,7 +49,7 @@ impl<DB: Database, KB: KnowledgeBase> CoCoModule<DB, KB> for MQTTModule {
             while let Ok(msg) = rx.recv().await {
                 match msg {
                     CoCoEvent::ClassCreated(class_name) => {
-                        let class = coco_clone.get_class(class_name.clone()).await.expect("Failed to get class after creation event").expect("Class not found after creation event");
+                        let class = coco_clone.get_class(class_name.clone()).await.expect("Failed to get class");
 
                         let mut update_msg = serde_json::to_value(class).unwrap();
                         update_msg["msg_type"] = serde_json::json!("class-created");
@@ -57,7 +57,7 @@ impl<DB: Database, KB: KnowledgeBase> CoCoModule<DB, KB> for MQTTModule {
                         client.publish("coco/events", QoS::AtLeastOnce, false, payload).await.unwrap();
                     }
                     CoCoEvent::ObjectCreated(object_id) => {
-                        let object = coco_clone.get_object(object_id.clone()).await.expect("Failed to get object after creation event").expect("Object not found after creation event");
+                        let object = coco_clone.get_object(object_id.clone()).await.expect("Failed to get object");
 
                         let mut update_msg = serde_json::to_value(object).unwrap();
                         update_msg["msg_type"] = serde_json::json!("object-created");
