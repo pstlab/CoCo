@@ -307,7 +307,7 @@ impl<DB: Database> CoCoModule<DB, CLIPSKnowledgeBase> for OllamaModule {
                     };
                     let body = json!({
                         "model": model,
-                        "stream": false,
+                        "stream": true,
                         "messages": [
                             {
                                 "role": "user",
@@ -350,7 +350,7 @@ impl<DB: Database> CoCoModule<DB, CLIPSKnowledgeBase> for OllamaModule {
                                                         continue;
                                                     }
                                                 };
-                                                let mut values: HashMap<String, CoCoValue> = HashMap::new();
+                                                let mut values = HashMap::new();
                                                 for (key, value) in call.function.arguments.as_object().unwrap_or(&Map::new()) {
                                                     let prop = props.get(&call.function.name).and_then(|class_props| class_props.get(key));
                                                     if let Some(prop) = prop {
