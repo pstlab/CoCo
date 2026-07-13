@@ -272,10 +272,10 @@ impl<DB: Database> CoCoModule<DB, CLIPSKnowledgeBase> for ChronoxideModule {
 
         kb.add_udf(
             "create-solver",
-            None,
+            vec![Type(Type::VOID)],
             2,
             2,
-            vec![Type(Type::SYMBOL), Type(Type::STRING)],
+            vec![vec![Type(Type::SYMBOL)], vec![Type(Type::STRING)]],
             Box::new(move |_env, ctx: &mut UDFContext| {
                 let solver_id = match ctx.get_next_argument(Type(Type::SYMBOL)) {
                     Some(ClipsValue::Symbol(s)) => s.to_string(),

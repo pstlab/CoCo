@@ -33,7 +33,7 @@ enum KBCommand {
     GetObjectClasses(String, oneshot::Sender<Result<HashSet<String>, KnowledgeBaseError>>),
     SetProperties(String, HashMap<String, CoCoValue>, oneshot::Sender<Result<(), KnowledgeBaseError>>),
     AddValues(String, HashMap<String, CoCoValue>, DateTime<Utc>, oneshot::Sender<Result<(), KnowledgeBaseError>>),
-    AddUDF(String, Option<Type>, u16, u16, Vec<Type>, Udf, oneshot::Sender<Result<(), KnowledgeBaseError>>),
+    AddUDF(String, Vec<Type>, u16, u16, Vec<Vec<Type>>, Udf, oneshot::Sender<Result<(), KnowledgeBaseError>>),
 }
 
 #[derive(Clone)]
@@ -359,7 +359,7 @@ impl CLIPSKnowledgeBase {
 
             let state_add_class = Rc::clone(&state);
             let event_tx_add_class = event_tx.clone();
-            env.add_udf("add-class", None, 2, 2, vec![Type(Type::SYMBOL), Type(Type::SYMBOL)], move |env, ctx| {
+            env.add_udf("add-class", vec![Type(Type::VOID)], 2, 2, vec![vec![Type(Type::SYMBOL)], vec![Type(Type::SYMBOL)]], move |env, ctx| {
                 let state = &mut *state_add_class.borrow_mut();
                 let object_id = match ctx.get_next_argument(Type(Type::SYMBOL)) {
                     Some(ClipsValue::Symbol(s)) => s,
@@ -393,7 +393,7 @@ impl CLIPSKnowledgeBase {
 
             let state_set_properties = Rc::clone(&state);
             let event_tx_set_properties = event_tx.clone();
-            env.add_udf("set-properties", None, 3, 3, vec![Type(Type::SYMBOL), Type(Type::MULTIFIELD), Type(Type::MULTIFIELD)], move |env, ctx| {
+            env.add_udf("set-properties", vec![Type(Type::VOID)], 3, 3, vec![vec![Type(Type::SYMBOL)], vec![Type(Type::MULTIFIELD)], vec![Type(Type::MULTIFIELD)]], move |env, ctx| {
                 let state = &mut *state_set_properties.borrow_mut();
                 let object_id = match ctx.get_next_argument(Type(Type::SYMBOL)) {
                     Some(ClipsValue::Symbol(s)) => s.to_string(),
@@ -468,7 +468,7 @@ impl CLIPSKnowledgeBase {
 
             let state_add_data = Rc::clone(&state);
             let event_tx_add_data = event_tx.clone();
-            env.add_udf("add-data", None, 3, 4, vec![Type(Type::SYMBOL), Type(Type::MULTIFIELD), Type(Type::MULTIFIELD), Type(Type::INTEGER)], move |env, ctx| {
+            env.add_udf("add-data", vec![Type(Type::VOID)], 3, 4, vec![vec![Type(Type::SYMBOL)], vec![Type(Type::MULTIFIELD)], vec![Type(Type::MULTIFIELD)], vec![Type(Type::INTEGER)]], move |env, ctx| {
                 let state = &mut *state_add_data.borrow_mut();
                 let object_id = match ctx.get_next_argument(Type(Type::SYMBOL)) {
                     Some(ClipsValue::Symbol(s)) => s.to_string(),
@@ -656,7 +656,7 @@ impl CLIPSKnowledgeBase {
         (CLIPSKnowledgeBase { command_tx: tx }, event_rx)
     }
 
-    pub async fn add_udf(&self, name: &str, return_type: Option<Type>, min_args: u16, max_args: u16, arg_types: Vec<Type>, func: Udf) -> Result<(), KnowledgeBaseError> {
+    pub async fn add_udf(&self, name: &str, return_type: Vec<Type>, min_args: u16, max_args: u16, arg_types: Vec<Vec<Type>>, func: Udf) -> Result<(), KnowledgeBaseError> {
         let (resp_tx, resp_rx) = oneshot::channel();
         self.command_tx.send(KBCommand::AddUDF(name.to_owned(), return_type, min_args, max_args, arg_types, func, resp_tx)).map_err(|_| KnowledgeBaseError::KBError("Failed to send AddUdf command to CLIPS knowledge base actor".to_owned()))?;
         resp_rx.await.map_err(|_| KnowledgeBaseError::KBError("Failed to receive response for AddUdf command from CLIPS knowledge base actor".to_owned()))?

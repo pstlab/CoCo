@@ -260,10 +260,10 @@ impl<DB: Database> CoCoModule<DB, CLIPSKnowledgeBase> for OllamaModule {
 
         kb.add_udf(
             "prompt",
-            None,
+            vec![Type(Type::VOID)],
             2,
             2,
-            vec![Type(Type::STRING), Type(Type::STRING)],
+            vec![vec![Type(Type::STRING)], vec![Type(Type::STRING)]],
             Box::new(move |_env, ctx: &mut UDFContext| {
                 let prompt = match ctx.get_next_argument(Type(Type::STRING)) {
                     Some(ClipsValue::String(s)) => s,

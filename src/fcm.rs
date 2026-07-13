@@ -44,10 +44,10 @@ impl CoCoModule<MongoDB, CLIPSKnowledgeBase> for FCMModule {
 
         kb.add_udf(
             "send-message",
-            None,
+            vec![Type(Type::VOID)],
             3,
             3,
-            vec![Type(Type::SYMBOL), Type(Type::STRING), Type(Type::STRING)],
+            vec![vec![Type(Type::SYMBOL)], vec![Type(Type::STRING)], vec![Type(Type::STRING)]],
             Box::new(move |_env, ctx| {
                 let object_id = match ctx.get_next_argument(Type(Type::SYMBOL)) {
                     Some(ClipsValue::Symbol(s)) => s,
