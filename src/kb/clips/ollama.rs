@@ -7,16 +7,17 @@ use crate::{
 use async_trait::async_trait;
 use chrono::Utc;
 use clips::{ClipsValue, Type, UDFContext};
+use futures_util::StreamExt;
 use reqwest::Client;
-use serde::{Deserialize, Serialize};
-use serde_json::json;
+use serde::Deserialize;
+use serde_json::{Map, Value, json};
 use std::collections::{HashMap, HashSet};
 use tokio::sync::{mpsc, oneshot};
-use tracing::{error, info, trace};
+use tracing::{error, info, trace, warn};
 
 enum OllamaMessage {
-    AddValues { object_id: String, text: String, values: HashMap<String, CoCoValue> },
-    GetTools { tools: HashMap<String, HashSet<String>>, resp_tx: oneshot::Sender<Result<Vec<serde_json::Value>, CoCoError>> },
+    AddValues { object_id: String, values: HashMap<String, CoCoValue> },
+    GetTools { tools: HashMap<String, HashSet<String>>, resp_tx: oneshot::Sender<Result<Vec<Value>, CoCoError>> },
 }
 
 pub struct OllamaModule {
@@ -27,7 +28,7 @@ pub struct OllamaModule {
 
 impl OllamaModule {
     pub fn new(host: String, port: u16, model: String) -> Self {
-        let url = format!("http://{}:{}/api/generate", host, port);
+        let url = format!("http://{}:{}/api/chat", host, port);
         info!("Initializing OllamaModule with model '{}' at {}", model, url);
         let client = Client::new();
         Self { model, url, client }
@@ -55,10 +56,9 @@ impl<DB: Database> CoCoModule<DB, CLIPSKnowledgeBase> for OllamaModule {
         tokio::spawn(async move {
             while let Some(update) = values_rx.recv().await {
                 match update {
-                    OllamaMessage::AddValues { object_id, text, values } => {
-                        trace!("Received AddValues for object_id {}: text: {}, values: {}", object_id, text, values.iter().map(|(k, v)| format!("{}={:?}", k, v)).collect::<Vec<_>>().join(", "));
-                        let timestamp = Utc::now();
-                        if let Err(e) = values_kb.add_values(object_id.clone(), values, timestamp).await {
+                    OllamaMessage::AddValues { object_id, values } => {
+                        trace!("Received AddValues for object_id {}: values: {}", object_id, values.iter().map(|(k, v)| format!("{}={:?}", k, v)).collect::<Vec<_>>().join(", "));
+                        if let Err(e) = values_kb.add_values(object_id.clone(), values, Utc::now()).await {
                             error!("Failed to add values to object {}: {}", object_id, e);
                         }
                     }
@@ -81,9 +81,9 @@ impl<DB: Database> CoCoModule<DB, CLIPSKnowledgeBase> for OllamaModule {
                                             "name": class.name,
                                         });
                                         if let Some(desc) = &class.description {
-                                            tool["description"] = serde_json::Value::String(desc.clone());
+                                            tool["description"] = Value::String(desc.clone());
                                         }
-                                        let mut params = serde_json::Map::new();
+                                        let mut params = Map::new();
                                         for (prop_name, prop) in class_props {
                                             params.insert(
                                                 prop_name.clone(),
@@ -93,7 +93,7 @@ impl<DB: Database> CoCoModule<DB, CLIPSKnowledgeBase> for OllamaModule {
                                                             "type": "boolean",
                                                         });
                                                         if let Some(desc) = description {
-                                                            param["description"] = serde_json::Value::String(desc.clone());
+                                                            param["description"] = Value::String(desc.clone());
                                                         }
                                                         param
                                                     }
@@ -102,7 +102,7 @@ impl<DB: Database> CoCoModule<DB, CLIPSKnowledgeBase> for OllamaModule {
                                                             "type": "integer",
                                                         });
                                                         if let Some(desc) = description {
-                                                            param["description"] = serde_json::Value::String(desc.clone());
+                                                            param["description"] = Value::String(desc.clone());
                                                         }
                                                         param
                                                     }
@@ -111,7 +111,7 @@ impl<DB: Database> CoCoModule<DB, CLIPSKnowledgeBase> for OllamaModule {
                                                             "type": "number",
                                                         });
                                                         if let Some(desc) = description {
-                                                            param["description"] = serde_json::Value::String(desc.clone());
+                                                            param["description"] = Value::String(desc.clone());
                                                         }
                                                         param
                                                     }
@@ -120,7 +120,7 @@ impl<DB: Database> CoCoModule<DB, CLIPSKnowledgeBase> for OllamaModule {
                                                             "type": "string",
                                                         });
                                                         if let Some(desc) = description {
-                                                            param["description"] = serde_json::Value::String(desc.clone());
+                                                            param["description"] = Value::String(desc.clone());
                                                         }
                                                         param
                                                     }
@@ -129,10 +129,10 @@ impl<DB: Database> CoCoModule<DB, CLIPSKnowledgeBase> for OllamaModule {
                                                             "type": "string",
                                                         });
                                                         if let Some(desc) = description {
-                                                            param["description"] = serde_json::Value::String(desc.clone());
+                                                            param["description"] = Value::String(desc.clone());
                                                         }
                                                         if let Some(allowed) = allowed_values {
-                                                            param["enum"] = serde_json::Value::Array(allowed.iter().map(|v| serde_json::Value::String(v.clone())).collect());
+                                                            param["enum"] = Value::Array(allowed.iter().map(|v| Value::String(v.clone())).collect());
                                                         }
                                                         param
                                                     }
@@ -141,7 +141,7 @@ impl<DB: Database> CoCoModule<DB, CLIPSKnowledgeBase> for OllamaModule {
                                                             "type": "string",
                                                         });
                                                         if let Some(desc) = description {
-                                                            param["description"] = serde_json::Value::String(desc.clone());
+                                                            param["description"] = Value::String(desc.clone());
                                                         }
                                                         let mut instances = HashSet::new();
                                                         for class in classes {
@@ -155,7 +155,7 @@ impl<DB: Database> CoCoModule<DB, CLIPSKnowledgeBase> for OllamaModule {
                                                             }
                                                         }
                                                         if !instances.is_empty() {
-                                                            param["enum"] = serde_json::Value::Array(instances.into_iter().map(|v| serde_json::Value::String(v)).collect());
+                                                            param["enum"] = Value::Array(instances.into_iter().map(|v| Value::String(v)).collect());
                                                         }
                                                         param
                                                     }
@@ -165,7 +165,7 @@ impl<DB: Database> CoCoModule<DB, CLIPSKnowledgeBase> for OllamaModule {
                                                             "items": { "type": "boolean" },
                                                         });
                                                         if let Some(desc) = description {
-                                                            param["description"] = serde_json::Value::String(desc.clone());
+                                                            param["description"] = Value::String(desc.clone());
                                                         }
                                                         param
                                                     }
@@ -175,7 +175,7 @@ impl<DB: Database> CoCoModule<DB, CLIPSKnowledgeBase> for OllamaModule {
                                                             "items": { "type": "integer" },
                                                         });
                                                         if let Some(desc) = description {
-                                                            param["description"] = serde_json::Value::String(desc.clone());
+                                                            param["description"] = Value::String(desc.clone());
                                                         }
                                                         param
                                                     }
@@ -185,7 +185,7 @@ impl<DB: Database> CoCoModule<DB, CLIPSKnowledgeBase> for OllamaModule {
                                                             "items": { "type": "number" },
                                                         });
                                                         if let Some(desc) = description {
-                                                            param["description"] = serde_json::Value::String(desc.clone());
+                                                            param["description"] = Value::String(desc.clone());
                                                         }
                                                         param
                                                     }
@@ -195,7 +195,7 @@ impl<DB: Database> CoCoModule<DB, CLIPSKnowledgeBase> for OllamaModule {
                                                             "items": { "type": "string" },
                                                         });
                                                         if let Some(desc) = description {
-                                                            param["description"] = serde_json::Value::String(desc.clone());
+                                                            param["description"] = Value::String(desc.clone());
                                                         }
                                                         param
                                                     }
@@ -205,10 +205,10 @@ impl<DB: Database> CoCoModule<DB, CLIPSKnowledgeBase> for OllamaModule {
                                                             "items": { "type": "string" },
                                                         });
                                                         if let Some(desc) = description {
-                                                            param["description"] = serde_json::Value::String(desc.clone());
+                                                            param["description"] = Value::String(desc.clone());
                                                         }
                                                         if let Some(allowed) = allowed_values {
-                                                            param["enum"] = serde_json::Value::Array(allowed.iter().map(|v| serde_json::Value::String(v.clone())).collect());
+                                                            param["enum"] = Value::Array(allowed.iter().map(|v| Value::String(v.clone())).collect());
                                                         }
                                                         param
                                                     }
@@ -218,7 +218,7 @@ impl<DB: Database> CoCoModule<DB, CLIPSKnowledgeBase> for OllamaModule {
                                                             "items": { "type": "string" },
                                                         });
                                                         if let Some(desc) = description {
-                                                            param["description"] = serde_json::Value::String(desc.clone());
+                                                            param["description"] = Value::String(desc.clone());
                                                         }
                                                         let mut instances = HashSet::new();
                                                         for class in classes {
@@ -232,7 +232,7 @@ impl<DB: Database> CoCoModule<DB, CLIPSKnowledgeBase> for OllamaModule {
                                                             }
                                                         }
                                                         if !instances.is_empty() {
-                                                            param["enum"] = serde_json::Value::Array(instances.into_iter().map(|v| serde_json::Value::String(v)).collect());
+                                                            param["enum"] = Value::Array(instances.into_iter().map(|v| Value::String(v)).collect());
                                                         }
                                                         param
                                                     }
@@ -317,14 +317,58 @@ impl<DB: Database> CoCoModule<DB, CLIPSKnowledgeBase> for OllamaModule {
                         "tools": tools,
                     });
                     match client.post(&url).json(&body).send().await {
-                        Ok(resp) => match resp.json::<serde_json::Value>().await {
-                            Ok(json_resp) => {
-                                trace!("Received response from Ollama API: {}", json_resp);
+                        Ok(resp) => {
+                            let mut byte_stream = resp.bytes_stream();
+                            let mut line_buf: Vec<u8> = Vec::new();
+                            while let Some(chunk) = byte_stream.next().await {
+                                match chunk {
+                                    Ok(bytes) => {
+                                        line_buf.extend_from_slice(&bytes);
+                                        while let Some(pos) = line_buf.iter().position(|&b| b == b'\n') {
+                                            let line: Vec<u8> = line_buf.drain(..=pos).collect();
+                                            let line = &line[..line.len().saturating_sub(1)];
+                                            trace!("Received line from Ollama API: {:?}", String::from_utf8_lossy(line));
+
+                                            if line.is_empty() {
+                                                continue;
+                                            }
+
+                                            let mut parsed: ChatChunk = match serde_json::from_slice(line) {
+                                                Ok(p) => p,
+                                                Err(e) => {
+                                                    warn!("chunk NDJSON non parsabile, ignorato: {e} — raw: {:?}", String::from_utf8_lossy(line));
+                                                    continue;
+                                                }
+                                            };
+
+                                            for call in &mut parsed.message.tool_calls {
+                                                let object_id = call.function.arguments.as_object_mut().and_then(|map| map.remove("object_id"));
+                                                let object_id = match object_id {
+                                                    Some(Value::String(s)) => s,
+                                                    _ => {
+                                                        warn!("Tool call missing or invalid object_id: {:?}", call.function.arguments);
+                                                        continue;
+                                                    }
+                                                };
+                                                trace!("Received tool call for object_id {}: function: {}, arguments: {:?}", object_id, call.function.name, call.function.arguments);
+                                            }
+
+                                            if parsed.message.tool_calls.is_empty() && !parsed.message.content.is_empty() {
+                                                warn!("Ollama API response contains content but no tool calls: {}", parsed.message.content);
+                                            }
+
+                                            if parsed.done {
+                                                trace!("Ollama API response done: {:?}", parsed.done_reason);
+                                            }
+                                        }
+                                    }
+                                    Err(e) => {
+                                        error!("Error while reading response stream from Ollama API: {}", e);
+                                        break;
+                                    }
+                                }
                             }
-                            Err(e) => {
-                                error!("Failed to parse JSON response from Ollama API: {}", e);
-                            }
-                        },
+                        }
                         Err(e) => {
                             error!("Failed to send request to Ollama API: {}", e);
                         }
@@ -365,5 +409,5 @@ struct ToolCall {
 #[derive(Deserialize)]
 struct FunctionCall {
     name: String,
-    arguments: serde_json::Value,
+    arguments: Value,
 }
