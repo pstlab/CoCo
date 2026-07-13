@@ -336,7 +336,7 @@ impl<DB: Database> CoCoModule<DB, CLIPSKnowledgeBase> for OllamaModule {
                                             let mut parsed: ChatChunk = match serde_json::from_slice(line) {
                                                 Ok(p) => p,
                                                 Err(e) => {
-                                                    warn!("chunk NDJSON non parsabile, ignorato: {e} — raw: {:?}", String::from_utf8_lossy(line));
+                                                    error!("Failed to parse line from Ollama API: {}. Line: {:?}", e, String::from_utf8_lossy(line));
                                                     continue;
                                                 }
                                             };
