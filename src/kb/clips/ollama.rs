@@ -2,7 +2,7 @@ use crate::{
     CoCo, CoCoModule,
     db::Database,
     kb::{KnowledgeBase, clips::CLIPSKnowledgeBase},
-    model::{CoCoError, CoCoProperty, CoCoValue},
+    model::{CoCoError, CoCoProperty, CoCoValue, value_from_json},
 };
 use async_trait::async_trait;
 use chrono::Utc;
@@ -17,7 +17,7 @@ use tracing::{error, info, trace, warn};
 
 enum OllamaMessage {
     AddValues { object_id: String, values: HashMap<String, CoCoValue> },
-    GetTools { tools: HashMap<String, HashSet<String>>, resp_tx: oneshot::Sender<Result<Vec<Value>, CoCoError>> },
+    GetTools { tools: HashMap<String, HashSet<String>>, resp_tx: oneshot::Sender<Result<(HashMap<String, HashMap<String, CoCoProperty>>, Vec<Value>), CoCoError>> },
 }
 
 pub struct OllamaModule {
@@ -246,7 +246,7 @@ impl<DB: Database> CoCoModule<DB, CLIPSKnowledgeBase> for OllamaModule {
                                         tools.push(tool);
                                     }
                                 }
-                                let _ = resp_tx.send(Ok(tools));
+                                let _ = resp_tx.send(Ok((props, tools)));
                             }
                             Err(e) => {
                                 error!("Failed to get dynamic properties for tools {:?}: {}", tools, e);
@@ -294,7 +294,7 @@ impl<DB: Database> CoCoModule<DB, CLIPSKnowledgeBase> for OllamaModule {
                 tokio::spawn(async move {
                     let (resp_tx, resp_rx) = oneshot::channel();
                     let _ = values_tx.send(OllamaMessage::GetTools { tools: tools.clone(), resp_tx });
-                    let tools = match resp_rx.await {
+                    let (props, tools) = match resp_rx.await {
                         Ok(Ok(props)) => props,
                         Ok(Err(e)) => {
                             error!("Failed to get prompt context: {}", e);
@@ -350,7 +350,22 @@ impl<DB: Database> CoCoModule<DB, CLIPSKnowledgeBase> for OllamaModule {
                                                         continue;
                                                     }
                                                 };
+                                                let mut values: HashMap<String, CoCoValue> = HashMap::new();
+                                                for (key, value) in call.function.arguments.as_object().unwrap_or(&Map::new()) {
+                                                    let prop = props.get(&call.function.name).and_then(|class_props| class_props.get(key));
+                                                    if let Some(prop) = prop {
+                                                        if let Ok(coco_value) = value_from_json(prop, value) {
+                                                            values.insert(key.clone(), coco_value);
+                                                        } else {
+                                                            warn!("Failed to convert value for property {} in tool call {}: {:?}", key, call.function.name, value);
+                                                        }
+                                                    } else {
+                                                        warn!("Property {} in tool call {} not found in knowledge base, skipping", key, call.function.name);
+                                                        continue;
+                                                    }
+                                                }
                                                 trace!("Received tool call for object_id {}: function: {}, arguments: {:?}", object_id, call.function.name, call.function.arguments);
+                                                let _ = values_tx.send(OllamaMessage::AddValues { object_id, values });
                                             }
 
                                             if parsed.message.tool_calls.is_empty() && !parsed.message.content.is_empty() {
