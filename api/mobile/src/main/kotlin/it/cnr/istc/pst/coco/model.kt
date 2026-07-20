@@ -49,6 +49,9 @@ sealed interface CoCoValue {
     data class StringValue(val value: String) : CoCoValue
 
     @Serializable
+    data class ObjectValue(val value: String) : CoCoValue
+
+    @Serializable
     data class BoolArrayValue(val value: List<Boolean>) : CoCoValue
 
     @Serializable
@@ -59,6 +62,9 @@ sealed interface CoCoValue {
 
     @Serializable
     data class StringArrayValue(val value: List<String>) : CoCoValue
+
+    @Serializable
+    data class ObjectArrayValue(val value: List<String>) : CoCoValue
 }
 
 @Serializable
@@ -206,10 +212,12 @@ object CoCoValueSerializer : KSerializer<CoCoValue> {
             is CoCoValue.IntValue -> JsonPrimitive(value.value)
             is CoCoValue.FloatValue -> JsonPrimitive(value.value)
             is CoCoValue.StringValue -> JsonPrimitive(value.value)
+            is CoCoValue.ObjectValue -> JsonPrimitive(value.value)
             is CoCoValue.BoolArrayValue -> JsonArray(value.value.map { JsonPrimitive(it) })
             is CoCoValue.IntArrayValue -> JsonArray(value.value.map { JsonPrimitive(it) })
             is CoCoValue.FloatArrayValue -> JsonArray(value.value.map { JsonPrimitive(it) })
             is CoCoValue.StringArrayValue -> JsonArray(value.value.map { JsonPrimitive(it) })
+            is CoCoValue.ObjectArrayValue -> JsonArray(value.value.map { JsonPrimitive(it) })
         }
         output.encodeJsonElement(jsonElement)
     }
