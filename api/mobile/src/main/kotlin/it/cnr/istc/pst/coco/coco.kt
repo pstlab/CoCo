@@ -12,6 +12,7 @@ import io.ktor.client.request.get
 import io.ktor.client.request.patch
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
+import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
 import io.ktor.http.URLBuilder
 import io.ktor.http.URLProtocol
@@ -350,9 +351,10 @@ class CoCo(private val client: HttpClient, private val baseUrl: String) : Corout
      * Creates a new object on the CoCo server.
      *
      * @param obj The CoCoObject object representing the object to create.
+     * @return The ID of the newly created object.
      * @throws IllegalStateException if not logged in.
      */
-    suspend fun createObject(obj: CoCoObject) {
+    suspend fun createObject(obj: CoCoObject): String {
         logger.trace("Creating object with ID: {}", obj.id)
         check(token != null) { "Not logged in" }
         val response = authClient.post("$baseUrl/objects") {
@@ -362,6 +364,7 @@ class CoCo(private val client: HttpClient, private val baseUrl: String) : Corout
         if (!response.status.isSuccess()) {
             throw IllegalStateException("Failed to create object with status: ${response.status}")
         }
+        return response.bodyAsText()
     }
 
     /**
