@@ -1,4 +1,4 @@
-import { h, VNode, VNodeChildren } from "snabbdom";
+import { h, VNode } from "snabbdom";
 import { coco } from "../coco";
 import { App, flick, Navbar, NavbarItem, NavbarList, OffcanvasBrand } from "@ratiosolver/flick";
 import { CoCoOffcanvas } from "./offcanvas";

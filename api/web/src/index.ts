@@ -8,4 +8,5 @@ export * from './components/class';
 export * from './components/object';
 export * from './components/rule';
 export * from './components/taxonomy';
+export * from './components/class_diagram';
 export * from './components/offcanvas';
