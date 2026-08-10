@@ -85,46 +85,35 @@ impl ActorState {
         Ok(visited)
     }
 
-    fn get_static_properties(&self, classes: &HashSet<String>) -> Result<HashMap<String, HashMap<String, CoCoProperty>>, KnowledgeBaseError> {
+    fn get_properties<F>(&self, classes: &HashSet<String>, extractor: F) -> Result<ClassPropertyMap, KnowledgeBaseError>
+    where
+        F: Fn(&CoCoClass) -> Option<&HashMap<String, CoCoProperty>>,
+    {
         let all_classes = self.get_class_hierarchy(classes)?;
         let mut class_properties = HashMap::new();
 
         for class_name in all_classes {
             let class = self.classes.get(&class_name).ok_or_else(|| KnowledgeBaseError::ClassNotFound(format!("Class {} not found", class_name)))?;
+
             let mut properties = HashMap::new();
-            if let Some(static_props) = &class.static_properties {
-                for (name, property) in static_props {
-                    properties.entry(name.clone()).or_insert(property.clone());
+            if let Some(props) = extractor(class) {
+                for (name, property) in props {
+                    properties.entry(name.clone()).or_insert_with(|| property.clone());
                 }
             }
-
             if !properties.is_empty() {
                 class_properties.insert(class_name, properties);
             }
         }
-
         Ok(class_properties)
     }
 
+    fn get_static_properties(&self, classes: &HashSet<String>) -> Result<HashMap<String, HashMap<String, CoCoProperty>>, KnowledgeBaseError> {
+        self.get_properties(classes, |class| class.static_properties.as_ref())
+    }
+
     fn get_dynamic_properties(&self, classes: &HashSet<String>) -> Result<HashMap<String, HashMap<String, CoCoProperty>>, KnowledgeBaseError> {
-        let all_classes = self.get_class_hierarchy(classes)?;
-        let mut class_properties = HashMap::new();
-
-        for class_name in all_classes {
-            let class = self.classes.get(&class_name).ok_or_else(|| KnowledgeBaseError::ClassNotFound(format!("Class {} not found", class_name)))?;
-            let mut properties = HashMap::new();
-            if let Some(dynamic_props) = &class.dynamic_properties {
-                for (name, property) in dynamic_props {
-                    properties.entry(name.clone()).or_insert(property.clone());
-                }
-            }
-
-            if !properties.is_empty() {
-                class_properties.insert(class_name, properties);
-            }
-        }
-
-        Ok(class_properties)
+        self.get_properties(classes, |class| class.dynamic_properties.as_ref())
     }
 
     fn get_class_instances(&self, class_name: &str) -> Result<Vec<String>, KnowledgeBaseError> {
