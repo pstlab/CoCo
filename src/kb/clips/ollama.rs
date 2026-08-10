@@ -84,6 +84,13 @@ impl<DB: Database> CoCoModule<DB, CLIPSKnowledgeBase> for OllamaModule {
                                             tool["description"] = Value::String(desc.clone());
                                         }
                                         let mut params = Map::new();
+                                        params.insert(
+                                            "object_id".to_string(),
+                                            json!({
+                                                "type": "string",
+                                                "description": "The unique identifier of the object to update.",
+                                            }),
+                                        );
                                         for (prop_name, prop) in class_props {
                                             params.insert(
                                                 prop_name.clone(),
@@ -242,6 +249,7 @@ impl<DB: Database> CoCoModule<DB, CLIPSKnowledgeBase> for OllamaModule {
                                         tool["parameters"] = json!({
                                             "type": "object",
                                             "properties": params,
+                                            "required": ["object_id"]
                                         });
                                         tools.push(tool);
                                     }
@@ -325,18 +333,20 @@ impl<DB: Database> CoCoModule<DB, CLIPSKnowledgeBase> for OllamaModule {
                                     Ok(bytes) => {
                                         line_buf.extend_from_slice(&bytes);
                                         while let Some(pos) = line_buf.iter().position(|&b| b == b'\n') {
-                                            let line: Vec<u8> = line_buf.drain(..=pos).collect();
-                                            let line = &line[..line.len().saturating_sub(1)];
-                                            trace!("Received line from Ollama API: {:?}", String::from_utf8_lossy(line));
+                                            let mut line: Vec<u8> = line_buf.drain(..=pos + 1).collect();
+                                            while line.last() == Some(&b'\n') || line.last() == Some(&b'\r') {
+                                                line.pop();
+                                            }
+                                            trace!("Received line from Ollama API: {:?}", String::from_utf8_lossy(&line));
 
                                             if line.is_empty() {
                                                 continue;
                                             }
 
-                                            let mut parsed: ChatChunk = match serde_json::from_slice(line) {
+                                            let mut parsed: ChatChunk = match serde_json::from_slice(&line) {
                                                 Ok(p) => p,
                                                 Err(e) => {
-                                                    error!("Failed to parse line from Ollama API: {}. Line: {:?}", e, String::from_utf8_lossy(line));
+                                                    error!("Failed to parse line from Ollama API: {}. Line: {:?}", e, String::from_utf8_lossy(&line));
                                                     continue;
                                                 }
                                             };
