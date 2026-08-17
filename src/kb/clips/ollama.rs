@@ -110,10 +110,11 @@ impl<DB: Database> CoCoModule<DB, CLIPSKnowledgeBase> for OllamaModule {
 
                         for class in all_classes {
                             if let Ok(class_def) = values_kb.get_class(class).await {
-                                let mut tool = json!({ "name": class_def.name });
+                                let mut function_def = json!({ "name": class_def.name });
                                 if let Some(desc) = &class_def.description {
-                                    tool["description"] = Value::String(desc.clone());
+                                    function_def["description"] = Value::String(desc.clone());
                                 }
+
                                 let mut params = Map::new();
                                 params.insert(
                                     "object_id".to_string(),
@@ -130,12 +131,17 @@ impl<DB: Database> CoCoModule<DB, CLIPSKnowledgeBase> for OllamaModule {
                                     params.insert(prop_name.clone(), property_to_json(prop, &values_kb).await);
                                 }
 
-                                tool["parameters"] = json!({
+                                function_def["parameters"] = json!({
                                     "type": "object",
                                     "properties": params,
                                     "required": ["object_id"]
                                 });
-                                tools_json.push(tool);
+                                let tool_wrapper = json!({
+                                    "type": "function",
+                                    "function": function_def
+                                });
+
+                                tools_json.push(tool_wrapper);
                             }
                         }
 
@@ -203,6 +209,7 @@ impl<DB: Database> CoCoModule<DB, CLIPSKnowledgeBase> for OllamaModule {
                         ],
                         "tools": tools,
                     });
+                    trace!("Sending request to Ollama API at {}: {}", url, body);
                     match client.post(&url).json(&body).send().await {
                         Ok(resp) => {
                             if !resp.status().is_success() {
