@@ -56,7 +56,7 @@ impl Default for OllamaModule {
 
 #[async_trait]
 impl<DB: Database> CoCoModule<DB, CLIPSKnowledgeBase> for OllamaModule {
-    async fn init(&self, _db: DB, kb: CLIPSKnowledgeBase, _coco: CoCo) -> Result<(), CoCoError> {
+    async fn init(&self, _db: DB, kb: CLIPSKnowledgeBase, coco: CoCo) -> Result<(), CoCoError> {
         let model = self.model.clone();
         let client = self.client.clone();
         let url = self.url.clone();
@@ -68,13 +68,13 @@ impl<DB: Database> CoCoModule<DB, CLIPSKnowledgeBase> for OllamaModule {
                 match update {
                     OllamaMessage::SetProperties { object_id, properties } => {
                         trace!("Received SetProperties for object_id {}: properties: {}", object_id, properties.iter().map(|(k, v)| format!("{}={:?}", k, v)).collect::<Vec<_>>().join(", "));
-                        if let Err(e) = values_kb.set_properties(object_id.clone(), properties).await {
+                        if let Err(e) = coco.set_properties(object_id.clone(), properties).await {
                             error!("Failed to set properties for object {}: {}", object_id, e);
                         }
                     }
                     OllamaMessage::AddValues { object_id, values } => {
                         trace!("Received AddValues for object_id {}: values: {}", object_id, values.iter().map(|(k, v)| format!("{}={:?}", k, v)).collect::<Vec<_>>().join(", "));
-                        if let Err(e) = values_kb.add_values(object_id.clone(), values, Utc::now()).await {
+                        if let Err(e) = coco.add_values(object_id.clone(), values, Utc::now()).await {
                             error!("Failed to add values to object {}: {}", object_id, e);
                         }
                     }
