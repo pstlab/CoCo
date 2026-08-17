@@ -49,7 +49,7 @@ impl Default for OllamaModule {
     fn default() -> Self {
         let host = std::env::var("OLLAMA_HOST").unwrap_or_else(|_| "localhost".to_string());
         let port = std::env::var("OLLAMA_PORT").unwrap_or_else(|_| "11434".to_string()).parse::<u16>().unwrap_or(11434);
-        let model = std::env::var("OLLAMA_MODEL").unwrap_or_else(|_| "llama3".to_string());
+        let model = std::env::var("OLLAMA_MODEL").unwrap_or_else(|_| "llama3.1".to_string());
         Self::new(host, port, model)
     }
 }
@@ -205,6 +205,13 @@ impl<DB: Database> CoCoModule<DB, CLIPSKnowledgeBase> for OllamaModule {
                     });
                     match client.post(&url).json(&body).send().await {
                         Ok(resp) => {
+                            if !resp.status().is_success() {
+                                let status = resp.status();
+                                let err_body = resp.text().await.unwrap_or_default();
+                                error!("Ollama API returned {}: {}", status, err_body);
+                                return;
+                            }
+
                             let mut byte_stream = resp.bytes_stream();
                             let mut line_buf: Vec<u8> = Vec::new();
                             while let Some(chunk) = byte_stream.next().await {
@@ -212,7 +219,7 @@ impl<DB: Database> CoCoModule<DB, CLIPSKnowledgeBase> for OllamaModule {
                                     Ok(bytes) => {
                                         line_buf.extend_from_slice(&bytes);
                                         while let Some(pos) = line_buf.iter().position(|&b| b == b'\n') {
-                                            let mut line: Vec<u8> = line_buf.drain(..=pos + 1).collect();
+                                            let mut line: Vec<u8> = line_buf.drain(..=pos).collect();
                                             while line.last() == Some(&b'\n') || line.last() == Some(&b'\r') {
                                                 line.pop();
                                             }
