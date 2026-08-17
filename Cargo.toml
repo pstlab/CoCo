@@ -36,7 +36,7 @@ jsonwebtoken = { version = "11.0.0", optional = true, features = [
 argon2 = { version = "0.5.3", features = ["std"], optional = true }
 serde = "1.0.229"
 mongodb = { version = "3.8.0", optional = true }
-futures = "0.3.33"
+futures = "0.3.34"
 async-trait = "0.1.92"
 chrono = { version = "0.4.45", features = ["serde"] }
 tracing = "0.1.44"
@@ -44,7 +44,7 @@ tracing-subscriber = "0.3.23"
 utoipa = { version = "5.5.0", features = ["chrono"], optional = true }
 serde_json = "1.0.151"
 reqwest = { version = "0.13.4", features = ["json", "stream"], optional = true }
-futures-util = { version = "0.3.33", optional = true }
+futures-util = { version = "0.3.34", optional = true }
 yup-oauth2 = { version = "12.1.2", optional = true }
 rumqttc = { version = "0.25.1", optional = true }
 clips = { git = "https://github.com/ratioSolver/rust-clips", optional = true }

@@ -32,11 +32,11 @@
   "devDependencies": {
     "@fortawesome/fontawesome-free": "^7.3.1",
     "@types/bootstrap": "^5.2.11",
-    "@types/node": "^26.1.1",
-    "jsdom": "^29.1.1",
+    "@types/node": "^26.2.0",
+    "jsdom": "^30.0.1",
     "type-fest": "^5.8.0",
     "typescript": "^7.0.2",
-    "vite": "^8.1.5"
+    "vite": "^8.2.1"
   },
   "peerDependencies": {
     "@ratiosolver/flick": "^0.2.12",
@@ -48,8 +48,8 @@
   },
   "dependencies": {
     "echarts": "^6.1.0",
-    "highlight.js": "^11.11.1",
-    "mermaid": "11.16.0",
+    "highlight.js": "^11.12.0",
+    "mermaid": "11.16.1",
     "svg-pan-zoom": "^3.6.2"
   }
 }
