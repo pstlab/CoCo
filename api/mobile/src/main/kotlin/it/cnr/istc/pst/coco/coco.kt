@@ -160,8 +160,25 @@ class CoCo(private val client: HttpClient, private val baseUrl: String) : Corout
                         logger.info("WebSocket connected!")
 
                         while (isActive) {
-                            val event = receiveDeserialized<CoCoEvent>()
-                            _events.emit(event)
+                            val rawEvent = receiveDeserialized<CoCoEvent>()
+
+                            val processedEvent = if (rawEvent is CoCoEvent.CoCo) {
+                                rawEvent.copy(
+                                    classes = rawEvent.classes?.mapValues { (key, cls) ->
+                                        if (cls.name.isNullOrEmpty()) cls.copy(name = key) else cls
+                                    },
+                                    rules = rawEvent.rules?.mapValues { (key, rule) ->
+                                        if (rule.name.isNullOrEmpty()) rule.copy(name = key) else rule
+                                    },
+                                    objects = rawEvent.objects?.mapValues { (key, obj) ->
+                                        if (obj.id.isNullOrEmpty()) obj.copy(id = key) else obj
+                                    }
+                                )
+                            } else {
+                                rawEvent
+                            }
+
+                            _events.emit(processedEvent)
                         }
                     }
                 } catch (e: ClientRequestException) {

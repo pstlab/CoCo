@@ -71,7 +71,7 @@ sealed interface CoCoValue {
 data class TimeValue(val value: CoCoValue, val timestamp: String)
 
 @Serializable
-data class CoCoClass(val name: String, val description: String? = null, val parents: List<String>? = null, @SerialName("static_properties") val staticProperties: Map<String, CoCoProperty>?, @SerialName("dynamic_properties") val dynamicProperties: Map<String, CoCoProperty>?)
+data class CoCoClass(val name: String? = null, val description: String? = null, val parents: List<String>? = null, @SerialName("static_properties") val staticProperties: Map<String, CoCoProperty>?, @SerialName("dynamic_properties") val dynamicProperties: Map<String, CoCoProperty>?)
 
 @OptIn(ExperimentalSerializationApi::class)
 @Serializable
@@ -144,7 +144,7 @@ sealed class CoCoEvent {
 
     @Serializable
     @SerialName("class-created")
-    data class ClassCreated(val name: String = "", val parents: List<String>? = null, @SerialName("static_properties") val staticProperties: Map<String, CoCoProperty>?, @SerialName("dynamic_properties") val dynamicProperties: Map<String, CoCoProperty>?) : CoCoEvent()
+    data class ClassCreated(val name: String, val description: String? = null, val parents: List<String>? = null, @SerialName("static_properties") val staticProperties: Map<String, CoCoProperty>?, @SerialName("dynamic_properties") val dynamicProperties: Map<String, CoCoProperty>?) : CoCoEvent()
 
     @Serializable
     @SerialName("rule-created")
