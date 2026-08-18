@@ -71,7 +71,7 @@ sealed interface CoCoValue {
 data class TimeValue(val value: CoCoValue, val timestamp: String)
 
 @Serializable
-data class CoCoClass(val name: String? = null, val parents: List<String>? = null, @SerialName("static_properties") val staticProperties: Map<String, CoCoProperty>?, @SerialName("dynamic_properties") val dynamicProperties: Map<String, CoCoProperty>?)
+data class CoCoClass(val name: String, val description: String? = null, val parents: List<String>? = null, @SerialName("static_properties") val staticProperties: Map<String, CoCoProperty>?, @SerialName("dynamic_properties") val dynamicProperties: Map<String, CoCoProperty>?)
 
 @OptIn(ExperimentalSerializationApi::class)
 @Serializable
@@ -173,7 +173,7 @@ object CoCoValueSerializer : KSerializer<CoCoValue> {
     override val descriptor: SerialDescriptor = kotlinx.serialization.descriptors.buildClassSerialDescriptor("CoCoValue")
 
     override fun deserialize(decoder: Decoder): CoCoValue {
-        val input = decoder as? JsonDecoder ?: throw IllegalStateException("Questo serializer supporta solo il formato JSON")
+        val input = decoder as? JsonDecoder ?: throw IllegalStateException("This serializer only supports JSON format")
 
         return when (val element = input.decodeJsonElement()) {
             is JsonNull -> CoCoValue.NullValue
@@ -198,13 +198,12 @@ object CoCoValueSerializer : KSerializer<CoCoValue> {
                 }
             }
 
-            is JsonObject -> throw IllegalArgumentException("CoCoValue non si aspetta un intero oggetto JSON")
+            is JsonObject -> throw IllegalArgumentException("CoCoValue does not expect a full JSON object")
         }
     }
 
     override fun serialize(encoder: Encoder, value: CoCoValue) {
-        val output = encoder as? JsonEncoder
-            ?: throw IllegalStateException("Questo serializer supporta solo il formato JSON")
+        val output = encoder as? JsonEncoder ?: throw IllegalStateException("This serializer only supports JSON format")
 
         val jsonElement = when (value) {
             is CoCoValue.NullValue -> JsonNull

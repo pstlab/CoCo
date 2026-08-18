@@ -155,7 +155,7 @@ class CoCo(private val client: HttpClient, private val baseUrl: String) : Corout
                         }
                     }) {
                         webSocketSession = this
-                        logger.info("WebSocket connesso!")
+                        logger.info("WebSocket connected!")
 
                         for (frame in incoming) {
                             if (frame is Frame.Text) {
