@@ -7,6 +7,7 @@ import io.ktor.client.plugins.auth.Auth
 import io.ktor.client.plugins.auth.providers.BearerTokens
 import io.ktor.client.plugins.auth.providers.bearer
 import io.ktor.client.plugins.websocket.DefaultClientWebSocketSession
+import io.ktor.client.plugins.websocket.receiveDeserialized
 import io.ktor.client.plugins.websocket.webSocket
 import io.ktor.client.request.get
 import io.ktor.client.request.patch
@@ -32,6 +33,7 @@ import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
 import org.slf4j.Logger
@@ -157,12 +159,9 @@ class CoCo(private val client: HttpClient, private val baseUrl: String) : Corout
                         webSocketSession = this
                         logger.info("WebSocket connected!")
 
-                        for (frame in incoming) {
-                            if (frame is Frame.Text) {
-                                val text = frame.readText()
-                                val event = Json.decodeFromString<CoCoEvent>(text)
-                                _events.emit(event)
-                            }
+                        while (isActive) {
+                            val event = receiveDeserialized<CoCoEvent>()
+                            _events.emit(event)
                         }
                     }
                 } catch (e: ClientRequestException) {
