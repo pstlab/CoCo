@@ -49,9 +49,12 @@ impl<DB: Database, KB: KnowledgeBase> CoCoModule<DB, KB> for PubSubModule {
                     CoCoEvent::ClassCreated(class_name) => {
                         if let Ok(class) = coco_clone.get_class(class_name.clone()).await {
                             if let Ok(data) = serde_json::to_string(&class) {
-                                if let Err(e) = publisher.publish(Message::new().set_attributes(HashMap::from([("msg_type".to_string(), "class-created".to_string()), ("class_name".to_string(), class_name.clone())])).set_data(data.into_bytes())).await {
-                                    error!("Failed to publish class-created event for class '{}': {}", class_name, e);
-                                }
+                                let publisher_task = publisher.clone();
+                                tokio::spawn(async move {
+                                    if let Err(e) = publisher_task.publish(Message::new().set_attributes(HashMap::from([("msg_type".to_string(), "class-created".to_string()), ("class_name".to_string(), class_name.clone())])).set_data(data.into_bytes())).await {
+                                        error!("Failed to publish class-created event for class '{}': {}", class_name, e);
+                                    }
+                                });
                             } else {
                                 error!("Failed to serialize class data for class '{}'", class_name);
                             }
@@ -62,12 +65,17 @@ impl<DB: Database, KB: KnowledgeBase> CoCoModule<DB, KB> for PubSubModule {
                     CoCoEvent::ObjectCreated(object_id) => {
                         if let Ok(object) = coco_clone.get_object(object_id.clone()).await {
                             if let Ok(data) = serde_json::to_string(&object) {
-                                if let Err(e) = publisher.publish(Message::new().set_attributes(HashMap::from([("msg_type".to_string(), "object-created".to_string()), ("object_id".to_string(), object_id.clone())])).set_data(data.into_bytes())).await {
-                                    error!("Failed to publish object-created event for object '{}': {}", object_id, e);
-                                }
+                                let publisher_task = publisher.clone();
+                                tokio::spawn(async move {
+                                    if let Err(e) = publisher_task.publish(Message::new().set_attributes(HashMap::from([("msg_type".to_string(), "object-created".to_string()), ("object_id".to_string(), object_id.clone())])).set_data(data.into_bytes())).await {
+                                        error!("Failed to publish object-created event for object '{}': {}", object_id, e);
+                                    }
+                                });
                             } else {
                                 error!("Failed to serialize object data for object '{}'", object_id);
                             }
+                        } else {
+                            error!("Failed to retrieve object data for object '{}'", object_id);
                         }
                     }
                     CoCoEvent::ClassesUpdated(object_id, classes) => {
@@ -75,27 +83,36 @@ impl<DB: Database, KB: KnowledgeBase> CoCoModule<DB, KB> for PubSubModule {
                             "object_id": object_id,
                             "classes": classes
                         })) {
-                            if let Err(e) = publisher.publish(Message::new().set_attributes(HashMap::from([("msg_type".to_string(), "classes-updated".to_string()), ("object_id".to_string(), object_id.clone())])).set_data(data.into_bytes())).await {
-                                error!("Failed to publish classes-updated event for object '{}': {}", object_id, e);
-                            }
+                            let publisher_task = publisher.clone();
+                            tokio::spawn(async move {
+                                if let Err(e) = publisher_task.publish(Message::new().set_attributes(HashMap::from([("msg_type".to_string(), "classes-updated".to_string()), ("object_id".to_string(), object_id.clone())])).set_data(data.into_bytes())).await {
+                                    error!("Failed to publish classes-updated event for object '{}': {}", object_id, e);
+                                }
+                            });
                         } else {
                             error!("Failed to serialize classes data for object '{}'", object_id);
                         }
                     }
                     CoCoEvent::PropertiesUpdated(object_id, properties) => {
                         if let Ok(data) = serde_json::to_string(&properties) {
-                            if let Err(e) = publisher.publish(Message::new().set_attributes(HashMap::from([("msg_type".to_string(), "properties-updated".to_string()), ("object_id".to_string(), object_id.clone())])).set_data(data.into_bytes())).await {
-                                error!("Failed to publish properties-updated event for object '{}': {}", object_id, e);
-                            }
+                            let publisher_task = publisher.clone();
+                            tokio::spawn(async move {
+                                if let Err(e) = publisher_task.publish(Message::new().set_attributes(HashMap::from([("msg_type".to_string(), "properties-updated".to_string()), ("object_id".to_string(), object_id.clone())])).set_data(data.into_bytes())).await {
+                                    error!("Failed to publish properties-updated event for object '{}': {}", object_id, e);
+                                }
+                            });
                         } else {
                             error!("Failed to serialize properties data for object '{}'", object_id);
                         }
                     }
                     CoCoEvent::ValuesAdded(object_id, values, timestamp) => {
                         if let Ok(data) = serde_json::to_string(&values) {
-                            if let Err(e) = publisher.publish(Message::new().set_attributes(HashMap::from([("msg_type".to_string(), "values-added".to_string()), ("object_id".to_string(), object_id.clone()), ("timestamp".to_string(), timestamp.timestamp().to_string())])).set_data(data.into_bytes())).await {
-                                error!("Failed to publish values-added event for object '{}': {}", object_id, e);
-                            }
+                            let publisher_task = publisher.clone();
+                            tokio::spawn(async move {
+                                if let Err(e) = publisher_task.publish(Message::new().set_attributes(HashMap::from([("msg_type".to_string(), "values-added".to_string()), ("object_id".to_string(), object_id.clone()), ("timestamp".to_string(), timestamp.timestamp().to_string())])).set_data(data.into_bytes())).await {
+                                    error!("Failed to publish values-added event for object '{}': {}", object_id, e);
+                                }
+                            });
                         } else {
                             error!("Failed to serialize values data for object '{}'", object_id);
                         }
@@ -103,9 +120,12 @@ impl<DB: Database, KB: KnowledgeBase> CoCoModule<DB, KB> for PubSubModule {
                     CoCoEvent::RuleCreated(rule) => {
                         if let Ok(rule_data) = coco_clone.get_rule(rule.clone()).await {
                             if let Ok(data) = serde_json::to_string(&rule_data) {
-                                if let Err(e) = publisher.publish(Message::new().set_attributes(HashMap::from([("msg_type".to_string(), "rule-created".to_string()), ("rule_name".to_string(), rule.clone())])).set_data(data.into_bytes())).await {
-                                    error!("Failed to publish rule-created event for rule '{}': {}", rule, e);
-                                }
+                                let publisher_task = publisher.clone();
+                                tokio::spawn(async move {
+                                    if let Err(e) = publisher_task.publish(Message::new().set_attributes(HashMap::from([("msg_type".to_string(), "rule-created".to_string()), ("rule_name".to_string(), rule.clone())])).set_data(data.into_bytes())).await {
+                                        error!("Failed to publish rule-created event for rule '{}': {}", rule, e);
+                                    }
+                                });
                             } else {
                                 error!("Failed to serialize rule data for rule '{}'", rule);
                             }
@@ -157,7 +177,7 @@ impl<DB: Database, KB: KnowledgeBase> CoCoModule<DB, KB> for PubSubModule {
                             }
                             Err(e) => {
                                 warn!("Failed to get classes for object with ID '{}': {}", object_id, e);
-                                hndl.ack();
+                                hndl.nack();
                                 continue;
                             }
                         };
