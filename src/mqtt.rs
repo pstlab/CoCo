@@ -15,6 +15,7 @@ use rumqttc::v5::{
 };
 use serde_json::Value;
 use std::{env, time::Duration};
+use tokio::sync::broadcast::error::RecvError;
 use tracing::{error, info, trace, warn};
 
 pub struct MQTTModule {
@@ -47,79 +48,88 @@ impl<DB: Database, KB: KnowledgeBase> CoCoModule<DB, KB> for MQTTModule {
         let mut rx = coco.event_tx.subscribe();
         let coco_clone = coco.clone();
         tokio::spawn(async move {
-            while let Ok(msg) = rx.recv().await {
-                match msg {
-                    CoCoEvent::ClassCreated(class_name) => {
-                        if let Ok(class) = coco_clone.get_class(class_name.clone()).await {
-                            if let Ok(mut update_msg) = serde_json::to_value(class) {
-                                update_msg["msg_type"] = serde_json::json!("class-created");
-                                if let Ok(payload) = serde_json::to_string(&update_msg) {
-                                    if let Err(e) = client.publish("coco/events", QoS::AtLeastOnce, false, payload).await {
-                                        error!("Failed to publish class-created event for class '{}': {}", class_name, e);
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    CoCoEvent::ObjectCreated(object_id) => {
-                        if let Ok(object) = coco_clone.get_object(object_id.clone()).await {
-                            if let Ok(mut update_msg) = serde_json::to_value(object) {
-                                update_msg["msg_type"] = serde_json::json!("object-created");
-                                if let Ok(payload) = serde_json::to_string(&update_msg) {
-                                    if let Err(e) = client.publish("coco/events", QoS::AtLeastOnce, false, payload).await {
-                                        error!("Failed to publish object-created event for object '{}': {}", object_id, e);
-                                    } else {
-                                        trace!("Subscribing to MQTT topic for object '{}'", object_id);
-                                        let mut filter = Filter::new(format!("coco/{}/#", object_id), QoS::AtLeastOnce);
-                                        filter.nolocal = true;
-                                        if let Err(e) = client.subscribe_many(vec![filter]).await {
-                                            error!("Failed to subscribe to MQTT topic for object '{}': {}", object_id, e);
+            loop {
+                match rx.recv().await {
+                    Ok(msg) => match msg {
+                        CoCoEvent::ClassCreated(class_name) => {
+                            if let Ok(class) = coco_clone.get_class(class_name.clone()).await {
+                                if let Ok(mut update_msg) = serde_json::to_value(class) {
+                                    update_msg["msg_type"] = serde_json::json!("class-created");
+                                    if let Ok(payload) = serde_json::to_string(&update_msg) {
+                                        if let Err(e) = client.publish("coco/events", QoS::AtLeastOnce, false, payload).await {
+                                            error!("Failed to publish class-created event for class '{}': {}", class_name, e);
                                         }
                                     }
                                 }
                             }
                         }
-                    }
-                    CoCoEvent::ClassesUpdated(object_id, classes) => {
-                        let update_msg = serde_json::json!({
-                            "msg_type": "classes-updated",
-                            "object_id": object_id,
-                            "classes": classes
-                        });
-                        let payload = serde_json::to_string(&update_msg).unwrap_or_default();
-                        if let Err(e) = client.publish("coco/events", QoS::AtLeastOnce, false, payload).await {
-                            error!("Failed to publish classes-updated event for object '{}': {}", object_id, e);
-                        }
-                    }
-                    CoCoEvent::PropertiesUpdated(object_id, properties) => {
-                        if let Ok(payload) = serde_json::to_string(&properties) {
-                            if let Err(e) = client.publish(format!("coco/{}/static", object_id), QoS::AtLeastOnce, false, payload).await {
-                                error!("Failed to publish properties-updated event for object '{}': {}", object_id, e);
-                            }
-                        }
-                    }
-                    CoCoEvent::ValuesAdded(object_id, values, timestamp) => {
-                        let update_msg = serde_json::json!({
-                            "values": values,
-                            "timestamp": timestamp
-                        });
-                        if let Ok(payload) = serde_json::to_string(&update_msg) {
-                            if let Err(e) = client.publish(format!("coco/{}/dynamic", object_id), QoS::AtLeastOnce, false, payload).await {
-                                error!("Failed to publish values-added event for object '{}': {}", object_id, e);
-                            }
-                        }
-                    }
-                    CoCoEvent::RuleCreated(rule) => {
-                        if let Ok(rule_data) = coco_clone.get_rule(rule.clone()).await {
-                            if let Ok(mut update_msg) = serde_json::to_value(rule_data) {
-                                update_msg["msg_type"] = serde_json::json!("rule-created");
-                                if let Ok(payload) = serde_json::to_string(&update_msg) {
-                                    if let Err(e) = client.publish("coco/events", QoS::AtLeastOnce, false, payload).await {
-                                        error!("Failed to publish rule-created event for rule '{}': {}", rule, e);
+                        CoCoEvent::ObjectCreated(object_id) => {
+                            if let Ok(object) = coco_clone.get_object(object_id.clone()).await {
+                                if let Ok(mut update_msg) = serde_json::to_value(object) {
+                                    update_msg["msg_type"] = serde_json::json!("object-created");
+                                    if let Ok(payload) = serde_json::to_string(&update_msg) {
+                                        if let Err(e) = client.publish("coco/events", QoS::AtLeastOnce, false, payload).await {
+                                            error!("Failed to publish object-created event for object '{}': {}", object_id, e);
+                                        } else {
+                                            trace!("Subscribing to MQTT topic for object '{}'", object_id);
+                                            let mut filter = Filter::new(format!("coco/{}/#", object_id), QoS::AtLeastOnce);
+                                            filter.nolocal = true;
+                                            if let Err(e) = client.subscribe_many(vec![filter]).await {
+                                                error!("Failed to subscribe to MQTT topic for object '{}': {}", object_id, e);
+                                            }
+                                        }
                                     }
                                 }
                             }
                         }
+                        CoCoEvent::ClassesUpdated(object_id, classes) => {
+                            let update_msg = serde_json::json!({
+                                "msg_type": "classes-updated",
+                                "object_id": object_id,
+                                "classes": classes
+                            });
+                            let payload = serde_json::to_string(&update_msg).unwrap_or_default();
+                            if let Err(e) = client.publish("coco/events", QoS::AtLeastOnce, false, payload).await {
+                                error!("Failed to publish classes-updated event for object '{}': {}", object_id, e);
+                            }
+                        }
+                        CoCoEvent::PropertiesUpdated(object_id, properties) => {
+                            if let Ok(payload) = serde_json::to_string(&properties) {
+                                if let Err(e) = client.publish(format!("coco/{}/static", object_id), QoS::AtLeastOnce, false, payload).await {
+                                    error!("Failed to publish properties-updated event for object '{}': {}", object_id, e);
+                                }
+                            }
+                        }
+                        CoCoEvent::ValuesAdded(object_id, values, timestamp) => {
+                            let update_msg = serde_json::json!({
+                                "values": values,
+                                "timestamp": timestamp
+                            });
+                            if let Ok(payload) = serde_json::to_string(&update_msg) {
+                                if let Err(e) = client.publish(format!("coco/{}/dynamic", object_id), QoS::AtLeastOnce, false, payload).await {
+                                    error!("Failed to publish values-added event for object '{}': {}", object_id, e);
+                                }
+                            }
+                        }
+                        CoCoEvent::RuleCreated(rule) => {
+                            if let Ok(rule_data) = coco_clone.get_rule(rule.clone()).await {
+                                if let Ok(mut update_msg) = serde_json::to_value(rule_data) {
+                                    update_msg["msg_type"] = serde_json::json!("rule-created");
+                                    if let Ok(payload) = serde_json::to_string(&update_msg) {
+                                        if let Err(e) = client.publish("coco/events", QoS::AtLeastOnce, false, payload).await {
+                                            error!("Failed to publish rule-created event for rule '{}': {}", rule, e);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    },
+                    Err(RecvError::Lagged(skipped)) => {
+                        warn!("Pub/Sub publisher receiver lagged behind by {} messages. Some events were dropped.", skipped);
+                    }
+                    Err(RecvError::Closed) => {
+                        error!("Pub/Sub publisher event channel closed. Stopping publisher task.");
+                        break;
                     }
                 }
             }
@@ -159,10 +169,6 @@ impl<DB: Database, KB: KnowledgeBase> CoCoModule<DB, KB> for MQTTModule {
 
                 let classes = match coco.get_object_classes(object_id.clone()).await {
                     Ok(c) => c,
-                    Err(CoCoError::ObjectNotFound(e)) => {
-                        warn!("Object not found for ID '{}': {}", object_id, e);
-                        continue;
-                    }
                     Err(e) => {
                         warn!("Failed to get classes for object with ID '{}': {}", object_id, e);
                         continue;
