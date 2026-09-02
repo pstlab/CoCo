@@ -42,16 +42,20 @@ async fn main() {
 
     let coco = CoCo::new(db.clone(), kb, event, modules).await;
 
+    #[cfg(feature = "auth")]
+    let users_db = UsersDB::default().await.unwrap_or_else(|e| {
+        error!("Failed to set up users database: {}", e);
+        std::process::exit(1);
+    });
+
     let app = cfg_select! {
-        feature = "auth" => auth_coco_router(coco, UsersDB::default().await.unwrap_or_else(|e| {
-            error!("Failed to set up users database: {}", e);
-            std::process::exit(1);
-        })).await,
+        feature = "auth" => auth_coco_router(coco, users_db.clone()).await,
         _ => public_coco_router(coco).await,
     };
 
     #[cfg(feature = "fcm")]
-    let app = app.merge(fcm_router(db));
+    let app = app.merge(fcm_router(db, users_db));
+
     let app = app.route_service("/favicon.ico", ServeFile::new("gui/favicon.ico")).nest_service("/assets", ServeDir::new("gui/assets")).fallback_service(ServeDir::new("gui").not_found_service(ServeFile::new("gui/index.html")));
 
     let port = std::env::var("PORT").ok().and_then(|p| p.parse().ok()).unwrap_or(3000);

@@ -3,11 +3,16 @@ use crate::{
     db::{Database, mongodb::MongoDB},
     kb::clips::CLIPSKnowledgeBase,
     model::CoCoError,
+    server::{
+        auth::{CurrentUser, auth_middleware},
+        auth_db::UsersDB,
+    },
 };
 use async_trait::async_trait;
 use axum::{
-    Router,
+    Extension, Router,
     extract::{Path, State},
+    middleware::from_fn_with_state,
     response::IntoResponse,
     routing::post,
 };
@@ -15,6 +20,7 @@ use clips::{ClipsValue, Type};
 use mongodb::bson::{Document, doc, oid::ObjectId};
 use reqwest::{Client, StatusCode};
 use serde_json::json;
+use std::{env, fmt, sync::Arc};
 use tracing::{error, trace, warn};
 use yup_oauth2::{ServiceAccountAuthenticator, read_service_account_key};
 
@@ -30,7 +36,7 @@ impl FCMModule {
 
 impl Default for FCMModule {
     fn default() -> Self {
-        let project_id = std::env::var("FCM_PROJECT_ID").unwrap_or_else(|_| "your-project-id".to_string());
+        let project_id = env::var("FCM_PROJECT_ID").unwrap_or_else(|_| "your-project-id".to_string());
         Self::new(project_id)
     }
 }
@@ -42,6 +48,12 @@ impl CoCoModule<MongoDB, CLIPSKnowledgeBase> for FCMModule {
         let client = Client::new();
         let db_for_udf = db.clone();
 
+        let key_path = env::var("SERVICE_ACCOUNT_FILE").unwrap_or_else(|_| "service-account.json".to_string());
+        let key = read_service_account_key(&key_path).await.map_err(|e| CoCoError::ConfigurationError(format!("Failed to read service account key: {}", e)))?;
+
+        let auth = ServiceAccountAuthenticator::builder(key).build().await.map_err(|e| CoCoError::ConfigurationError(format!("Failed to create authenticator: {}", e)))?;
+
+        let shared_auth = Arc::new(auth);
         kb.add_udf(
             "send-message",
             vec![Type(Type::VOID)],
@@ -74,6 +86,7 @@ impl CoCoModule<MongoDB, CLIPSKnowledgeBase> for FCMModule {
                 let db = db_for_udf.clone();
                 let client = client.clone();
                 let url = url.clone();
+                let auth_for_task = shared_auth.clone();
                 tokio::spawn(async move {
                     let tokens = match db.get_tokens(&object_id).await {
                         Ok(tokens) => tokens,
@@ -88,8 +101,15 @@ impl CoCoModule<MongoDB, CLIPSKnowledgeBase> for FCMModule {
                         return;
                     }
 
-                    let access_token = match get_token().await {
-                        Ok(token) => token,
+                    let scopes = &["https://www.googleapis.com/auth/firebase.messaging"];
+                    let access_token = match auth_for_task.token(scopes).await {
+                        Ok(token) => match token.token() {
+                            Some(t) => t.to_owned(),
+                            None => {
+                                warn!("Token payload is missing access token");
+                                return;
+                            }
+                        },
                         Err(e) => {
                             warn!("Failed to get FCM access token: {}", e);
                             return;
@@ -98,9 +118,13 @@ impl CoCoModule<MongoDB, CLIPSKnowledgeBase> for FCMModule {
 
                     for token in tokens {
                         if let Err(e) = send_message(&client, &url, &access_token, &token, &title, &message).await {
-                            warn!("FCM send failed for object_id={}, token={} (removing token): {}", object_id, token, e);
-                            if let Err(remove_err) = db.remove_token(&object_id, &token).await {
-                                warn!("Failed removing stale token for object_id={}, token={}: {}", object_id, token, remove_err);
+                            if e.is_unregistered() {
+                                warn!("FCM reports an unregistered token for object_id={}; removing it: {}", object_id, e);
+                                if let Err(remove_err) = db.remove_token(&object_id, &token).await {
+                                    warn!("Failed removing stale token for object_id={}: {}", object_id, remove_err);
+                                }
+                            } else {
+                                warn!("FCM send failed for object_id={}; keeping token: {}", object_id, e);
                             }
                         }
                     }
@@ -148,21 +172,16 @@ impl FCMTokenManager for MongoDB {
     }
 }
 
-pub fn fcm_router(db: MongoDB) -> Router {
-    Router::new().route("/add_token/{id}", post(add_token)).with_state(db)
+pub fn fcm_router(db: MongoDB, users_db: UsersDB) -> Router {
+    Router::new().route("/add_token/{id}", post(add_token)).route_layer(from_fn_with_state(users_db, auth_middleware)).with_state(db)
 }
 
-async fn get_token() -> Result<String, String> {
-    let key_path = std::env::var("SERVICE_ACCOUNT_FILE").unwrap_or_else(|_| "service-account.json".to_string());
-    let key = read_service_account_key(key_path).await.map_err(|e| format!("Failed to read service account key: {}", e))?;
-    let auth = ServiceAccountAuthenticator::builder(key).build().await.map_err(|e| format!("Failed to create authenticator: {}", e))?;
-    let scopes = &["https://www.googleapis.com/auth/firebase.messaging"];
-    let token = auth.token(scopes).await.map_err(|e| format!("Failed to get token: {}", e))?;
-    token.token().map(|t| t.to_owned()).ok_or_else(|| "Token payload is missing access token".to_string())
-}
-
-async fn add_token(State(db): State<MongoDB>, Path(id): Path<String>, token: String) -> impl IntoResponse {
+async fn add_token(State(db): State<MongoDB>, Extension(user): Extension<CurrentUser>, Path(id): Path<String>, token: String) -> impl IntoResponse {
     trace!("Adding FCM token for ID: {}", id);
+    if !user.has_read_access(&id) {
+        return (StatusCode::FORBIDDEN, "You do not have permission to receive notifications for this object").into_response();
+    }
+
     let token = token.trim();
     if token.is_empty() {
         return (StatusCode::BAD_REQUEST, "Token must not be empty".to_string()).into_response();
@@ -179,7 +198,24 @@ async fn add_token(State(db): State<MongoDB>, Path(id): Path<String>, token: Str
     }
 }
 
-async fn send_message(client: &Client, url: &str, access_token: &str, token: &str, title: &str, message: &str) -> Result<(), String> {
+struct FCMError {
+    message: String,
+    unregistered: bool,
+}
+
+impl FCMError {
+    fn is_unregistered(&self) -> bool {
+        self.unregistered
+    }
+}
+
+impl fmt::Display for FCMError {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(&self.message)
+    }
+}
+
+async fn send_message(client: &Client, url: &str, access_token: &str, token: &str, title: &str, message: &str) -> Result<(), FCMError> {
     let payload = json!({
         "message": {
             "token": token,
@@ -190,7 +226,7 @@ async fn send_message(client: &Client, url: &str, access_token: &str, token: &st
         }
     });
 
-    let response = client.post(url).bearer_auth(access_token).json(&payload).send().await.map_err(|e| e.to_string())?;
+    let response = client.post(url).bearer_auth(access_token).json(&payload).send().await.map_err(|e| FCMError { message: e.to_string(), unregistered: false })?;
 
     if response.status().is_success() {
         return Ok(());
@@ -198,5 +234,8 @@ async fn send_message(client: &Client, url: &str, access_token: &str, token: &st
 
     let status = response.status();
     let body = response.text().await.unwrap_or_else(|_| "<empty response body>".to_string());
-    Err(format!("FCM returned status {} with body {}", status, body))
+    Err(FCMError {
+        message: format!("FCM returned status {}", status),
+        unregistered: status == StatusCode::NOT_FOUND && body.contains("\"UNREGISTERED\""),
+    })
 }

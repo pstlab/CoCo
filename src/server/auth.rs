@@ -38,7 +38,7 @@ struct AppState {
 }
 
 pub async fn auth_coco_router(coco: CoCo, users_db: UsersDB) -> Router {
-    let state = AppState { coco, users_db };
+    let state = AppState { coco, users_db: users_db.clone() };
 
     let auth_router = Router::new()
         .route("/me", get(get_me))
@@ -51,7 +51,7 @@ pub async fn auth_coco_router(coco: CoCo, users_db: UsersDB) -> Router {
         .route("/objects", get(get_objects).post(create_object))
         .route("/objects/{id}", get(get_object).patch(set_properties))
         .route("/objects/{id}/data", get(get_data).post(add_data))
-        .route_layer(from_fn_with_state(state.clone(), auth_middleware));
+        .route_layer(from_fn_with_state(users_db, auth_middleware));
 
     let unauth_router = Router::new().route("/register", post(register)).route("/login", post(login)).route("/refresh_token", post(refresh_token)).route("/ws", get(ws_handler)).route("/openapi", get(openapi));
 
@@ -67,7 +67,7 @@ enum TokenType {
 }
 
 #[derive(Debug, Clone)]
-struct CurrentUser {
+pub struct CurrentUser {
     username: String,
     role: Role,
     read_access: Option<HashSet<String>>,
@@ -75,7 +75,7 @@ struct CurrentUser {
 }
 
 impl CurrentUser {
-    fn has_read_access(&self, object_id: &str) -> bool {
+    pub(crate) fn has_read_access(&self, object_id: &str) -> bool {
         self.role == Role::Admin || self.read_access.as_ref().is_some_and(|access| access.contains(object_id))
     }
 
@@ -84,13 +84,13 @@ impl CurrentUser {
     }
 }
 
-async fn auth_middleware(State(state): State<AppState>, mut req: Request, next: Next) -> Result<Response, StatusCode> {
+pub async fn auth_middleware(State(users_db): State<UsersDB>, mut req: Request, next: Next) -> Result<Response, StatusCode> {
     let header = req.headers().get(header::AUTHORIZATION).and_then(|h| h.to_str().ok());
     if let Some(token) = header.and_then(|h| h.strip_prefix("Bearer "))
-        && let Ok(claims) = verify_jwt(token, state.users_db.secret())
+        && let Ok(claims) = verify_jwt(token, users_db.secret())
         && claims.token_type == TokenType::Access
     {
-        let user = state.users_db.get_user_by_username(&claims.sub).await.map_err(|_| StatusCode::UNAUTHORIZED)?;
+        let user = users_db.get_user_by_username(&claims.sub).await.map_err(|_| StatusCode::UNAUTHORIZED)?;
         req.extensions_mut().insert(CurrentUser {
             username: user.username,
             role: user.role,
