@@ -48,8 +48,8 @@ impl CoCoModule<MongoDB, CLIPSKnowledgeBase> for FCMModule {
         let client = Client::new();
         let db_for_udf = db.clone();
 
-        let key_path = env::var("SERVICE_ACCOUNT_FILE").unwrap_or_else(|_| "service-account.json".to_string());
-        let key = read_service_account_key(&key_path).await.map_err(|e| CoCoError::ConfigurationError(format!("Failed to read service account key: {}", e)))?;
+        let key_path = env::var("GOOGLE_APPLICATION_CREDENTIALS").map_err(|_| CoCoError::ConfigurationError("GOOGLE_APPLICATION_CREDENTIALS environment variable is not set".to_string()))?;
+        let key = read_service_account_key(&key_path).await.map_err(|e| CoCoError::ConfigurationError(format!("Failed to read service account key from {}: {}", key_path, e)))?;
 
         let auth = ServiceAccountAuthenticator::builder(key).build().await.map_err(|e| CoCoError::ConfigurationError(format!("Failed to create authenticator: {}", e)))?;
 
