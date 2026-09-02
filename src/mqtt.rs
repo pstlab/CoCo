@@ -13,7 +13,7 @@ use rumqttc::v5::{
         v5::{Filter, Packet},
     },
 };
-use std::{collections::HashMap, time::Duration};
+use std::{collections::HashMap, env, time::Duration};
 use tracing::{info, trace};
 
 pub struct MQTTModule {
@@ -29,8 +29,8 @@ impl MQTTModule {
 
 impl Default for MQTTModule {
     fn default() -> Self {
-        let broker = std::env::var("MQTT_BROKER").unwrap_or_else(|_| "localhost".to_string());
-        let port = std::env::var("MQTT_PORT").ok().and_then(|p| p.parse().ok()).unwrap_or(1883);
+        let broker = env::var("MQTT_BROKER").unwrap_or_else(|_| "localhost".to_string());
+        let port = env::var("MQTT_PORT").ok().and_then(|p| p.parse().ok()).unwrap_or(1883);
         Self::new(broker, port)
     }
 }

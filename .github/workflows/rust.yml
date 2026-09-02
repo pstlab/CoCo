@@ -47,6 +47,8 @@ jobs:
       - name: Build
         run: cargo build --verbose
       - name: Run tests with coverage
+        env:
+          SERVICE_ACCOUNT_FILE: tests/dummy-service-account.json
         run: cargo llvm-cov --workspace --all-features --lcov --output-path lcov.info
       - name: Upload coverage reports to Codecov
         uses: codecov/codecov-action@v5
