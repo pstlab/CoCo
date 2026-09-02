@@ -1,8 +1,5 @@
 use crate::db::DatabaseError;
-use argon2::{
-    Argon2, PasswordHash, PasswordHasher, PasswordVerifier,
-    password_hash::{SaltString, rand_core::OsRng},
-};
+use argon2::{Argon2, PasswordHash, PasswordHasher, PasswordVerifier};
 use futures::TryStreamExt;
 use mongodb::bson::doc;
 use mongodb::options::IndexOptions;
@@ -53,12 +50,19 @@ impl UsersDB {
         let db = client.database(&name);
         let collection_names = db.list_collection_names().await.map_err(|e| DatabaseError::ConnectionError(e.to_string()))?;
         if collection_names.is_empty() {
-            let users_collection = db.collection::<Document>("users");
+            let users_collection = db.collection::<User>("users");
             let index = IndexModel::builder().keys(doc! { "username": 1 }).options(IndexOptions::builder().unique(true).build()).build();
             users_collection.create_index(index).await.map_err(|e| DatabaseError::ConnectionError(e.to_string()))?;
             let initial_username = std::env::var("INITIAL_ADMIN_USERNAME").unwrap_or_else(|_| "admin".to_owned());
             let initial_password = std::env::var("INITIAL_ADMIN_PASSWORD").unwrap_or_else(|_| "admin".to_owned());
-            users_collection.insert_one(doc! { "username": initial_username, "password": hash_password(initial_password.as_str()), "role": "admin" }).await.map_err(|e| DatabaseError::ConnectionError(e.to_string()))?;
+            let new_user = User {
+                username: initial_username.clone(),
+                password: hash_password(&initial_password)?,
+                role: Role::Admin,
+                read_access: None,
+                write_access: None,
+            };
+            users_collection.insert_one(new_user).await.map_err(|e| if e.to_string().contains("duplicate key error") { DatabaseError::Exists(initial_username.to_owned()) } else { DatabaseError::ConnectionError(e.to_string()) })?;
         }
         Ok(UsersDB { name, secret, client })
     }
@@ -134,7 +138,7 @@ impl UsersDB {
         let collection = db.collection::<User>("users");
         let new_user = User {
             username: username.to_owned(),
-            password: hash_password(password),
+            password: hash_password(password)?,
             role,
             read_access,
             write_access,
@@ -182,12 +186,14 @@ impl UsersDB {
     }
 }
 
-fn hash_password(password: &str) -> String {
-    let salt = SaltString::generate(&mut OsRng);
-    Argon2::default().hash_password(password.as_bytes(), &salt).unwrap().to_string()
+fn hash_password(password: &str) -> Result<String, DatabaseError> {
+    Argon2::default().hash_password(password.as_bytes()).map(|hash| hash.to_string()).map_err(|error| DatabaseError::SerializationError(error.to_string()))
 }
 
 fn verify_password(password: &str, hash: &str) -> bool {
-    let parsed_hash = PasswordHash::new(hash).unwrap();
+    let Ok(parsed_hash) = PasswordHash::new(hash) else {
+        return false;
+    };
+
     Argon2::default().verify_password(password.as_bytes(), &parsed_hash).is_ok()
 }
