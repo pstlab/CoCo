@@ -120,7 +120,7 @@ impl ActorState {
         if !self.classes.contains_key(class_name) {
             return Err(KnowledgeBaseError::ClassNotFound(class_name.to_string()));
         }
-        let instances = self.instances.get(class_name).map(|m| m.keys().cloned().collect()).unwrap_or_else(Vec::new);
+        let instances = self.instances.get(class_name).map(|m| m.keys().cloned().collect()).unwrap_or_default();
         Ok(instances)
     }
 

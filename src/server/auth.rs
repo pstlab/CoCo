@@ -181,7 +181,7 @@ struct Credentials {
     )]
 async fn login(State(state): State<AppState>, Json(req): Json<Credentials>) -> impl IntoResponse {
     match state.users_db.get_user(&req.username, &req.password).await {
-        Ok(user) => issue_tokens(&user.username, &user.role, &state.users_db.secret()).map(Json),
+        Ok(user) => issue_tokens(&user.username, &user.role, state.users_db.secret()).map(Json),
         Err(DatabaseError::NotFound(_)) => Err(StatusCode::UNAUTHORIZED),
         Err(_) => Err(StatusCode::INTERNAL_SERVER_ERROR),
     }
@@ -203,7 +203,7 @@ async fn login(State(state): State<AppState>, Json(req): Json<Credentials>) -> i
 async fn register(State(state): State<AppState>, Json(req): Json<Credentials>) -> impl IntoResponse {
     match state.users_db.create_user(&req.username, &req.password, Role::User, None, None).await {
         Ok(_) => match state.users_db.get_user(&req.username, &req.password).await {
-            Ok(user) => issue_tokens(&user.username, &user.role, &state.users_db.secret()).map(Json),
+            Ok(user) => issue_tokens(&user.username, &user.role, state.users_db.secret()).map(Json),
             Err(_) => Err(StatusCode::INTERNAL_SERVER_ERROR),
         },
         Err(DatabaseError::Exists(_)) => Err(StatusCode::CONFLICT),
@@ -230,8 +230,8 @@ struct RefreshTokenRequest {
         )
     )]
 async fn refresh_token(State(state): State<AppState>, Json(req): Json<RefreshTokenRequest>) -> impl IntoResponse {
-    match verify_jwt(&req.refresh_token, &state.users_db.secret()) {
-        Ok(claims) if claims.token_type == TokenType::Refresh => issue_tokens(&claims.sub, &claims.role, &state.users_db.secret()).map(Json).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR),
+    match verify_jwt(&req.refresh_token, state.users_db.secret()) {
+        Ok(claims) if claims.token_type == TokenType::Refresh => issue_tokens(&claims.sub, &claims.role, state.users_db.secret()).map(Json).map_err(|_| StatusCode::INTERNAL_SERVER_ERROR),
         _ => Err(StatusCode::UNAUTHORIZED),
     }
 }
