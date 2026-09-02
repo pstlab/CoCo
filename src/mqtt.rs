@@ -184,7 +184,7 @@ impl<DB: Database, KB: KnowledgeBase> CoCoModule<DB, KB> for MQTTModule {
                                     error!("Failed to set properties for object with ID '{}': {}", object_id, e);
                                 }
                             }
-                            Err(e) => error!("Failed to parse properties from Pub/Sub message for object with ID '{}': {}", object_id, e),
+                            Err(e) => error!("Failed to parse properties from MQTT message for object with ID '{}': {}", object_id, e),
                         }
                     }
                     "dynamic" => {
@@ -210,7 +210,7 @@ impl<DB: Database, KB: KnowledgeBase> CoCoModule<DB, KB> for MQTTModule {
                                     error!("Failed to add values for object with ID '{}': {}", object_id, e);
                                 }
                             }
-                            Err(e) => error!("Failed to parse values from Pub/Sub message for object with ID '{}': {}", object_id, e),
+                            Err(e) => error!("Failed to parse values from MQTT message for object with ID '{}': {}", object_id, e),
                         }
                     }
                     _ => {

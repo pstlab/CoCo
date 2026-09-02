@@ -2,29 +2,34 @@ use crate::{
     CoCo, CoCoModule,
     db::Database,
     kb::KnowledgeBase,
-    model::{CoCoError, properties_from_json, values_from_json},
+    model::{CoCoError, CoCoEvent, properties_from_json, values_from_json},
 };
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
-use google_cloud_pubsub::client::Subscriber;
+use google_cloud_pubsub::{
+    client::{Publisher, Subscriber},
+    model::Message,
+};
 use serde_json::Value;
-use std::env;
+use std::{collections::HashMap, env};
 use tracing::{error, info, warn};
 
 pub struct PubSubModule {
     subscription_name: String,
+    publish_topic: String,
 }
 
 impl PubSubModule {
-    pub fn new(subscription_name: String) -> Self {
-        Self { subscription_name }
+    pub fn new(subscription_name: String, publish_topic: String) -> Self {
+        Self { subscription_name, publish_topic }
     }
 }
 
 impl Default for PubSubModule {
     fn default() -> Self {
         let subscription_name = env::var("PUBSUB_SUBSCRIPTION_NAME").expect("PUBSUB_SUBSCRIPTION_NAME environment variable is not set");
-        Self::new(subscription_name)
+        let publish_topic = env::var("PUBSUB_PUBLISH_TOPIC").unwrap_or_else(|_| "coco-events".to_string());
+        Self::new(subscription_name, publish_topic)
     }
 }
 
@@ -33,12 +38,91 @@ impl<DB: Database, KB: KnowledgeBase> CoCoModule<DB, KB> for PubSubModule {
     async fn init(&self, _db: DB, _kb: KB, coco: CoCo) -> Result<(), CoCoError> {
         info!("Starting Pub/Sub client with subscription: {}", self.subscription_name);
 
-        let client = Subscriber::builder().build().await.map_err(|e| CoCoError::ConfigurationError(format!("Failed to create Pub/Sub subscriber: {}", e)))?;
+        let publisher = Publisher::builder(&self.publish_topic).build().await.map_err(|e| CoCoError::ConfigurationError(format!("Failed to create Pub/Sub publisher: {}", e)))?;
+
+        let mut rx = coco.event_tx.subscribe();
+        let coco_clone = coco.clone();
+
+        tokio::spawn(async move {
+            while let Ok(msg) = rx.recv().await {
+                match msg {
+                    CoCoEvent::ClassCreated(class_name) => {
+                        if let Ok(class) = coco_clone.get_class(class_name.clone()).await {
+                            if let Ok(data) = serde_json::to_string(&class) {
+                                if let Err(e) = publisher.publish(Message::new().set_attributes(HashMap::from([("msg_type".to_string(), "class-created".to_string()), ("class_name".to_string(), class_name.clone())])).set_data(data.into_bytes())).await {
+                                    error!("Failed to publish class-created event for class '{}': {}", class_name, e);
+                                }
+                            } else {
+                                error!("Failed to serialize class data for class '{}'", class_name);
+                            }
+                        } else {
+                            error!("Failed to retrieve class data for class '{}'", class_name);
+                        }
+                    }
+                    CoCoEvent::ObjectCreated(object_id) => {
+                        if let Ok(object) = coco_clone.get_object(object_id.clone()).await {
+                            if let Ok(data) = serde_json::to_string(&object) {
+                                if let Err(e) = publisher.publish(Message::new().set_attributes(HashMap::from([("msg_type".to_string(), "object-created".to_string()), ("object_id".to_string(), object_id.clone())])).set_data(data.into_bytes())).await {
+                                    error!("Failed to publish object-created event for object '{}': {}", object_id, e);
+                                }
+                            } else {
+                                error!("Failed to serialize object data for object '{}'", object_id);
+                            }
+                        }
+                    }
+                    CoCoEvent::ClassesUpdated(object_id, classes) => {
+                        if let Ok(data) = serde_json::to_string(&serde_json::json!({
+                            "object_id": object_id,
+                            "classes": classes
+                        })) {
+                            if let Err(e) = publisher.publish(Message::new().set_attributes(HashMap::from([("msg_type".to_string(), "classes-updated".to_string()), ("object_id".to_string(), object_id.clone())])).set_data(data.into_bytes())).await {
+                                error!("Failed to publish classes-updated event for object '{}': {}", object_id, e);
+                            }
+                        } else {
+                            error!("Failed to serialize classes data for object '{}'", object_id);
+                        }
+                    }
+                    CoCoEvent::PropertiesUpdated(object_id, properties) => {
+                        if let Ok(data) = serde_json::to_string(&properties) {
+                            if let Err(e) = publisher.publish(Message::new().set_attributes(HashMap::from([("msg_type".to_string(), "properties-updated".to_string()), ("object_id".to_string(), object_id.clone())])).set_data(data.into_bytes())).await {
+                                error!("Failed to publish properties-updated event for object '{}': {}", object_id, e);
+                            }
+                        } else {
+                            error!("Failed to serialize properties data for object '{}'", object_id);
+                        }
+                    }
+                    CoCoEvent::ValuesAdded(object_id, values, timestamp) => {
+                        if let Ok(data) = serde_json::to_string(&values) {
+                            if let Err(e) = publisher.publish(Message::new().set_attributes(HashMap::from([("msg_type".to_string(), "values-added".to_string()), ("object_id".to_string(), object_id.clone()), ("timestamp".to_string(), timestamp.timestamp().to_string())])).set_data(data.into_bytes())).await {
+                                error!("Failed to publish values-added event for object '{}': {}", object_id, e);
+                            }
+                        } else {
+                            error!("Failed to serialize values data for object '{}'", object_id);
+                        }
+                    }
+                    CoCoEvent::RuleCreated(rule) => {
+                        if let Ok(rule_data) = coco_clone.get_rule(rule.clone()).await {
+                            if let Ok(data) = serde_json::to_string(&rule_data) {
+                                if let Err(e) = publisher.publish(Message::new().set_attributes(HashMap::from([("msg_type".to_string(), "rule-created".to_string()), ("rule_name".to_string(), rule.clone())])).set_data(data.into_bytes())).await {
+                                    error!("Failed to publish rule-created event for rule '{}': {}", rule, e);
+                                }
+                            } else {
+                                error!("Failed to serialize rule data for rule '{}'", rule);
+                            }
+                        } else {
+                            error!("Failed to retrieve rule data for rule '{}'", rule);
+                        }
+                    }
+                };
+            }
+        });
+
+        let subscriber = Subscriber::builder().build().await.map_err(|e| CoCoError::ConfigurationError(format!("Failed to create Pub/Sub subscriber: {}", e)))?;
 
         let subscription_name = self.subscription_name.clone();
 
         tokio::spawn(async move {
-            let mut stream = client.subscribe(subscription_name).build();
+            let mut stream = subscriber.subscribe(subscription_name).build();
 
             while let Some(msg) = stream.next().await {
                 match msg {
