@@ -16,6 +16,8 @@ pub mod kb;
 pub mod model;
 #[cfg(feature = "mqtt")]
 pub mod mqtt;
+#[cfg(feature = "pubsub")]
+pub mod pubsub;
 #[cfg(feature = "server")]
 pub mod server;
 

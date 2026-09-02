@@ -286,17 +286,25 @@ async fn create_object(State(coco): State<CoCo>, Json(object): Json<JsonValue>) 
     )]
 async fn set_properties(State(coco): State<CoCo>, Path(object_id): Path<String>, Json(properties): Json<JsonValue>) -> impl IntoResponse {
     trace!("Handling request to set properties for object with ID: {}. New properties: {:?}", object_id, properties);
-    match coco.get_object_classes(object_id.clone()).await {
-        Ok(classes) => match properties_from_json(coco.clone(), classes, properties).await {
-            Ok(properties) => match coco.set_properties(object_id.clone(), properties).await {
-                Ok(_) => StatusCode::OK.into_response(),
-                Err(CoCoError::ObjectNotFound(e)) => (StatusCode::NOT_FOUND, format!("Object not found: {}", e)).into_response(),
-                Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to update properties for object with ID '{}': {}", object_id, e)).into_response(),
-            },
-            Err(e) => (StatusCode::BAD_REQUEST, format!("Invalid property values in request body: {}", e)).into_response(),
-        },
+    let classes = match coco.get_object_classes(object_id.clone()).await {
+        Ok(c) => c,
+        Err(CoCoError::ObjectNotFound(e)) => {
+            return (StatusCode::NOT_FOUND, format!("Object not found: {}", e)).into_response();
+        }
+        Err(e) => {
+            return (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to retrieve object with ID '{}': {}", object_id, e)).into_response();
+        }
+    };
+    let parsed_properties = match properties_from_json(coco.clone(), classes, properties).await {
+        Ok(p) => p,
+        Err(e) => {
+            return (StatusCode::BAD_REQUEST, format!("Invalid property values in request body: {}", e)).into_response();
+        }
+    };
+    match coco.set_properties(object_id.clone(), parsed_properties).await {
+        Ok(_) => StatusCode::OK.into_response(),
         Err(CoCoError::ObjectNotFound(e)) => (StatusCode::NOT_FOUND, format!("Object not found: {}", e)).into_response(),
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to retrieve object with ID '{}': {}", object_id, e)).into_response(),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to update properties for object with ID '{}': {}", object_id, e)).into_response(),
     }
 }
 
@@ -321,17 +329,25 @@ async fn set_properties(State(coco): State<CoCo>, Path(object_id): Path<String>,
 async fn add_data(State(coco): State<CoCo>, Path(object_id): Path<String>, Query(time_query): Query<DateQuery>, Json(values): Json<JsonValue>) -> impl IntoResponse {
     trace!("Handling request to add data to object with ID: {}. Values: {:?}, Timestamp: {:?}", object_id, values, time_query);
     let timestamp = time_query.timestamp.unwrap_or_else(Utc::now);
-    match coco.get_object_classes(object_id.clone()).await {
-        Ok(classes) => match values_from_json(coco.clone(), classes, values).await {
-            Ok(values) => match coco.add_values(object_id.clone(), values, timestamp).await {
-                Ok(_) => StatusCode::OK.into_response(),
-                Err(CoCoError::ObjectNotFound(e)) => (StatusCode::NOT_FOUND, format!("Object not found: {}", e)).into_response(),
-                Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to add data to object with ID '{}': {}", object_id, e)).into_response(),
-            },
-            Err(e) => (StatusCode::BAD_REQUEST, format!("Invalid data values in request body: {}", e)).into_response(),
-        },
+    let classes = match coco.get_object_classes(object_id.clone()).await {
+        Ok(c) => c,
+        Err(CoCoError::ObjectNotFound(e)) => {
+            return (StatusCode::NOT_FOUND, format!("Object not found: {}", e)).into_response();
+        }
+        Err(e) => {
+            return (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to retrieve object with ID '{}': {}", object_id, e)).into_response();
+        }
+    };
+    let parsed_values = match values_from_json(coco.clone(), classes, values).await {
+        Ok(v) => v,
+        Err(e) => {
+            return (StatusCode::BAD_REQUEST, format!("Invalid data values in request body: {}", e)).into_response();
+        }
+    };
+    match coco.add_values(object_id.clone(), parsed_values, timestamp).await {
+        Ok(_) => StatusCode::OK.into_response(),
         Err(CoCoError::ObjectNotFound(e)) => (StatusCode::NOT_FOUND, format!("Object not found: {}", e)).into_response(),
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to retrieve object with ID '{}': {}", object_id, e)).into_response(),
+        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, format!("Failed to add data to object with ID '{}': {}", object_id, e)).into_response(),
     }
 }
 

@@ -10,6 +10,8 @@ use coco::kb::clips::chronoxide::ChronoxideModule;
 use coco::kb::clips::ollama::OllamaModule;
 #[cfg(feature = "mqtt")]
 use coco::mqtt::MQTTModule;
+#[cfg(feature = "pubsub")]
+use coco::pubsub::PubSubModule;
 #[cfg(feature = "auth")]
 use coco::server::auth::auth_coco_router;
 #[cfg(feature = "auth")]
@@ -36,6 +38,8 @@ async fn main() {
         Box::new(FCMModule::default()),
         #[cfg(feature = "mqtt")]
         Box::new(MQTTModule::default()),
+        #[cfg(feature = "pubsub")]
+        Box::new(PubSubModule::default()),
         #[cfg(feature = "chronoxide")]
         Box::new(ChronoxideModule::default()),
     ];
