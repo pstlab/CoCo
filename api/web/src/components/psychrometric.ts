@@ -187,6 +187,13 @@ export function psychrometric(obj: coco.CoCoObject): VNode {
   });
 }
 
+/**
+ * Checks if the given state is valid in all provided environments.
+ *
+ * @param state - The state to check.
+ * @param environments - An array of environments to validate the state against.
+ * @returns `true` if the state is valid in all environments, otherwise `false`.
+ */
 export function is_state_ok(state: State, environments: Environment[]): boolean {
   for (const env of environments)
     if (!is_state_in_environment(state, env))
@@ -205,6 +212,16 @@ function is_state_in_environment(state: State, environment: Environment): boolea
 
 const PRESSURE = 101310;
 
+/**
+ * Calculates the saturation vapor pressure (SVP) in Pascals (Pa) for a given temperature.
+ *
+ * The formula used depends on whether the temperature is above or below 0°C:
+ * - For temperatures >= 0°C, the formula is: `610.5 * Math.exp((17.269 * t) / (237.3 + t))`
+ * - For temperatures < 0°C, the formula is: `610.5 * Math.exp((21.875 * t) / (265.5 + t))`
+ *
+ * @param {number} t - The temperature in degrees Celsius.
+ * @returns {number} - The saturation vapor pressure in Pascals (Pa).
+ */
 export function get_saturation_vapor_pressure(t: number): number {
   if (t >= 0)
     return 610.5 * Math.exp((17.269 * t) / (237.3 + t));
@@ -212,6 +229,17 @@ export function get_saturation_vapor_pressure(t: number): number {
     return 610.5 * Math.exp((21.875 * t) / (265.5 + t));
 }
 
+/**
+ * Calculates the specific humidity (SH) given the temperature and relative humidity.
+ *
+ * @param t - The temperature in degrees Celsius.
+ * @param rh - The relative humidity as a fraction between 0 and 1.
+ * @returns The specific humidity in grams per kilogram (g/kg).
+ *
+ * @remarks
+ * This function uses the saturation vapor pressure (SVP) and the constant atmospheric pressure (PRESSURE)
+ * to calculate the specific humidity. The SVP is obtained from the `get_saturation_vapor_pressure` function.
+ */
 export function get_specific_humidity(t: number, rh: number): number {
   const svp = get_saturation_vapor_pressure(t);
   return 0.622 * (svp * rh / (PRESSURE - svp)) * 1000;
