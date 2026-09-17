@@ -29,26 +29,47 @@ const TEMP_START = -5;
 const TEMP_END = 40;
 const TEMP_INCREMENT = 1;
 
+const STATIC_RH_LINES = Array.from({ length: 10 }).map((_, idx) => {
+  const rh = (idx + 1) * 0.1;
+  const lineData = [];
+  for (let t = TEMP_START; t <= TEMP_END; t += TEMP_INCREMENT) {
+    lineData.push([t, get_specific_humidity(t, rh)]);
+  }
+  return {
+    name: `${Math.round(rh * 100)}% RH`,
+    type: 'line',
+    data: lineData,
+    smooth: true,
+    showSymbol: false,
+    lineStyle: { color: 'rgba(0, 0, 0, 0.3)', width: 1 },
+    endLabel: { show: true, formatter: '{a}', color: 'rgba(0, 0, 0, 0.7)' }
+  };
+});
+
 export function psychrometric(obj: coco.CoCoObject): VNode {
+  if (!Array.from(obj.get_classes()).some(cls => cls.get_name() === 'PsychrometricSensor')) {
+    return h('div#psychrometric.flex-grow-1.d-flex.align-items-center.justify-content-center', {
+      style: { minHeight: '600px', color: '#888' }
+    }, 'This object is not a PsychrometricSensor');
+  }
+
   let chart: echarts.ECharts | undefined;
 
-  const envClass = obj.get_coco().get_class('PsychrometricEnvironment');
-  const envInstances = envClass ? Array.from(envClass.get_instances().values()) : [];
-
-  const environments: Environment[] = envInstances.map((env_obj: coco.CoCoObject) => {
-    const props = env_obj.get_properties();
-    if (!props) return null;
-    const name = props['name'] as string | undefined;
-    const temperature_min = props['min_temperature'] as number | undefined;
-    const temperature_max = props['max_temperature'] as number | undefined;
-    const relative_humidity_min = props['min_relative_humidity'] as number | undefined;
-    const relative_humidity_max = props['max_relative_humidity'] as number | undefined;
-    if (name === undefined || temperature_min === undefined || temperature_max === undefined || relative_humidity_min === undefined || relative_humidity_max === undefined)
-      return null;
-    return { name, temperature_min, temperature_max, relative_humidity_min, relative_humidity_max };
-  }).filter((e): e is Environment => e !== null);
-
   const get_option = (): echarts.EChartsCoreOption => {
+    const envClass = obj.get_coco().get_class('PsychrometricEnvironment');
+    const envInstances = envClass ? Array.from(envClass.get_instances().values()) : [];
+
+    const environments: Environment[] = envInstances.map((env_obj: coco.CoCoObject) => {
+      const props = env_obj.get_properties()!;
+      return {
+        name: props['name'] as string,
+        temperature_min: props['min_temperature'] as number,
+        temperature_max: props['max_temperature'] as number,
+        relative_humidity_min: props['min_relative_humidity'] as number,
+        relative_humidity_max: props['max_relative_humidity'] as number
+      };
+    });
+
     if (!obj.is_data_loaded())
       obj.load_data(from, to);
 
@@ -57,51 +78,21 @@ export function psychrometric(obj: coco.CoCoObject): VNode {
     const temps = data['temperature'] || [];
     const rhs = data['relative_humidity'] || [];
 
-    const stateMap = new Map<number, { t?: number, rh?: number }>();
-
-    temps.forEach(d => {
-      const ts = new Date(d.timestamp).getTime();
-      if (!stateMap.has(ts)) stateMap.set(ts, {});
-      stateMap.get(ts)!.t = d.value as number;
-    });
-
-    rhs.forEach(d => {
-      const ts = new Date(d.timestamp).getTime();
-      if (!stateMap.has(ts)) stateMap.set(ts, {});
-      let val = d.value as number;
-      if (val > 1) val /= 100;
-      stateMap.get(ts)!.rh = val;
-    });
-
-    const states: State[] = [];
-    stateMap.forEach((val, ts) => {
-      if (val.t !== undefined && val.rh !== undefined) {
-        states.push({
-          timestamp: new Date(ts),
-          temperature: val.t,
-          relative_humidity: val.rh
+    const states: State[] = temps.reduce((acc: State[], t_data, index) => {
+      const rh_data = rhs[index];
+      if (rh_data) {
+        let rh_val = rh_data.value as number;
+        if (rh_val > 1) rh_val /= 100;
+        acc.push({
+          timestamp: new Date(t_data.timestamp),
+          temperature: t_data.value as number,
+          relative_humidity: rh_val
         });
       }
-    });
+      return acc;
+    }, []);
 
-    const series: any[] = [];
-
-    for (let idx = 0; idx < 10; idx++) {
-      const rh = (idx + 1) * 0.1;
-      const lineData = [];
-      for (let t = TEMP_START; t <= TEMP_END; t += TEMP_INCREMENT) {
-        lineData.push([t, get_specific_humidity(t, rh)]);
-      }
-      series.push({
-        name: `${Math.round(rh * 100)}% RH`,
-        type: 'line',
-        data: lineData,
-        smooth: true,
-        showSymbol: false,
-        lineStyle: { color: 'rgba(0, 0, 0, 0.3)', width: 1 },
-        endLabel: { show: true, formatter: '{a}', color: 'rgba(0, 0, 0, 0.7)' }
-      });
-    }
+    const series: any[] = [...STATIC_RH_LINES];
 
     for (const env of environments) {
       const polygonData = [];
@@ -196,13 +187,6 @@ export function psychrometric(obj: coco.CoCoObject): VNode {
   });
 }
 
-/**
- * Checks if the given state is valid in all provided environments.
- *
- * @param state - The state to check.
- * @param environments - An array of environments to validate the state against.
- * @returns `true` if the state is valid in all environments, otherwise `false`.
- */
 export function is_state_ok(state: State, environments: Environment[]): boolean {
   for (const env of environments)
     if (!is_state_in_environment(state, env))
@@ -213,43 +197,22 @@ export function is_state_ok(state: State, environments: Environment[]): boolean 
 function is_state_in_environment(state: State, environment: Environment): boolean {
   if (state.temperature < environment.temperature_min || state.temperature > environment.temperature_max)
     return false;
-  const sh = get_specific_humidity(state.temperature, state.relative_humidity); // Specific humidity in g/kg
-  const sh_min = get_specific_humidity(state.temperature, environment.relative_humidity_min); // Specific humidity in g/kg
-  const sh_max = get_specific_humidity(state.temperature, environment.relative_humidity_max); // Specific humidity in g/kg
+  const sh = get_specific_humidity(state.temperature, state.relative_humidity);
+  const sh_min = get_specific_humidity(state.temperature, environment.relative_humidity_min);
+  const sh_max = get_specific_humidity(state.temperature, environment.relative_humidity_max);
   return sh >= sh_min && sh <= sh_max;
 }
 
-const PRESSURE = 101310; // pressure in Pa
+const PRESSURE = 101310;
 
-/**
- * Calculates the saturation vapor pressure (SVP) in Pascals (Pa) for a given temperature.
- *
- * The formula used depends on whether the temperature is above or below 0°C:
- * - For temperatures >= 0°C, the formula is: `610.5 * Math.exp((17.269 * t) / (237.3 + t))`
- * - For temperatures < 0°C, the formula is: `610.5 * Math.exp((21.875 * t) / (265.5 + t))`
- *
- * @param {number} t - The temperature in degrees Celsius.
- * @returns {number} - The saturation vapor pressure in Pascals (Pa).
- */
 export function get_saturation_vapor_pressure(t: number): number {
   if (t >= 0)
-    return 610.5 * Math.exp((17.269 * t) / (237.3 + t)); // Saturation vapor pressure in Pa for temperatures >= 0°C
+    return 610.5 * Math.exp((17.269 * t) / (237.3 + t));
   else
-    return 610.5 * Math.exp((21.875 * t) / (265.5 + t)); // Saturation vapor pressure in Pa for temperatures < 0°C
+    return 610.5 * Math.exp((21.875 * t) / (265.5 + t));
 }
 
-/**
- * Calculates the specific humidity (SH) given the temperature and relative humidity.
- *
- * @param t - The temperature in degrees Celsius.
- * @param rh - The relative humidity as a fraction between 0 and 1.
- * @returns The specific humidity in grams per kilogram (g/kg).
- *
- * @remarks
- * This function uses the saturation vapor pressure (SVP) and the constant atmospheric pressure (PRESSURE)
- * to calculate the specific humidity. The SVP is obtained from the `get_saturation_vapor_pressure` function.
- */
 export function get_specific_humidity(t: number, rh: number): number {
-  const svp = get_saturation_vapor_pressure(t); // Saturation vapor pressure in Pa
-  return 0.622 * (svp * rh / (PRESSURE - svp)) * 1000; // Specific humidity in g/kg
+  const svp = get_saturation_vapor_pressure(t);
+  return 0.622 * (svp * rh / (PRESSURE - svp)) * 1000;
 }
