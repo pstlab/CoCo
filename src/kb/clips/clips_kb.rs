@@ -856,7 +856,7 @@ fn prop_deftemplate(class: &CoCoClass, name: &str, property: &CoCoProperty, is_s
             def
         }
         CoCoProperty::BoolArray { default, .. } => {
-            def.push_str(" (multislot value (type SYMBOL) (allowed-symbols TRUE FALSE nil)");
+            def.push_str(" (multislot value (type SYMBOL) (allowed-symbols TRUE FALSE)");
             if let Some(def_val) = default {
                 let def_str = def_val.iter().map(|b| if *b { "TRUE" } else { "FALSE" }).collect::<Vec<_>>().join(" ");
                 def.push_str(&format!(" (default {})", def_str));
@@ -869,7 +869,7 @@ fn prop_deftemplate(class: &CoCoClass, name: &str, property: &CoCoProperty, is_s
             def
         }
         CoCoProperty::IntArray { default, min, max, .. } => {
-            def.push_str(" (multislot value (type INTEGER SYMBOL) (allowed-symbols nil)");
+            def.push_str(" (multislot value (type INTEGER)");
             if let Some(def_val) = default {
                 let def_str = def_val.iter().map(|i| i.to_string()).collect::<Vec<_>>().join(" ");
                 def.push_str(&format!(" (default {})", def_str));
@@ -887,7 +887,7 @@ fn prop_deftemplate(class: &CoCoClass, name: &str, property: &CoCoProperty, is_s
             def
         }
         CoCoProperty::FloatArray { default, min, max, .. } => {
-            def.push_str(" (multislot value (type FLOAT SYMBOL) (allowed-symbols nil)");
+            def.push_str(" (multislot value (type FLOAT)");
             if let Some(def_val) = default {
                 let def_str = def_val
                     .iter()
@@ -922,7 +922,7 @@ fn prop_deftemplate(class: &CoCoClass, name: &str, property: &CoCoProperty, is_s
             def
         }
         CoCoProperty::StringArray { default, .. } => {
-            def.push_str(" (multislot value (type STRING SYMBOL) (allowed-symbols nil)");
+            def.push_str(" (multislot value (type STRING)");
             if let Some(def_val) = default {
                 let def_str = def_val.iter().map(|s| format!("\"{}\"", s)).collect::<Vec<_>>().join(" ");
                 def.push_str(&format!(" (default {})", def_str));
@@ -937,7 +937,7 @@ fn prop_deftemplate(class: &CoCoClass, name: &str, property: &CoCoProperty, is_s
         CoCoProperty::SymbolArray { default, allowed_values, .. } => {
             def.push_str(" (multislot value (type SYMBOL)");
             if let Some(allowed) = allowed_values {
-                def.push_str(" (allowed-symbols nil");
+                def.push_str(" (allowed-symbols");
                 for v in allowed {
                     def.push_str(&format!(" {}", v));
                 }
@@ -991,37 +991,55 @@ fn set_prop(env: &Environment, fb: FactBuilder, property: &CoCoProperty, value: 
             let builder = arr.iter().fold(builder, |bld, &b| bld.put_symbol(if b { "TRUE" } else { "FALSE" }));
             fb.put_multifield("value", builder.create()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set bool array property value: {}", e)))
         }
-        (CoCoProperty::BoolArray { .. }, CoCoValue::Null) => fb.put_symbol("value", "nil").map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set null value for bool array property: {}", e))),
+        (CoCoProperty::BoolArray { .. }, CoCoValue::Null) => {
+            let builder = env.multifield_builder(0).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to create multifield for null bool array: {}", e)))?;
+            fb.put_multifield("value", builder.create()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set null value for bool array property: {}", e)))
+        }
         (CoCoProperty::IntArray { .. }, CoCoValue::IntArray(arr)) => {
             let builder = env.multifield_builder(arr.len()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to create multifield for int array: {}", e)))?;
             let builder = arr.iter().fold(builder, |bld, &i| bld.put_int(i));
             fb.put_multifield("value", builder.create()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set int array property value: {}", e)))
         }
-        (CoCoProperty::IntArray { .. }, CoCoValue::Null) => fb.put_symbol("value", "nil").map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set null value for int array property: {}", e))),
+        (CoCoProperty::IntArray { .. }, CoCoValue::Null) => {
+            let builder = env.multifield_builder(0).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to create multifield for null int array: {}", e)))?;
+            fb.put_multifield("value", builder.create()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set null value for int array property: {}", e)))
+        }
         (CoCoProperty::FloatArray { .. }, CoCoValue::FloatArray(arr)) => {
             let builder = env.multifield_builder(arr.len()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to create multifield for float array: {}", e)))?;
             let builder = arr.iter().fold(builder, |bld, &f| bld.put_float(f));
             fb.put_multifield("value", builder.create()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set float array property value: {}", e)))
         }
-        (CoCoProperty::FloatArray { .. }, CoCoValue::Null) => fb.put_symbol("value", "nil").map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set null value for float array property: {}", e))),
+        (CoCoProperty::FloatArray { .. }, CoCoValue::Null) => {
+            let builder = env.multifield_builder(0).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to create multifield for null float array: {}", e)))?;
+            fb.put_multifield("value", builder.create()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set null value for float array property: {}", e)))
+        }
         (CoCoProperty::StringArray { .. }, CoCoValue::StringArray(arr)) => {
             let builder = env.multifield_builder(arr.len()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to create multifield for string array: {}", e)))?;
             let builder = arr.iter().fold(builder, |bld, s| bld.put_string(s.as_str()));
             fb.put_multifield("value", builder.create()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set string array property value: {}", e)))
         }
-        (CoCoProperty::StringArray { .. }, CoCoValue::Null) => fb.put_symbol("value", "nil").map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set null value for string array property: {}", e))),
+        (CoCoProperty::StringArray { .. }, CoCoValue::Null) => {
+            let builder = env.multifield_builder(0).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to create multifield for null string array: {}", e)))?;
+            fb.put_multifield("value", builder.create()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set null value for string array property: {}", e)))
+        }
         (CoCoProperty::SymbolArray { .. }, CoCoValue::StringArray(arr)) => {
             let builder = env.multifield_builder(arr.len()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to create multifield for symbol array: {}", e)))?;
             let builder = arr.iter().fold(builder, |bld, s| bld.put_symbol(s.as_str()));
             fb.put_multifield("value", builder.create()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set symbol array property value: {}", e)))
         }
-        (CoCoProperty::SymbolArray { .. }, CoCoValue::Null) => fb.put_symbol("value", "nil").map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set null value for symbol array property: {}", e))),
+        (CoCoProperty::SymbolArray { .. }, CoCoValue::Null) => {
+            let builder = env.multifield_builder(0).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to create multifield for null symbol array: {}", e)))?;
+            fb.put_multifield("value", builder.create()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set null value for symbol array property: {}", e)))
+        }
         (CoCoProperty::ObjectArray { .. }, CoCoValue::StringArray(arr)) => {
             let builder = env.multifield_builder(arr.len()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to create multifield for object array: {}", e)))?;
             let builder = arr.iter().fold(builder, |bld, o| bld.put_symbol(o.as_str()));
             fb.put_multifield("value", builder.create()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set object array property value: {}", e)))
         }
-        (CoCoProperty::ObjectArray { .. }, CoCoValue::Null) => fb.put_symbol("value", "nil").map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set null value for object array property: {}", e))),
+        (CoCoProperty::ObjectArray { .. }, CoCoValue::Null) => {
+            let builder = env.multifield_builder(0).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to create multifield for null object array: {}", e)))?;
+            fb.put_multifield("value", builder.create()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set null value for object array property: {}", e)))
+        }
         _ => Err(KnowledgeBaseError::KBError("Property type and value type do not match".to_owned())),
     };
     if let Some(t) = time { builder.and_then(|fb| fb.put_int("time", t.timestamp()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set time slot for property value: {}", e)))) } else { builder }
@@ -1046,37 +1064,55 @@ fn update_prop(env: &Environment, fm: FactModifier, property: &CoCoProperty, val
             let builder = arr.iter().fold(builder, |bld, &b| bld.put_symbol(if b { "TRUE" } else { "FALSE" }));
             fm.put_multifield("value", builder.create()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set bool array property value: {}", e)))
         }
-        (CoCoProperty::BoolArray { .. }, CoCoValue::Null) => fm.put_symbol("value", "nil").map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set null value for bool array property: {}", e))),
+        (CoCoProperty::BoolArray { .. }, CoCoValue::Null) => {
+            let builder = env.multifield_builder(0).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to create multifield for null bool array: {}", e)))?;
+            fm.put_multifield("value", builder.create()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set null value for bool array property: {}", e)))
+        }
         (CoCoProperty::IntArray { .. }, CoCoValue::IntArray(arr)) => {
             let builder = env.multifield_builder(arr.len()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to create multifield for int array: {}", e)))?;
             let builder = arr.iter().fold(builder, |bld, &i| bld.put_int(i));
             fm.put_multifield("value", builder.create()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set int array property value: {}", e)))
         }
-        (CoCoProperty::IntArray { .. }, CoCoValue::Null) => fm.put_symbol("value", "nil").map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set null value for int array property: {}", e))),
+        (CoCoProperty::IntArray { .. }, CoCoValue::Null) => {
+            let builder = env.multifield_builder(0).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to create multifield for null int array: {}", e)))?;
+            fm.put_multifield("value", builder.create()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set null value for int array property: {}", e)))
+        }
         (CoCoProperty::FloatArray { .. }, CoCoValue::FloatArray(arr)) => {
             let builder = env.multifield_builder(arr.len()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to create multifield for float array: {}", e)))?;
             let builder = arr.iter().fold(builder, |bld, &f| bld.put_float(f));
             fm.put_multifield("value", builder.create()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set float array property value: {}", e)))
         }
-        (CoCoProperty::FloatArray { .. }, CoCoValue::Null) => fm.put_symbol("value", "nil").map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set null value for float array property: {}", e))),
+        (CoCoProperty::FloatArray { .. }, CoCoValue::Null) => {
+            let builder = env.multifield_builder(0).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to create multifield for null float array: {}", e)))?;
+            fm.put_multifield("value", builder.create()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set null value for float array property: {}", e)))
+        }
         (CoCoProperty::StringArray { .. }, CoCoValue::StringArray(arr)) => {
             let builder = env.multifield_builder(arr.len()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to create multifield for string array: {}", e)))?;
             let builder = arr.iter().fold(builder, |bld, s| bld.put_string(s.as_str()));
             fm.put_multifield("value", builder.create()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set string array property value: {}", e)))
         }
-        (CoCoProperty::StringArray { .. }, CoCoValue::Null) => fm.put_symbol("value", "nil").map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set null value for string array property: {}", e))),
+        (CoCoProperty::StringArray { .. }, CoCoValue::Null) => {
+            let builder = env.multifield_builder(0).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to create multifield for null string array: {}", e)))?;
+            fm.put_multifield("value", builder.create()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set null value for string array property: {}", e)))
+        }
         (CoCoProperty::SymbolArray { .. }, CoCoValue::StringArray(arr)) => {
             let builder = env.multifield_builder(arr.len()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to create multifield for symbol array: {}", e)))?;
             let builder = arr.iter().fold(builder, |bld, s| bld.put_symbol(s.as_str()));
             fm.put_multifield("value", builder.create()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set symbol array property value: {}", e)))
         }
-        (CoCoProperty::SymbolArray { .. }, CoCoValue::Null) => fm.put_symbol("value", "nil").map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set null value for symbol array property: {}", e))),
+        (CoCoProperty::SymbolArray { .. }, CoCoValue::Null) => {
+            let builder = env.multifield_builder(0).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to create multifield for null symbol array: {}", e)))?;
+            fm.put_multifield("value", builder.create()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set null value for symbol array property: {}", e)))
+        }
         (CoCoProperty::ObjectArray { .. }, CoCoValue::StringArray(arr)) => {
             let builder = env.multifield_builder(arr.len()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to create multifield for object array: {}", e)))?;
             let builder = arr.iter().fold(builder, |bld, o| bld.put_symbol(o.as_str()));
             fm.put_multifield("value", builder.create()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set object array property value: {}", e)))
         }
-        (CoCoProperty::ObjectArray { .. }, CoCoValue::Null) => fm.put_symbol("value", "nil").map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set null value for object array property: {}", e))),
+        (CoCoProperty::ObjectArray { .. }, CoCoValue::Null) => {
+            let builder = env.multifield_builder(0).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to create multifield for null object array: {}", e)))?;
+            fm.put_multifield("value", builder.create()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set null value for object array property: {}", e)))
+        }
         _ => Err(KnowledgeBaseError::KBError("Property type and value type do not match".to_owned())),
     };
     if let Some(t) = time { modifier.and_then(|fm| fm.put_int("time", t.timestamp()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set time slot for property value: {}", e)))) } else { modifier }
@@ -1152,7 +1188,7 @@ mod tests {
         let class = test_class();
 
         let bool_array_def = prop_deftemplate(&class, "flags", &CoCoProperty::BoolArray { default: Some(vec![true, false]), description: None }, true);
-        assert!(bool_array_def.contains("(multislot value (type SYMBOL) (allowed-symbols TRUE FALSE nil)"));
+        assert!(bool_array_def.contains("(multislot value (type SYMBOL) (allowed-symbols TRUE FALSE)"));
         assert!(bool_array_def.contains("(default TRUE FALSE)"));
 
         let int_array_def = prop_deftemplate(&class, "samples", &CoCoProperty::IntArray { default: Some(vec![1, 2, 3]), min: Some(0), max: Some(100), description: None }, false);
@@ -1181,7 +1217,8 @@ mod tests {
             },
             true,
         );
-        assert!(symbol_array_def.contains("(allowed-symbols nil"));
+        assert!(symbol_array_def.contains("(allowed-symbols"));
+        assert!(!symbol_array_def.contains("nil"));
         assert!(symbol_array_def.contains("(default x y)"));
 
         let object_array_def = prop_deftemplate(

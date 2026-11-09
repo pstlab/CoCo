@@ -1,6 +1,6 @@
 [package]
 name = "coco-reasoner"
-version = "0.2.0"
+version = "0.2.1"
 authors = ["Riccardo De Benedictis"]
 edition = "2024"
 description = "Combined deduCtiOn and abduCtiOn (CoCo) reasoner is a dual-process inspired cognitive architecture built in Rust"
