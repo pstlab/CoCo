@@ -1,0 +1,49 @@
+{
+  "name": "Robot",
+  "static_properties": {
+    "name": {
+      "type": "string",
+      "description": "The name of the robot"
+    }
+  },
+  "dynamic_properties": {
+    "text_to_speech": {
+      "type": "string",
+      "description": "The text that the robot is currently speaking"
+    },
+    "is_microphone_open": {
+      "type": "bool",
+      "description": "Whether the robot's microphone is open or not"
+    },
+    "current_face": {
+      "type": "symbol",
+      "allowed_values": [
+        "laugh",
+        "sad",
+        "talking",
+        "sad_talking",
+        "listening",
+        "happy_talking",
+        "happy",
+        "idle"
+      ],
+      "description": "The current face of the robot"
+    },
+    "recognized_text": {
+      "type": "string",
+      "description": "The text that the robot has recognized from speech"
+    },
+    "gaze_x": {
+      "type": "float",
+      "description": "The x-coordinate of the robot's gaze direction"
+    },
+    "gaze_y": {
+      "type": "float",
+      "description": "The y-coordinate of the robot's gaze direction"
+    },
+    "is_user_present": {
+      "type": "bool",
+      "description": "Whether the robot detects a user in front of it"
+    }
+  }
+}
