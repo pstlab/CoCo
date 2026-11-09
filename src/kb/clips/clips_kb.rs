@@ -1050,7 +1050,7 @@ fn set_prop(env: &Environment, fb: FactBuilder, property: &CoCoProperty, value: 
             let builder = env.multifield_builder(0).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to create multifield for null string array: {}", e)))?;
             fb.put_multifield("value", builder.create()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set null value for string array property: {}", e)))
         }
-        (CoCoProperty::SymbolArray { .. }, CoCoValue::StringArray(arr) | CoCoValue::SymbolArray(arr)) => {
+        (CoCoProperty::SymbolArray { .. }, CoCoValue::SymbolArray(arr)) => {
             let builder = env.multifield_builder(arr.len()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to create multifield for symbol array: {}", e)))?;
             let builder = arr.iter().fold(builder, |bld, s| bld.put_symbol(s.as_str()));
             fb.put_multifield("value", builder.create()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set symbol array property value: {}", e)))
@@ -1059,7 +1059,7 @@ fn set_prop(env: &Environment, fb: FactBuilder, property: &CoCoProperty, value: 
             let builder = env.multifield_builder(0).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to create multifield for null symbol array: {}", e)))?;
             fb.put_multifield("value", builder.create()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set null value for symbol array property: {}", e)))
         }
-        (CoCoProperty::ObjectArray { .. }, CoCoValue::StringArray(arr) | CoCoValue::ObjectArray(arr)) => {
+        (CoCoProperty::ObjectArray { .. }, CoCoValue::ObjectArray(arr)) => {
             let builder = env.multifield_builder(arr.len()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to create multifield for object array: {}", e)))?;
             let builder = arr.iter().fold(builder, |bld, o| bld.put_symbol(o.as_str()));
             fb.put_multifield("value", builder.create()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set object array property value: {}", e)))
@@ -1123,7 +1123,7 @@ fn update_prop(env: &Environment, fm: FactModifier, property: &CoCoProperty, val
             let builder = env.multifield_builder(0).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to create multifield for null string array: {}", e)))?;
             fm.put_multifield("value", builder.create()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set null value for string array property: {}", e)))
         }
-        (CoCoProperty::SymbolArray { .. }, CoCoValue::StringArray(arr) | CoCoValue::SymbolArray(arr)) => {
+        (CoCoProperty::SymbolArray { .. }, CoCoValue::SymbolArray(arr)) => {
             let builder = env.multifield_builder(arr.len()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to create multifield for symbol array: {}", e)))?;
             let builder = arr.iter().fold(builder, |bld, s| bld.put_symbol(s.as_str()));
             fm.put_multifield("value", builder.create()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set symbol array property value: {}", e)))
@@ -1132,7 +1132,7 @@ fn update_prop(env: &Environment, fm: FactModifier, property: &CoCoProperty, val
             let builder = env.multifield_builder(0).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to create multifield for null symbol array: {}", e)))?;
             fm.put_multifield("value", builder.create()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set null value for symbol array property: {}", e)))
         }
-        (CoCoProperty::ObjectArray { .. }, CoCoValue::StringArray(arr) | CoCoValue::ObjectArray(arr)) => {
+        (CoCoProperty::ObjectArray { .. }, CoCoValue::ObjectArray(arr)) => {
             let builder = env.multifield_builder(arr.len()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to create multifield for object array: {}", e)))?;
             let builder = arr.iter().fold(builder, |bld, o| bld.put_symbol(o.as_str()));
             fm.put_multifield("value", builder.create()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set object array property value: {}", e)))
@@ -1169,8 +1169,8 @@ fn get_default(property: &CoCoProperty) -> CoCoValue {
         CoCoProperty::IntArray { default, .. } => default.clone().map(CoCoValue::IntArray).unwrap_or(CoCoValue::Null),
         CoCoProperty::FloatArray { default, .. } => default.clone().map(CoCoValue::FloatArray).unwrap_or(CoCoValue::Null),
         CoCoProperty::StringArray { default, .. } => default.clone().map(CoCoValue::StringArray).unwrap_or(CoCoValue::Null),
-        CoCoProperty::SymbolArray { default, .. } => default.clone().map(CoCoValue::StringArray).unwrap_or(CoCoValue::Null),
-        CoCoProperty::ObjectArray { default, .. } => default.clone().map(CoCoValue::StringArray).unwrap_or(CoCoValue::Null),
+        CoCoProperty::SymbolArray { default, .. } => default.clone().map(CoCoValue::SymbolArray).unwrap_or(CoCoValue::Null),
+        CoCoProperty::ObjectArray { default, .. } => default.clone().map(CoCoValue::ObjectArray).unwrap_or(CoCoValue::Null),
     }
 }
 
@@ -1326,14 +1326,13 @@ mod tests {
         assert_eq!(get_default(&CoCoProperty::FloatArray { default: Some(vec![1.0, 2.5]), min: None, max: None, description: None }), CoCoValue::FloatArray(vec![1.0, 2.5]));
         assert_eq!(get_default(&CoCoProperty::StringArray { default: Some(vec!["a".to_owned(), "b".to_owned()]), description: None }), CoCoValue::StringArray(vec!["a".to_owned(), "b".to_owned()]));
 
-        // get_default currently maps SymbolArray/ObjectArray defaults to Value::StringArray.
         assert_eq!(
             get_default(&CoCoProperty::SymbolArray {
                 default: Some(vec!["x".to_owned(), "y".to_owned()]),
                 allowed_values: None,
                 description: None,
             }),
-            CoCoValue::StringArray(vec!["x".to_owned(), "y".to_owned()])
+            CoCoValue::SymbolArray(vec!["x".to_owned(), "y".to_owned()])
         );
         assert_eq!(
             get_default(&CoCoProperty::ObjectArray {
@@ -1341,7 +1340,7 @@ mod tests {
                 classes: vec!["device".to_owned()],
                 description: None,
             }),
-            CoCoValue::StringArray(vec!["obj_a".to_owned(), "obj_b".to_owned()])
+            CoCoValue::ObjectArray(vec!["obj_a".to_owned(), "obj_b".to_owned()])
         );
     }
 }
