@@ -1,6 +1,6 @@
 use crate::{
     kb::{KnowledgeBase, KnowledgeBaseError, KnowledgeBaseEvent},
-    model::{CoCoClass, CoCoObject, CoCoProperty, CoCoRule, CoCoValue, TimedValue},
+    model::{CoCoClass, CoCoObject, CoCoProperty, CoCoRule, CoCoValue, TimedValue, value_from_json},
 };
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
@@ -299,6 +299,20 @@ impl ActorState {
         Ok(())
     }
 
+    // CLIPS multifields cannot be nested, so array properties set from rules are passed as JSON-encoded strings.
+    fn coerce_values(&self, object_id: &str, values: HashMap<String, CoCoValue>) -> Result<HashMap<String, CoCoValue>, KnowledgeBaseError> {
+        let classes = &self.objects.get(object_id).ok_or_else(|| KnowledgeBaseError::ObjectNotFound(object_id.to_owned()))?.classes;
+        let static_props = self.get_static_properties(classes)?;
+        let dynamic_props = self.get_dynamic_properties(classes)?;
+        values
+            .into_iter()
+            .map(|(name, value)| match static_props.values().chain(dynamic_props.values()).find_map(|props| props.get(&name)) {
+                Some(prop) => coerce_value(prop, value).map(|v| (name, v)),
+                None => Ok((name, value)),
+            })
+            .collect()
+    }
+
     fn set_properties(&mut self, env: &mut Environment, object_id: &str, properties: &HashMap<String, CoCoValue>) -> Result<(), KnowledgeBaseError> {
         let static_props = self.get_static_properties(&self.objects.get(object_id).ok_or_else(|| KnowledgeBaseError::ObjectNotFound(object_id.to_owned()))?.classes)?;
         let object = self.objects.get_mut(object_id).ok_or_else(|| KnowledgeBaseError::ObjectNotFound(object_id.to_owned()))?;
@@ -440,6 +454,13 @@ impl CLIPSKnowledgeBase {
                 };
 
                 let properties: HashMap<String, CoCoValue> = props.into_iter().zip(vals).collect();
+                let properties = match state.coerce_values(&object_id, properties) {
+                    Ok(p) => p,
+                    Err(e) => {
+                        error!("Error coercing properties for object '{}': {}", object_id, e);
+                        return ClipsValue::Void();
+                    }
+                };
                 trace!("CLIPS UDF 'set-properties' called with object_id='{}' and properties={:?}", object_id, properties);
                 match state.set_properties(env, &object_id, &properties) {
                     Ok(_) => {
@@ -532,6 +553,13 @@ impl CLIPSKnowledgeBase {
                 };
 
                 let values: HashMap<String, CoCoValue> = args.into_iter().zip(vals).collect();
+                let values = match state.coerce_values(&object_id, values) {
+                    Ok(v) => v,
+                    Err(e) => {
+                        error!("Error coercing values for object '{}': {}", object_id, e);
+                        return ClipsValue::Void();
+                    }
+                };
                 trace!("CLIPS UDF 'add-data' called with object_id='{}', values={:?}, and timestamp={}", object_id, values, timestamp);
                 match state.add_values(env, &object_id, &values, timestamp) {
                     Ok(_) => {
@@ -1022,7 +1050,7 @@ fn set_prop(env: &Environment, fb: FactBuilder, property: &CoCoProperty, value: 
             let builder = env.multifield_builder(0).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to create multifield for null string array: {}", e)))?;
             fb.put_multifield("value", builder.create()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set null value for string array property: {}", e)))
         }
-        (CoCoProperty::SymbolArray { .. }, CoCoValue::StringArray(arr)) => {
+        (CoCoProperty::SymbolArray { .. }, CoCoValue::StringArray(arr) | CoCoValue::SymbolArray(arr)) => {
             let builder = env.multifield_builder(arr.len()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to create multifield for symbol array: {}", e)))?;
             let builder = arr.iter().fold(builder, |bld, s| bld.put_symbol(s.as_str()));
             fb.put_multifield("value", builder.create()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set symbol array property value: {}", e)))
@@ -1031,7 +1059,7 @@ fn set_prop(env: &Environment, fb: FactBuilder, property: &CoCoProperty, value: 
             let builder = env.multifield_builder(0).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to create multifield for null symbol array: {}", e)))?;
             fb.put_multifield("value", builder.create()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set null value for symbol array property: {}", e)))
         }
-        (CoCoProperty::ObjectArray { .. }, CoCoValue::StringArray(arr)) => {
+        (CoCoProperty::ObjectArray { .. }, CoCoValue::StringArray(arr) | CoCoValue::ObjectArray(arr)) => {
             let builder = env.multifield_builder(arr.len()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to create multifield for object array: {}", e)))?;
             let builder = arr.iter().fold(builder, |bld, o| bld.put_symbol(o.as_str()));
             fb.put_multifield("value", builder.create()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set object array property value: {}", e)))
@@ -1095,7 +1123,7 @@ fn update_prop(env: &Environment, fm: FactModifier, property: &CoCoProperty, val
             let builder = env.multifield_builder(0).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to create multifield for null string array: {}", e)))?;
             fm.put_multifield("value", builder.create()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set null value for string array property: {}", e)))
         }
-        (CoCoProperty::SymbolArray { .. }, CoCoValue::StringArray(arr)) => {
+        (CoCoProperty::SymbolArray { .. }, CoCoValue::StringArray(arr) | CoCoValue::SymbolArray(arr)) => {
             let builder = env.multifield_builder(arr.len()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to create multifield for symbol array: {}", e)))?;
             let builder = arr.iter().fold(builder, |bld, s| bld.put_symbol(s.as_str()));
             fm.put_multifield("value", builder.create()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set symbol array property value: {}", e)))
@@ -1104,7 +1132,7 @@ fn update_prop(env: &Environment, fm: FactModifier, property: &CoCoProperty, val
             let builder = env.multifield_builder(0).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to create multifield for null symbol array: {}", e)))?;
             fm.put_multifield("value", builder.create()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set null value for symbol array property: {}", e)))
         }
-        (CoCoProperty::ObjectArray { .. }, CoCoValue::StringArray(arr)) => {
+        (CoCoProperty::ObjectArray { .. }, CoCoValue::StringArray(arr) | CoCoValue::ObjectArray(arr)) => {
             let builder = env.multifield_builder(arr.len()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to create multifield for object array: {}", e)))?;
             let builder = arr.iter().fold(builder, |bld, o| bld.put_symbol(o.as_str()));
             fm.put_multifield("value", builder.create()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set object array property value: {}", e)))
@@ -1116,6 +1144,17 @@ fn update_prop(env: &Environment, fm: FactModifier, property: &CoCoProperty, val
         _ => Err(KnowledgeBaseError::KBError("Property type and value type do not match".to_owned())),
     };
     if let Some(t) = time { modifier.and_then(|fm| fm.put_int("time", t.timestamp()).map_err(|e| KnowledgeBaseError::KBError(format!("Failed to set time slot for property value: {}", e)))) } else { modifier }
+}
+
+fn coerce_value(property: &CoCoProperty, value: CoCoValue) -> Result<CoCoValue, KnowledgeBaseError> {
+    let is_array = matches!(property, CoCoProperty::BoolArray { .. } | CoCoProperty::IntArray { .. } | CoCoProperty::FloatArray { .. } | CoCoProperty::StringArray { .. } | CoCoProperty::SymbolArray { .. } | CoCoProperty::ObjectArray { .. });
+    match value {
+        CoCoValue::String(s) if is_array => {
+            let json = serde_json::from_str(&s).map_err(|e| KnowledgeBaseError::KBError(format!("Expected a JSON array string for array property, got '{}': {}", s, e)))?;
+            value_from_json(property, &json).map_err(|e| KnowledgeBaseError::KBError(format!("Invalid array value '{}': {}", s, e)))
+        }
+        other => Ok(other),
+    }
 }
 
 fn get_default(property: &CoCoProperty) -> CoCoValue {
@@ -1233,6 +1272,23 @@ mod tests {
         );
         assert!(object_array_def.contains("(default obj_a obj_b)"));
         assert!(object_array_def.contains("(slot time (type INTEGER))"));
+    }
+
+    #[test]
+    fn coerce_value_parses_json_strings_for_array_properties() {
+        let string_array = CoCoProperty::StringArray { default: None, description: None };
+        let coerced = coerce_value(&string_array, CoCoValue::String("[\"f1\", \"f2\"]".to_owned())).unwrap();
+        assert_eq!(coerced, CoCoValue::StringArray(vec!["f1".to_owned(), "f2".to_owned()]));
+
+        let symbol_array = CoCoProperty::SymbolArray { default: None, allowed_values: None, description: None };
+        let coerced = coerce_value(&symbol_array, CoCoValue::String("[\"x\"]".to_owned())).unwrap();
+        assert_eq!(coerced, CoCoValue::SymbolArray(vec!["x".to_owned()]));
+
+        assert!(coerce_value(&string_array, CoCoValue::String("not json".to_owned())).is_err());
+        assert!(coerce_value(&string_array, CoCoValue::String("[1, 2]".to_owned())).is_err());
+
+        let string_prop = CoCoProperty::String { default: None, description: None };
+        assert_eq!(coerce_value(&string_prop, CoCoValue::String("[1]".to_owned())).unwrap(), CoCoValue::String("[1]".to_owned()));
     }
 
     #[test]
