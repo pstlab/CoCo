@@ -1,0 +1,1 @@
+(defrule stop_talking_face_reset (Robot_text_to_speech (id ?id) (value nil)) (Robot_current_face (id ?id) (value ?face&sad_talking|happy_talking|talking)) => (switch ?face (case sad_talking then (bind ?new_face sad)) (case happy_talking then (bind ?new_face happy)) (case talking then (bind ?new_face idle))) (add-data ?id (create$ current_face) (create$ ?new_face)))

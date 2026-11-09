@@ -1,0 +1,1 @@
+(defrule understand (Robot_recognized_text (id ?id) (value ?text&~nil&~"")) => (prompt (str-cat "Sei un robot che sta parlando con un bambino. Il tuo object_id univoco è " ?id ". Rispondi in modo semplice e chiaro. Il bambino ti ha detto: '" ?text "'. Rispondi in italiano.") "{\\"Robot\\": [\\"text_to_speech\\", \\"current_face\\", \\"is_microphone_open\\"]}"))
