@@ -122,16 +122,30 @@ impl CoCo {
                                 }
                             }
                         }
-                        for rule in rules {
-                            match command_kb.create_rule(rule.clone()).await {
-                                Ok(_) => {
-                                    let _ = event_tx_for_commands.send(CoCoEvent::RuleCreated(rule.name.clone()));
-                                }
-                                Err(e) => {
-                                    let _ = response_tx.send(Err(CoCoError::KnowledgeBaseError(e.to_string())));
-                                    return;
+                        // Rules (e.g., deffunctions) may depend on each other and the database returns them in no guaranteed order:
+                        // keep retrying the failed ones until a full pass makes no progress.
+                        let mut pending = rules;
+                        while !pending.is_empty() {
+                            let pass_size = pending.len();
+                            let mut failed = Vec::new();
+                            let mut last_error = None;
+                            for rule in pending {
+                                match command_kb.create_rule(rule.clone()).await {
+                                    Ok(_) => {
+                                        let _ = event_tx_for_commands.send(CoCoEvent::RuleCreated(rule.name.clone()));
+                                    }
+                                    Err(e) => {
+                                        last_error = Some(e);
+                                        failed.push(rule);
+                                    }
                                 }
                             }
+                            if failed.len() == pass_size {
+                                let e = last_error.expect("a failed pass has at least one error");
+                                let _ = response_tx.send(Err(CoCoError::KnowledgeBaseError(e.to_string())));
+                                return;
+                            }
+                            pending = failed;
                         }
                         for object in objects {
                             match command_kb.create_object(object.clone()).await {
